@@ -549,18 +549,24 @@ window.__ModuleLoader__.load({
     /** The plan tab: goal, phases with their day intervals, the task contract, self-check, portfolio. */
     function PlanTabBody({ state, post }) {
       const plan = state.plan;
+      // 生成计划这个动作在画像页底部也有一个入口，而 AskButton 的"已发送"状态是每个实例
+      // 各自的 —— 所以这里要看全局 activity，不能只看这个按钮自己被点过没有。
+      const busy = useAgentBusy();
       const [startDraft, setStartDraft] = useState(plan.planStart ?? '');
       useEffect(() => { setStartDraft(plan.planStart ?? ''); }, [plan.planStart]);
 
       if (plan.phases.length === 0) {
         const ready = state.profile.targetRole.length > 0 && state.catalog.missingBackground.length === 0 && state.catalog.activeRole !== null;
+        const generating = busy && ready;
         return h('div', { 'data-anchor': 'plan-empty', style: S.card }, [
-          h('h2', { key: 't', style: S.h2 }, '还没有计划'),
-          h('div', { key: 'a', style: S.meta }, ready ? '画像四项已经齐了 —— 点下面的按钮生成。' : '完成「画像」里的四项，就能让 AI 写计划了。'),
+          h('h2', { key: 't', style: S.h2 }, generating ? 'AI 正在生成计划' : '还没有计划'),
+          h('div', { key: 'a', style: S.meta }, generating
+            ? '在画像页触发的生成还在跑 —— 完成后这一页会自动出现计划，不用守着对话。'
+            : ready ? '画像四项已经齐了 —— 点下面的按钮生成。' : '完成「画像」里的四项，就能让 AI 写计划了。'),
           h('div', { key: 'act', style: S.inline }, [
-            h(AskButton, { key: 'btn', text: '帮我生成成长计划', label: '让 AI 生成计划', style: S.buttonOn,
+            h(AskButton, { key: 'btn', text: '帮我生成成长计划', label: generating ? 'AI 正在生成计划…' : '让 AI 生成计划', style: S.buttonOn,
               done: plan.phases.length > 0,
-              hint: '它会读你的画像，写出总目标和分阶段任务。' }),
+              hint: generating ? '生成完成后本页会自动更新。' : '它会读你的画像，写出总目标和分阶段任务。' }),
           ]),
           ready ? null : h('div', { key: 'block', style: S.meta },
             '还差：'
@@ -1164,6 +1170,7 @@ window.__ModuleLoader__.load({
       // 计划的输入条件与「计划」页空状态里的 ready 保持同一口径（方向 + 追问齐全 + 有模型），
       // 另外还要等自评做完：缺口与补强优先级是打分产出的，而它们决定计划该补哪几项能力。
       // 少了这一条，卡片会在自评还没做的时候就催用户去生成计划。
+      const busy = useAgentBusy();
       const planReady = state.plan.phases.length === 0
         && state.profile.targetRole.length > 0
         && state.catalog.missingBackground.length === 0
@@ -1225,7 +1232,7 @@ window.__ModuleLoader__.load({
             h('div', { key: 't', style: { fontSize: '14px', fontWeight: '700' } }, '画像齐了，下一步是 90 天计划'),
             h('div', { key: 's', style: { ...S.fine, marginTop: '3px' } }, '按你的方向、可用的时间和路线生成；生成期间页面会自动刷新。'),
           ]),
-          h(AskButton, { key: 'go', text: '帮我生成成长计划', label: '让 AI 生成计划', style: S.buttonOn,
+          h(AskButton, { key: 'go', text: '帮我生成成长计划', label: busy ? 'AI 正在生成计划…' : '让 AI 生成计划', style: S.buttonOn,
             done: state.plan.phases.length > 0,
             hint: '生成后会自动切到「计划」页，你能看到它逐段落下来。',
             onSent: () => { if (typeof onNavigate === 'function') onNavigate('plan'); } }),
