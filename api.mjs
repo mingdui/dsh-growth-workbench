@@ -158,6 +158,15 @@ export function buildState() {
       completion,
       streak: streakDays(progress, date),
       weekRate: weekRate(plan, progress, day),
+      // 每周完成率，供「计划」页画执行趋势。只到本周为止 —— 未来周还没到，
+      // 画上去就是一排 0%，那不是「执行得差」，是「还没到」。那一周没排到天的
+      // 任务时是 null（不是 0），页面据此不画那根柱子。
+      weekRates: Array.from(
+        // Math.max 不是装饰：计划开始前 day 是负数（第 1 天还没到），那时一周都还没有。
+        // 不夹住的话长度会是负数，碰巧也得到空数组 —— 但那是碰巧，不是意图。
+        { length: day === null ? 0 : Math.max(0, Math.floor((day - 1) / 7) + 1) },
+        (_, index) => ({ week: index + 1, rate: weekRate(plan, progress, index * 7 + 1) }),
+      ),
       evidence,
       gap: analysis?.gap ?? null,
       gapWeight: analysis?.W ?? 0,

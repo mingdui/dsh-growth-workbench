@@ -934,6 +934,26 @@ await check('GET /state 一次给全页面需要的东西', async () => {
   assert.equal(reply.body.ok, true)
   assert.ok(Array.isArray(reply.body.plan.tasks))
   assert.ok(reply.body.metrics.completion !== undefined)
+  // 执行趋势要的是整条数组，不只是本周一个数 —— 页面画的就是它。
+  const weekRates = reply.body.metrics.weekRates
+  assert.ok(Array.isArray(weekRates), 'metrics.weekRates 是数组')
+  assert.ok(weekRates.every((entry, index) => entry.week === index + 1), '周次连续，从第 1 周开始')
+  assert.ok(
+    weekRates.every((entry) => entry.rate === null || (entry.rate >= 0 && entry.rate <= 1)),
+    '每项是 {week, rate}；没排到天的周是 null，不是 0',
+  )
+  if (weekRates.length > 0) {
+    assert.equal(
+      weekRates[weekRates.length - 1].week,
+      Math.floor((reply.body.metrics.day - 1) / 7) + 1,
+      '最后一根柱子是本周',
+    )
+    assert.equal(
+      weekRates[weekRates.length - 1].rate,
+      reply.body.metrics.weekRate,
+      '本周那根柱子必须与 metrics.weekRate 是同一个值 —— 同一个读数不能有两个来源',
+    )
+  }
   assert.ok(Array.isArray(reply.body.history))
   assert.ok(Array.isArray(reply.body.catalog.questions))
   assert.equal(reply.body.catalog.activeRole.slug, 'data-ops')

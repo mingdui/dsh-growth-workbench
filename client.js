@@ -581,7 +581,94 @@ window.__ModuleLoader__.load({
     }
 
 
-    /** The plan tab: goal, phases with their day intervals, the task contract, self-check, portfolio. */
+    /**
+     * 执行趋势：每周完成率的柱状图。
+     *
+     * 与四维趋势图不同，这里用柱子而不是折线 —— 每周完成率是离散测量，柱子更准；
+     * 而「那一周没排到天的任务」= 没有柱子，缺口得以如实表达，不必把折线断开。
+     * 只到本周为止：未来周画上去就是一排 0%，那不是「执行得差」，是「还没到」。
+     */
+    function WeekTrendChart({ rates }) {
+      if (rates.length === 0) return null
+      const W = 640
+      const H = 170
+      const LEFT = 34
+      const RIGHT = 14
+      const TOP = 14
+      const BOTTOM = 30
+      const plotW = W - LEFT - RIGHT
+      const plotH = H - TOP - BOTTOM
+      const slot = plotW / rates.length
+      const barW = Math.max(6, Math.min(30, slot * 0.62))
+      const y = (rate) => TOP + plotH * (1 - rate)
+      const kids = []
+
+      for (const tick of [0, 0.25, 0.5, 0.75, 1]) {
+        kids.push(h('line', {
+          key: `grid-${String(tick)}`,
+          x1: LEFT, x2: W - RIGHT, y1: y(tick), y2: y(tick),
+          stroke: tick === 0 ? 'var(--gw-line, #d9d0c4)' : 'var(--gw-line-soft, #eee9e1)',
+          strokeWidth: 1,
+        }))
+        kids.push(h('text', {
+          key: `tick-${String(tick)}`,
+          x: LEFT - 8, y: y(tick) + 4, textAnchor: 'end',
+          style: { fontSize: '11px', fill: 'var(--gw-muted, #718096)' },
+        }, [`${String(Math.round(tick * 100))}%`]))
+      }
+
+      const everyLabel = rates.length <= 8
+      rates.forEach((entry, index) => {
+        const centre = LEFT + slot * index + slot / 2
+        const current = index === rates.length - 1
+        const scored = entry.rate !== null && entry.rate !== undefined
+        if (scored) {
+          // 0% 也要留一条细柱：它是「排了任务但一项没做」，与「这周没排任务」（没有柱子）
+          // 是两件事，画成一样就等于把缺数据说成了没做完。
+          const height = Math.max(2, plotH * entry.rate)
+          kids.push(h('rect', {
+            key: `bar-${String(entry.week)}`,
+            x: centre - barW / 2, y: TOP + plotH - height, width: barW, height, rx: 3,
+            fill: current ? '#e56b55' : 'rgba(229,107,85,.34)',
+          }, [
+            h('title', { key: 'tip' }, [`第 ${String(entry.week)} 周 · 完成率 ${String(Math.round(entry.rate * 100))}%`]),
+          ]))
+        }
+        if (everyLabel || current) {
+          kids.push(h('text', {
+            key: `week-${String(entry.week)}`,
+            x: centre, y: H - BOTTOM + 16, textAnchor: 'middle',
+            style: {
+              fontSize: '11px',
+              fill: current ? 'var(--gw-coral-deep, #a64132)' : 'var(--gw-muted, #718096)',
+              fontWeight: current ? '700' : '400',
+            },
+          }, [String(entry.week)]))
+        }
+        if (current && scored) {
+          kids.push(h('text', {
+            key: 'now',
+            x: centre, y: TOP + plotH - plotH * entry.rate - 6, textAnchor: 'middle',
+            style: { fontSize: '11px', fontWeight: '700', fill: 'var(--gw-coral-deep, #a64132)' },
+          }, [`${String(Math.round(entry.rate * 100))}%`]))
+        }
+      })
+
+      return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } }, [
+        h('div', { key: 'plot', style: { overflowX: 'auto' } }, [
+          h('svg', {
+            viewBox: `0 0 ${String(W)} ${String(H)}`,
+            width: '100%',
+            role: 'img',
+            'aria-label': `执行趋势：第 1 到第 ${String(rates.length)} 周的完成率`,
+            style: { display: 'block', minWidth: '460px', height: 'auto' },
+          }, kids),
+        ]),
+        rates.length > 1 ? null : h('div', { key: 'one', style: S.fine }, '再有一周，才看得出走势。'),
+      ])
+    }
+
+    /** The plan tab: goal, execution trend, phases with their day intervals, the task contract, self-check, portfolio. */
     function PlanTabBody({ state, post }) {
       const plan = state.plan;
       // 生成计划这个动作在画像页底部也有一个入口，而 AskButton 的"已发送"状态是每个实例
@@ -648,6 +735,18 @@ window.__ModuleLoader__.load({
           h('span', { key: 'note', style: S.meta }, '计划的第 1 天，决定「第几天」与周次。'),
         ]),
       ]));
+
+      // 计划页原先只回答「我打算做什么」。执行趋势补上另一半：我实际做得怎样。
+      // 放在总目标之后、阶段之前 —— 阶段列表很长，图排在它后面会被埋掉。
+      const weekRates = state.metrics.weekRates ?? [];
+      if (weekRates.length > 0) {
+        kids.push(h('div', { key: 'exec-trend', style: S.card }, [
+          h('h3', { key: 't', style: S.h3 }, '执行趋势'),
+          h('div', { key: 'sub', style: S.meta }, '每周完成率，到本周为止。'),
+          h(WeekTrendChart, { key: 'chart', rates: weekRates }),
+          h('div', { key: 'note', style: S.fine }, '完成率 = 那一周排到天的任务里完成了多少；那一周没排到天的任务时不画柱子。'),
+        ]));
+      }
 
       plan.phases.forEach((phase, index) => {
         const body = [
