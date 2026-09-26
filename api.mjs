@@ -131,7 +131,7 @@ export function buildState() {
   const analysis = role === undefined ? null : gapAnalysis(role, scores)
   const followUps = backgroundQuestionsFor(profile.intake)
   const missing = missingBackground(profile)
-  const nextAction = nextActionFor({ profile, plan, role, followUps, missing, progress })
+  const nextAction = nextActionFor({ profile, plan, role, followUps, missing, progress, history, day })
   const revision = [profile.updated, plan.updated, progress.updated, assessments.updated].filter(Boolean).sort().at(-1) ?? ''
 
   // 今日任务：排到今天的；今天没有排到时，退回到「接下来 3 个未完成」。
@@ -213,7 +213,7 @@ export function buildState() {
   }
 }
 
-function nextActionFor({ profile, plan, role, followUps, missing, progress }) {
+function nextActionFor({ profile, plan, role, followUps, missing, progress, history, day }) {
   if (!profile.targetRole) return { id: 'direction', label: '先定一个目标方向', reason: '没有目标方向，后面的计划无法个性化。', targetTab: 'profile', targetAnchor: 'direction', blockedBy: [] }
   if (profile.intake?.q1 === undefined || profile.intake?.q2 === undefined || profile.intake?.q3 === undefined || profile.intake?.q4 === undefined) return { id: 'intake', label: '完成 4 个快速选择题', reason: '用不到 1 分钟补齐当前状态与时间约束。', targetTab: 'profile', targetAnchor: 'intake', blockedBy: ['direction'] }
   if (followUps !== undefined && missing.length > 0) return { id: 'background', label: '补完你的当前状态', reason: `还差：${missing.join('、')}。AI 需要这些信息，才能给出靠谱的底盘与能力模型。`, targetTab: 'profile', targetAnchor: 'background', blockedBy: ['intake'] }
@@ -224,8 +224,46 @@ function nextActionFor({ profile, plan, role, followUps, missing, progress }) {
   if (plan.phases.length === 0) return { id: 'plan', label: '定制我的 90 天计划', reason: '画像已经准备好，现在把它变成每天能执行的动作。', targetTab: 'plan', targetAnchor: 'plan-empty', blockedBy: ['self-assessment'] }
   const tasks = planTasks(plan)
   const incomplete = tasks.find((task) => progress.tasks?.[task.id]?.done !== true)
+  const rounds = (history ?? []).filter((entry) => entry.kind === 'review')
+
+  // 阶段大考：某个阶段已经走完（第几天超过它的最后一天），而那一阶段里没有一次全量考核。
+  // 阶段走完却没考是有欠账的 —— 阶段的交割物换了，四维的口径要重算。
+  const owedPhase = plan.phases.find((entry) => typeof day === 'number' && day > entry.days[1]
+    && !rounds.some((round) => round.coverage === '全量' && round.day >= entry.days[0] && round.day <= entry.days[1]))
+  if (owedPhase !== undefined) {
+    return {
+      id: 'review-phase',
+      label: `阶段「${owedPhase.name}」该做一次大考`,
+      reason: '这个阶段已经走完，但还没有一次全量考核 —— 交割物换了，四维口径要重算。',
+      targetTab: 'review',
+      targetAnchor: 'review',
+      blockedBy: [],
+    }
+  }
+
   if (incomplete) return { id: 'check-in', label: '完成今天的最小动作', reason: `先做 ${incomplete.id}：${incomplete.minimumVersion}`, targetTab: 'today', targetAnchor: `task-${incomplete.id}`, blockedBy: [] }
-  return { id: 'review', label: '发起一次阶段复盘', reason: '当前计划任务已完成，做一次考核把成果沉淀下来。', targetTab: 'review', targetAnchor: 'review', blockedBy: [] }
+
+  // 节点小考：本周还没有任何一轮。排在「做任务」之后 —— 先干活，再交节点。
+  if (typeof day === 'number' && day >= 1) {
+    const week = Math.floor((day - 1) / 7) + 1
+    const weekStart = (week - 1) * 7 + 1
+    const examined = rounds.some((round) => typeof round.day === 'number' && round.day >= weekStart && round.day <= weekStart + 6)
+    if (!examined) {
+      return {
+        id: 'review-node',
+        label: `第 ${week} 周这个节点该考一次`,
+        reason: '节点小考只重测这一周相关的几项，答 2-3 道就够。',
+        targetTab: 'review',
+        targetAnchor: 'review',
+        blockedBy: [],
+      }
+    }
+  }
+
+  // 计划还没开始（第几天为负），或本周已考、任务也做完了 —— 没有下一步动作就不编一个出来。
+  // 原先这里是无条件返回「发起一次阶段复盘」，而判据是「找不到未完成的任务」：一道任务都没有时
+  // 同样找不到，于是空计划也会被告知「当前计划任务已完成」。
+  return null
 }
 
 /**

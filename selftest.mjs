@@ -279,6 +279,21 @@ await check('计划页的层次：总目标是一整句，路径与能力块各�
   assert.match(source, /S\.chipPlain/, '身份标签用灰章，别和珊瑚色抢')
 })
 
+await check('考核有节奏了：节点小考 + 阶段大考，且空计划不再被判成已完成', () => {
+  const source = readFileSync(join(ROOT, 'api.mjs'), 'utf8')
+  // 原来的判据是「找不到未完成的任务」—— 而一道任务都没有时同样找不到，于是空计划也会被
+  // 告知「当前计划任务已完成，做一次考核」。现在没有下一步动作就返回 null，页面认它。
+  assert.match(source, /id: 'review-phase'/, '阶段大考这一档')
+  assert.match(source, /id: 'review-node'/, '节点小考这一档')
+  assert.match(source, /coverage === '全量'/, '一个阶段考没考过，看的是有没有全量轮')
+  assert.match(source, /return null/, '没有下一步动作就返回 null，不编一个出来')
+  // 断言的是「那句文案作为 reason 返回」这件事，不是任何提到它的地方 —— 上面的注释正拿它
+  // 解释这个 bug，宽匹配会把注释也算进去。
+  assert.doesNotMatch(source, /reason: '当前计划任务已完成/, '那句会误报的话不许回来')
+  const clientSource = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  assert.match(clientSource, /action === undefined \|\| action === null/, '页面要认「没有下一步」这种状态')
+})
+
 await check('package name is the bundle identity', () => assert.equal(pkg.name, NAME))
 await check('files[] ships cordis.patch.yml', () => assert.ok(pkg.files.includes('cordis.patch.yml')))
 await check('dsh.bundle.patch points at the patch layer', () => assert.equal(pkg.dsh?.bundle?.patch, './cordis.patch.yml'))
