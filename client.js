@@ -962,23 +962,18 @@ window.__ModuleLoader__.load({
       return h('div', { 'data-anchor': 'transferable', style: S.card }, kids);
     }
 
-    /**
-     * One capability item's 1 / 3 / 5 anchors, as a single line.
-     *
-     * This was a call to a helper that was never defined anywhere: the first item threw
-     * `ReferenceError` on render, so opening ⑤ with a model in force showed nothing at
-     * all. The three anchors are the one thing that has to stay on screen while the
-     * user scores — they are why the scoring happens on a page and not in a chat.
-     */
-    const anchorText = (item) => (item.anchors ?? [])
-      .map((text, index) => `${String([1, 3, 5][index] ?? index + 1)}　${text}`)
-      .join('　·　')
 
     /** Step ⑤: the self-assessment — every item with its anchors on screen, one click each. */
     function SelfAssessmentForm({ state, post, scores, setScores }) {
       const { catalog, profile } = state;
       const role = catalog.activeRole;
       const busy = useAgentBusy();
+      // 打开时落在「第一个还没答完的组」，而不是永远第一组。
+      const [currentGroup, setCurrentGroup] = useState(() => {
+        if (role === null || role === undefined) return 0;
+        const index = role.groups.findIndex((group) => role.items.some((item) => item.group === group.key && scores[item.id] === undefined));
+        return index < 0 ? 0 : index;
+      });
 
 
       // 没有模型就没有逐项锚点 —— 没有锚点的自评是 20 个互不可比的数，所以这里
@@ -1020,7 +1015,7 @@ window.__ModuleLoader__.load({
         sourceNote === null || source === 'preset' ? null
           : h('div', { key: 'uncal', style: S.warn }, `${sourceNote.note}`),
         h('div', { key: 'note', style: S.meta },
-          '带锚点打分：每项都给你 1 / 3 / 5 的原文。'
+          '带锚点打分：每项先给你 1 / 3 / 5 的原文，再选分数。'
           + '拿不准的项就点它 —— 这一项不进缺口计算，也不会被当成 0 分；随时可以回来补。'),
       ];
       if (source !== 'preset') {
@@ -1032,40 +1027,68 @@ window.__ModuleLoader__.load({
         ]));
       }
 
-      for (const group of role.groups) {
-        const items = role.items.filter((item) => item.group === group.key);
-        kids.push(h('div', { key: group.key, style: { display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '6px' } }, [
-          h('div', { key: 'title', style: { fontSize: '13px', fontWeight: '600' } }, `${group.key}. ${group.name}（组权重 ${String(group.weight)}%）`),
-          ...items.map((item) => h('div', { key: item.id, style: { ...S.row, flexDirection: 'column', alignItems: 'stretch', gap: '4px' } }, [
-            h('div', { key: 'choose', style: { ...S.inline, gap: '8px' } }, [
-              h('span', { key: 'name', style: { fontSize: '14px', minWidth: '150px' } }, `${item.id} ${item.name}`),
-              ...[1, 2, 3, 4, 5].map((value) => h('button', {
-                key: `v${String(value)}`,
-                type: 'button',
-                'data-item': item.id,
-                'data-value': String(value),
-                style: { ...S.button, ...S.small, ...(scores[item.id] === value ? S.buttonOn : {}) },
-                onClick: () => set(item.id, value),
-              }, String(value))),
-              h('button', {
-                key: 'unknown',
-                type: 'button',
-                'data-item': item.id,
-                'data-value': 'unknown',
-                  title: '1/3/5 之间拿不准，或者对这一项不熟悉 —— 两种情况都算',
-                // 不按"未答"高亮：选「拿不准」会删掉那个键，所以"没答过"与"答了拿不准"在数据上
-                // 是同一个状态 —— 把未答画成已选，会让 19 项看起来全都答完了。
-                style: { ...S.button, ...S.small },
-                onClick: () => set(item.id, null),
-              }, '拿不准'),
-            ]),
-            h('div', { key: 'anchors', style: S.fine }, anchorText(item)),
-          ])),
-        ]));
-      }      // 提交入口不在这里：④ 的「确认能力自评」负责落盘。这里只留读数 —— 它是上一次
-      // 已提交自评的结果，不是这份草稿的。
-      if (gap !== null) kids.push(h('div', { key: 'gap', style: S.meta }, `离达标线还差 ${gap.toFixed(2)} 分（每项 3 分算达标）`));
+      // 四组做成四个页签：19 项排成一列时「还剩多少」看不见，而页签把进度直接写在标签上。
+      const groupItems = (group) => role.items.filter((item) => item.group === group.key);
+      const scoredIn = (group) => groupItems(group).filter((item) => scores[item.id] !== undefined).length;
+      const current = role.groups[Math.min(currentGroup, role.groups.length - 1)];
+      const currentItems = current === undefined ? [] : groupItems(current);
 
+      kids.push(h('div', { key: 'tabs', style: { display: 'flex', gap: '7px', flexWrap: 'wrap' } },
+        role.groups.map((group, index) => h('button', {
+          key: group.key,
+          type: 'button',
+          style: { ...S.button, ...S.small, ...(index === currentGroup ? S.buttonOn : {}) },
+          onClick: () => setCurrentGroup(index),
+        }, `${group.key} ${group.name}`, h('span', { key: 'n', style: { opacity: '.72', marginLeft: '6px' } }, `${String(scoredIn(group))}/${String(groupItems(group).length)}`)))));
+
+      kids.push(h('div', { key: 'groupHead', style: S.meta },
+        `本组 ${String(currentItems.length)} 项，已评 ${String(scoredIn(current))} 项　·　组权重 ${String(current.weight)}%`));
+
+      kids.push(h('div', { key: 'items', style: { display: 'flex', flexDirection: 'column' } },
+        currentItems.map((item) => h('div', { key: item.id, style: { ...S.row, flexDirection: 'column', alignItems: 'stretch', gap: '8px' } }, [
+          h('div', { key: 'name', style: { fontSize: '14px', fontWeight: '600' } }, `${item.id} ${item.name}`),
+          // 先标准、后选项：分数要对着原文选，而不是先选完再回头对标准。
+          h('div', { key: 'anchors', style: { display: 'flex', flexDirection: 'column', gap: '3px' } },
+            (item.anchors ?? []).map((text, index) => {
+              const level = [1, 3, 5][index] ?? index + 1;
+              const on = scores[item.id] === level;
+              return h('div', { key: `a${String(level)}`, style: { ...S.fine, display: 'flex', gap: '8px', alignItems: 'flex-start', ...(on ? { color: 'var(--gw-coral-deep, #a64132)', fontWeight: '600' } : {}) } }, [
+                h('span', { key: 'lv', style: { flex: '0 0 auto', minWidth: '15px', fontWeight: '700' } }, String(level)),
+                h('span', { key: 'tx', style: { flex: '1 1 auto' } }, text),
+              ]);
+            })),
+          h('div', { key: 'choose', style: { ...S.inline, gap: '8px' } }, [
+            ...[1, 2, 3, 4, 5].map((value) => h('button', {
+              key: `v${String(value)}`,
+              type: 'button',
+              'data-item': item.id,
+              'data-value': String(value),
+              style: { ...S.button, ...S.small, ...(scores[item.id] === value ? S.buttonOn : {}) },
+              onClick: () => {
+                set(item.id, value);
+                // 刚把这一组答满、又不是最后一组 → 自动切下一组。放在点击里而不是 effect 里，
+                // 是为了让「手动切回已答完的组」不会被立刻推走。
+                const rest = currentItems.filter((other) => other.id !== item.id && scores[other.id] === undefined);
+                if (rest.length === 0 && currentGroup < role.groups.length - 1) setCurrentGroup(currentGroup + 1);
+              },
+            }, String(value))),
+            h('button', {
+              key: 'unknown',
+              type: 'button',
+              'data-item': item.id,
+              'data-value': 'unknown',
+              title: '1/3/5 之间拿不准，或者对这一项不熟悉 —— 两种情况都算',
+              // 不按「未答」高亮：选「拿不准」会删掉那个键，所以「没答过」与「答了拿不准」在数据上
+              // 是同一个状态 —— 把未答画成已选，会让 19 项看起来全都答完了。
+              style: { ...S.button, ...S.small },
+              onClick: () => set(item.id, null),
+            }, '拿不准'),
+          ]),
+        ]))));
+
+      // 提交入口不在这里：④ 的「确认能力自评」负责落盘。这里只留读数 —— 它是上一次已提交
+      // 自评的结果，不是这份草稿的。
+      if (gap !== null) kids.push(h('div', { key: 'gap', style: S.meta }, `离达标线还差 ${gap.toFixed(2)} 分（每项 3 分算达标）`));
       if (state.metrics.priorities.length > 0) {
         kids.push(h('div', { key: 'prio' }, [
           h('div', { key: 'label', style: S.meta }, '补强优先级（差得多、又重要的排前面）：'),
