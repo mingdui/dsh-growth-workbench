@@ -85,7 +85,20 @@ window.__ModuleLoader__.load({
         + '.gw-tf:hover{background:rgba(229,107,85,.05)}'
         + '.gw-tf .gw-tf-no{opacity:.4;transition:opacity 140ms ease}'
         + '.gw-tf:hover .gw-tf-no,.gw-tf:focus-within .gw-tf-no{opacity:1}'
-        + '@media (prefers-reduced-motion:reduce){.gw-step,.gw-step .gw-step-edit,.gw-tf,.gw-tf .gw-tf-no{transition:none}.gw-step:active{transform:none}}';
+        // One rule for every button and input: they share no class, but they all live
+        // inside `.gw-root`. No `!important` — `.gw-root button:hover` already outranks
+        // a plain element selector, and the `.gw-tabbar` pair below is longer on
+        // purpose, so tabs keep their own feedback instead of lifting off the bar.
+        + '.gw-root button:not(:disabled):hover{border-color:var(--gw-coral,#e56b55);transform:translateY(-1px);box-shadow:0 12px 24px -16px rgba(54,42,32,.45)}'
+        + '.gw-root button:not(:disabled):active{transform:translateY(1px)}'
+        + '.gw-root button:focus-visible{outline:2px solid var(--gw-coral,#e56b55);outline-offset:3px}'
+        + '.gw-root .gw-tabbar button:hover{transform:none;box-shadow:none;border-color:transparent;color:var(--gw-ink,#1f2933)}'
+        + '.gw-root input:focus,.gw-root select:focus,.gw-root textarea:focus{border-color:var(--gw-coral,#e56b55);box-shadow:0 0 0 4px var(--gw-coral-soft,rgba(229,107,85,.10))}'
+        // The section label's coral dash. It cannot be an inline style, and it is what
+        // makes a card read as labelled tiers instead of one grey block.
+        + '.gw-subhead::before{content:"";width:16px;height:2px;border-radius:2px;background:var(--gw-coral,#e56b55);flex:0 0 auto}'
+        + '.gw-seal-sub{font-size:9px;font-weight:500;letter-spacing:.12em;opacity:.72}'
+        + '@media (prefers-reduced-motion:reduce){.gw-step,.gw-step .gw-step-edit,.gw-tf,.gw-tf .gw-tf-no,.gw-root button,.gw-root input,.gw-root select,.gw-root textarea{transition:none}.gw-step:active,.gw-root button:not(:disabled):active{transform:none}}';
       document.head.appendChild(style);
     }
 
@@ -353,33 +366,41 @@ window.__ModuleLoader__.load({
     // ---------------------------------------------------------------- styles
 
     const S = {
-      page: { '--gw-paper': '#f8f6f1', '--gw-ink': '#1f2933', '--gw-muted': '#718096', '--gw-line': '#e5dfd5', '--gw-line-soft': '#eee9e1', '--gw-coral': '#e56b55', '--gw-coral-deep': '#a64132', '--gw-display': 'Calistoga, Georgia, serif', '--gw-body': 'Inter, system-ui, sans-serif', '--gw-mono': 'JetBrains Mono, ui-monospace, monospace', height: '100%', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', color: 'var(--gw-ink)', background: 'var(--gw-paper)', fontFamily: 'var(--gw-body)' },
-      tabbar: { display: 'flex', gap: '6px', padding: '16px 30px 0', borderBottom: '1px solid var(--gw-line, #e5dfd5)', background: 'var(--gw-paper, #f8f6f1)', position: 'sticky', top: 0, zIndex: 2 },
-      tab: { padding: '10px 14px 12px', fontSize: '14px', fontWeight: '600', font: 'inherit', cursor: 'pointer', color: 'var(--gw-muted, #718096)', background: 'transparent', border: 'none', borderBottom: '2px solid transparent', borderRadius: '8px 8px 0 0', transition: 'color 180ms ease, border-color 180ms ease' },
-      tabOn: { color: 'var(--gw-ink, #1f2933)', borderBottom: '2px solid var(--gw-coral, #e56b55)' },
-      body: { flex: '1 1 auto', overflowY: 'auto', padding: '28px 30px 56px', background: 'radial-gradient(circle at 82% 8%, rgba(229,107,85,.12), transparent 28%), var(--gw-paper, #f8f6f1)' },
-      inner: { maxWidth: '1060px', width: '100%', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' },
+      page: { '--gw-paper': '#f8f6f1', '--gw-ink': '#1f2933', '--gw-ink-2': '#3d4a54', '--gw-muted': '#6f7c87', '--gw-muted-2': '#9aa7b1', '--gw-line': '#e5dfd5', '--gw-line-soft': '#efeae2', '--gw-card': '#fffefb', '--gw-track': '#efeae2', '--gw-coral': '#e56b55', '--gw-coral-deep': '#a64132', '--gw-coral-soft': 'rgba(229,107,85,.10)', '--gw-teal': '#2f7d74', '--gw-teal-soft': 'rgba(47,125,116,.12)', '--gw-amber': '#d59b3f', '--gw-slate': '#8f9ba6', '--gw-display': 'Calistoga, Georgia, serif', '--gw-body': 'Inter, system-ui, sans-serif', '--gw-mono': 'JetBrains Mono, ui-monospace, monospace', '--gw-sh1': '0 1px 2px rgba(54,42,32,.05)', '--gw-sh2': '0 16px 40px -22px rgba(54,42,32,.30)', '--gw-sh3': '0 24px 52px -24px rgba(54,42,32,.38)', height: '100%', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', color: 'var(--gw-ink)', background: 'var(--gw-paper)', fontFamily: 'var(--gw-body)' },
+      tabbar: { display: 'flex', gap: '30px', padding: '20px 30px 0', borderBottom: '1px solid var(--gw-line, #e5dfd5)', background: 'var(--gw-paper, #f8f6f1)', position: 'sticky', top: 0, zIndex: 2 },
+      tab: { padding: '0 2px 13px', fontSize: '14.5px', fontWeight: '500', font: 'inherit', cursor: 'pointer', color: 'var(--gw-muted, #6f7c87)', background: 'transparent', border: 'none', borderBottom: '2px solid transparent', transition: 'color 160ms ease, border-color 160ms ease' },
+      tabOn: { color: 'var(--gw-ink, #1f2933)', fontWeight: '600', borderBottom: '2px solid var(--gw-coral, #e56b55)' },
+      body: { flex: '1 1 auto', overflowY: 'auto', padding: '32px 30px 64px', background: 'radial-gradient(circle at 84% 4%, rgba(229,107,85,.10), transparent 26%), var(--gw-paper, #f8f6f1)' },
+      inner: { maxWidth: '900px', width: '100%', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' },
       stack: { display: 'flex', flexDirection: 'column', gap: '20px' },
-      card: { border: '1px solid var(--gw-line, #e5dfd5)', borderRadius: '18px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px', background: 'rgba(255,255,255,.78)', boxShadow: '0 12px 30px rgba(54,42,32,.06)' },
-      h2: { margin: '0', fontFamily: 'var(--gw-display, Calistoga, Georgia, serif)', fontSize: '25px', lineHeight: '1.15', fontWeight: '400', letterSpacing: '-.02em' },
-      h3: { margin: '0', fontSize: '16px', fontWeight: '700', letterSpacing: '.01em' },
-      meta: { fontSize: '13px', color: 'var(--gw-muted, #718096)', lineHeight: '1.7' },
-      fine: { fontSize: '12px', color: 'var(--gw-muted, #718096)', lineHeight: '1.6' },
-      row: { display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 0', borderBottom: '1px solid var(--gw-line-soft, #eee9e1)' },
-      input: { flex: '1 1 auto', minWidth: '0', padding: '11px 14px', fontSize: '14px', font: 'inherit', color: 'inherit', background: '#fffdf9', borderRadius: '10px', border: '1px solid var(--gw-line, #e5dfd5)', outline: 'none' },
-      button: { padding: '11px 16px', minHeight: '44px', fontSize: '14px', fontWeight: '600', font: 'inherit', cursor: 'pointer', color: 'var(--gw-ink, #1f2933)', background: '#fffdf9', borderRadius: '10px', border: '1px solid var(--gw-line, #d9d0c4)', transition: 'transform 150ms ease, background 150ms ease, border-color 150ms ease' },
+      card: { borderRadius: '20px', padding: '26px 28px', display: 'flex', flexDirection: 'column', gap: '12px', background: 'var(--gw-card, #fffefb)', boxShadow: 'var(--gw-sh1), var(--gw-sh2)' },
+      h2: { margin: '0', fontFamily: 'var(--gw-display, Calistoga, Georgia, serif)', fontSize: '23px', lineHeight: '1.3', fontWeight: '400', letterSpacing: '-.012em' },
+      h3: { margin: '0', fontSize: '17px', fontWeight: '700', letterSpacing: '-.005em' },
+      meta: { fontSize: '13px', color: 'var(--gw-muted, #6f7c87)', lineHeight: '1.7' },
+      fine: { fontSize: '12px', color: 'var(--gw-muted, #6f7c87)', lineHeight: '1.6' },
+      row: { display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 0', borderBottom: '1px solid var(--gw-line-soft, #efeae2)' },
+      input: { flex: '1 1 auto', minWidth: '0', padding: '11px 14px', fontSize: '14px', font: 'inherit', color: 'inherit', background: '#fffdf9', borderRadius: '11px', border: '1px solid var(--gw-line, #e5dfd5)', outline: 'none', transition: 'border-color 160ms ease, box-shadow 160ms ease' },
+      button: { padding: '11px 18px', minHeight: '44px', fontSize: '14px', fontWeight: '600', font: 'inherit', cursor: 'pointer', color: 'var(--gw-ink, #1f2933)', background: '#fffdf9', borderRadius: '12px', border: '1px solid var(--gw-line, #d9d0c4)', transition: 'transform 150ms ease, background 150ms ease, border-color 150ms ease, box-shadow 150ms ease' },
       buttonOn: { borderColor: 'var(--gw-coral, #e56b55)', background: 'var(--gw-coral, #e56b55)', color: '#fff' },
       buttonLight: { borderColor: 'var(--gw-coral, #e56b55)', color: 'var(--gw-coral-deep, #a64132)' },
-      small: { padding: '9px 13px', minHeight: '44px', fontSize: '13px' },
-      select: { padding: '10px 12px', fontSize: '13px', font: 'inherit', color: 'inherit', background: '#fffdf9', borderRadius: '10px', border: '1px solid var(--gw-line, #d9d0c4)' },
-      chip: { display: 'inline-block', padding: '4px 9px', fontSize: '12px', borderRadius: '999px', color: 'var(--gw-coral-deep, #a64132)', background: 'rgba(229,107,85,.11)', border: '1px solid rgba(229,107,85,.2)' },
-      error: { fontSize: '13px', color: '#b33a2d', background: '#fff0ed', border: '1px solid #f3c5be', borderRadius: '10px', padding: '11px 14px' },
-      warn: { fontSize: '13px', color: '#8a5a1f', background: '#fdf7e8', border: '1px solid #ecd9a8', borderRadius: '10px', padding: '11px 14px' },
-      empty: { fontSize: '14px', color: 'var(--gw-muted, #718096)', padding: '14px 0' },
-      pre: { margin: '0', padding: '12px 14px', fontSize: '13px', lineHeight: '1.6', whiteSpace: 'pre-wrap', wordBreak: 'break-word', background: '#f3efe8', borderRadius: '10px' },
+      small: { padding: '9px 14px', minHeight: '44px', fontSize: '13px' },
+      select: { padding: '10px 12px', fontSize: '13px', font: 'inherit', color: 'inherit', background: '#fffdf9', borderRadius: '11px', border: '1px solid var(--gw-line, #d9d0c4)' },
+      chip: { display: 'inline-block', padding: '4px 10px', fontSize: '12px', borderRadius: '999px', color: 'var(--gw-coral-deep, #a64132)', background: 'var(--gw-coral-soft, rgba(229,107,85,.10))', border: '1px solid rgba(229,107,85,.2)' },
+      error: { fontSize: '13px', color: '#b33a2d', background: '#fff0ed', border: '1px solid #f3c5be', borderRadius: '12px', padding: '12px 15px' },
+      warn: { fontSize: '13px', color: '#8a5a1f', background: '#fdf7e8', border: '1px solid #ecd9a8', borderRadius: '12px', padding: '12px 15px' },
+      empty: { fontSize: '14px', color: 'var(--gw-muted, #6f7c87)', padding: '14px 0' },
+      pre: { margin: '0', padding: '13px 15px', fontSize: '13px', lineHeight: '1.65', whiteSpace: 'pre-wrap', wordBreak: 'break-word', background: '#f6f3ec', borderRadius: '12px' },
       inline: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' },
-      wrap: { display: 'flex', gap: '7px', flexWrap: 'wrap' },
+      wrap: { display: 'flex', gap: '8px', flexWrap: 'wrap' },
       spread: { display: 'flex', gap: '18px', flexWrap: 'wrap', fontSize: '14px' },
+      subhead: { display: 'flex', alignItems: 'center', gap: '9px', fontSize: '11px', fontWeight: '600', letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--gw-muted-2, #9aa7b1)' },
+      readouts: { display: 'flex', gap: '0', flexWrap: 'wrap', alignItems: 'flex-end' },
+      readoutNum: { fontFamily: 'var(--gw-mono, monospace)', fontSize: '26px', fontWeight: '600', letterSpacing: '-.02em', lineHeight: '1.1' },
+      readoutCap: { fontSize: '11px', fontWeight: '600', letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--gw-muted-2, #9aa7b1)', marginTop: '6px' },
+      seal: { display: 'inline-flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '1px', border: '2px solid currentColor', borderRadius: '9px', padding: '6px 11px', color: 'var(--gw-coral-deep, #a64132)', fontSize: '11.5px', fontWeight: '700', letterSpacing: '.1em', lineHeight: '1.15', transform: 'rotate(-4deg)', textAlign: 'center', whiteSpace: 'nowrap' },
+      bar: { height: '10px', borderRadius: '999px', background: 'var(--gw-track, #efeae2)', overflow: 'hidden' },
+      barFill: { display: 'block', height: '100%', borderRadius: '999px', background: 'var(--gw-coral, #e56b55)' },
+      pathbox: { background: '#faf8f4', border: '1px solid var(--gw-line-soft, #efeae2)', borderRadius: '16px', padding: '20px 22px 14px' },
     };
 
     /**
@@ -563,7 +584,7 @@ window.__ModuleLoader__.load({
         h('div', { key: 'intro', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '16px', flexWrap: 'wrap' } }, [
           h('div', { key: 'copy' }, [
             h('div', { key: 'eyebrow', style: { ...S.fine, textTransform: 'uppercase', letterSpacing: '.14em', color: 'var(--gw-coral-deep, #a64132)' } }, '成长手记'),
-            h('h1', { key: 'title', style: { ...S.h2, fontSize: '34px', marginTop: '7px' } }, state.profile.targetRole ? `向 ${state.profile.targetRole} 走` : '把成长，变成下一步'),
+            h('h1', { key: 'title', style: { ...S.h2, fontSize: '40px', lineHeight: '1.08', marginTop: '8px' } }, state.profile.targetRole ? `向 ${state.profile.targetRole} 走` : '把成长，变成下一步'),
             h('div', { key: 'sub', style: S.meta }, state.profile.positioning || '不是填表，而是把今天真正做成一小步。'),
           ]),
           h('div', { key: 'day', style: { ...S.chip, fontFamily: 'var(--gw-mono, monospace)' } }, state.metrics.day === null ? 'DAY --' : `DAY ${String(Math.max(1, state.metrics.day)).padStart(2, '0')}`),
@@ -1536,8 +1557,8 @@ window.__ModuleLoader__.load({
         profile: () => h(ProfileFlow, { key: 'profile-flow', state, post, onNavigate: navigate, focusAnchor }),
       };
 
-      return h('div', { style: S.page }, [
-        h('div', { key: 'tabs', style: S.tabbar }, TABS.map((entry) => h('button', {
+      return h('div', { style: S.page, className: 'gw-root' }, [
+        h('div', { key: 'tabs', className: 'gw-tabbar', style: S.tabbar }, TABS.map((entry) => h('button', {
           key: entry.id,
           type: 'button',
           style: { ...S.tab, ...(tab === entry.id ? S.tabOn : {}) },
@@ -1591,7 +1612,7 @@ window.__ModuleLoader__.load({
       if (state === null) return h('div', { style: { padding: '16px', fontSize: '14px', color: 'var(--gw-muted, #718096)' } }, error.length > 0 ? error : '正在载入今日…');
       const task = state.focus.tasks[0];
       const done = state.metrics.completion.total > 0 ? Math.round((state.metrics.completion.done / state.metrics.completion.total) * 100) : 0;
-      return h('div', { style: { height: '100%', overflowY: 'auto', boxSizing: 'border-box', padding: '16px 14px 22px', display: 'flex', flexDirection: 'column', gap: '14px', background: 'linear-gradient(180deg, #f8f6f1 0%, #f3eee7 100%)', color: 'var(--gw-ink, #1f2933)' } }, [
+      return h('div', { className: 'gw-root', style: { height: '100%', overflowY: 'auto', boxSizing: 'border-box', padding: '16px 14px 22px', display: 'flex', flexDirection: 'column', gap: '14px', background: 'linear-gradient(180deg, #f8f6f1 0%, #f3eee7 100%)', color: 'var(--gw-ink, #1f2933)' } }, [
         h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' } }, [
           h('div', { key: 'copy' }, [
             h('div', { key: 'eyebrow', style: { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '.14em', color: 'var(--gw-coral-deep, #a64132)' } }, 'Today'),

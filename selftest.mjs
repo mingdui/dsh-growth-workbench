@@ -228,6 +228,24 @@ await check('趋势图是手写 SVG —— 这个仓库不引图表库', () => {
   assert.doesNotMatch(source, /recharts|chart\.js|echarts|\bd3\b/i, '不许引图表库')
 })
 
+await check('设计系统:令牌齐全，样式规则全部作用域化', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  // 行内样式撑不起 hover / focus / 动画，所以有一段注入的样式表。它必须挂在 `.gw-root`
+  // 下 —— 本插件住在宿主应用的 DOM 里，一条无作用域的元素选择器会改到宿主自己的按钮。
+  assert.match(source, /className: 'gw-root'/, '页面根要挂作用域类')
+  assert.match(source, /className: 'gw-tabbar'/, '页签条要挂自己的类（它不跟着按钮抬起）')
+  assert.match(source, /\.gw-root button:not\(:disabled\):hover/, '按钮反馈必须作用域化')
+  assert.doesNotMatch(source, /\+ 'button[^']*\{/, '不许出现无作用域的元素选择器')
+  // 新增的令牌
+  for (const token of ['subhead', 'readouts', 'readoutNum', 'readoutCap', 'seal', 'bar', 'barFill', 'pathbox']) {
+    assert.match(source, new RegExp(`\\n\\s+${token}: \\{`), `新令牌 ${token} 要在 S 里`)
+  }
+  // 原有令牌一个都不许丢：它们是全文件的公共词汇，删一个就是删一处外观
+  for (const token of ['page', 'tabbar', 'tab', 'tabOn', 'body', 'inner', 'stack', 'card', 'h2', 'h3', 'meta', 'fine', 'row', 'input', 'button', 'buttonOn', 'buttonLight', 'small', 'select', 'chip', 'error', 'warn', 'empty', 'pre', 'inline', 'wrap', 'spread']) {
+    assert.match(source, new RegExp(`\\n\\s+${token}: \\{`), `原有令牌 ${token} 不许丢`)
+  }
+})
+
 await check('package name is the bundle identity', () => assert.equal(pkg.name, NAME))
 await check('files[] ships cordis.patch.yml', () => assert.ok(pkg.files.includes('cordis.patch.yml')))
 await check('dsh.bundle.patch points at the patch layer', () => assert.equal(pkg.dsh?.bundle?.patch, './cordis.patch.yml'))
