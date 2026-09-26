@@ -143,6 +143,34 @@ await check('「让 AI 来做」按钮是替你把这句说了，不是让你自
 const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
 const patch = readFileSync(join(ROOT, 'cordis.patch.yml'), 'utf8')
 
+await check('画像每一步都能点回收起，标题行就是那个开关', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  // 展开态原先只有表单和确认按钮，没有任何可点的标题 —— 撑开以后就收不回去。
+  // 四步的标题都得换成可点的 OpenModuleHead（自评有「没模型 / 有模型」两条分支，
+  // 各有一条标题行，所以这里按下限断言而不是精确条数）。
+  const heads = (source.match(/h\(OpenModuleHead, \{ key: 't'/g) ?? []).length
+  assert.ok(heads >= 4, `画像四步的标题行都该能收起，只找到 ${String(heads)} 条`)
+  assert.doesNotMatch(
+    source,
+    /h\('h3', \{ key: 't', style: S\.h3 \}, '(目标岗位|你的条件|可迁移能力|能力自评)'\)/,
+    '四步的标题不能再退回不可点的 h3',
+  )
+  for (const form of ['DirectionForm', 'IntakeForm', 'TransferableForm', 'SelfAssessmentForm']) {
+    assert.match(source, new RegExp(`${form}\\(\\{ state, post[^)]*onCollapse`), `${form} 要拿得到 onCollapse`)
+  }
+  assert.match(source, /onCollapse: \(\) => setOpen\(''\)/, '「收起」就是把这一步折回去')
+})
+
+await check('计划第 1 天的保存按钮跟着数据走，不留一个点了没反应的按钮', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  // 日期没改动时那是一次空写，页面上什么都不变 —— 用户看到的正是「点了没反应」。
+  // 所以按钮的状态必须从「草稿 vs 库里的值」推出来，而不是从「被点过没有」推出来。
+  assert.match(source, /const startChanged = startDraft !== \(plan\.planStart \?\? ''\)/)
+  assert.match(source, /disabled: !startChanged \|\| saving/)
+  assert.match(source, /'已保存'/, '与库里一致时给一个读数，而不是留个空转的按钮')
+  assert.match(source, /setSaving\(true\)/, '保存中要看得出来')
+})
+
 await check('package name is the bundle identity', () => assert.equal(pkg.name, NAME))
 await check('files[] ships cordis.patch.yml', () => assert.ok(pkg.files.includes('cordis.patch.yml')))
 await check('dsh.bundle.patch points at the patch layer', () => assert.equal(pkg.dsh?.bundle?.patch, './cordis.patch.yml'))

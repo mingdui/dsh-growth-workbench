@@ -401,6 +401,33 @@ window.__ModuleLoader__.load({
       ]);
     }
 
+    /**
+     * 展开态卡片自己的标题行：还是那一步的标题，右边换成「收起」，整行可点。
+     *
+     * 复用 `.gw-step` 是为了白拿它写好的 hover / focus / pressed 反馈与 reduced-motion
+     * 豁免 —— 「收起」像折叠行的「编辑」一样在悬停时亮起来。但它住在表单那张卡片
+     * **里面**，所以要把 `.gw-step:hover` 的边框和投影按掉：否则鼠标一扫，卡片里会
+     * 再画出一张卡片。行内样式本来就压得住样式表。
+     *
+     * 点正文不能收：正在填的表单被一次误点折回去，比多点一次「收起」糟得多。
+     */
+    function OpenModuleHead({ label, onCollapse }) {
+      return h('button', {
+        type: 'button',
+        className: 'gw-step',
+        style: {
+          display: 'flex', alignItems: 'center', gap: '8px', width: '100%',
+          padding: '0', border: '0', borderColor: 'transparent', boxShadow: 'none',
+          background: 'transparent', font: 'inherit', textAlign: 'left', cursor: 'pointer',
+          color: 'var(--gw-ink, #1f2933)',
+        },
+        onClick: onCollapse,
+      }, [
+        h('span', { key: 'label', style: { ...S.h3, flex: '1 1 auto' } }, label),
+        h('span', { key: 'fold', className: 'gw-step-edit', style: { color: 'var(--gw-coral-deep, #a64132)', fontSize: '13px', flex: '0 0 auto' } }, '收起'),
+      ]);
+    }
+
     function ProfileModule({ label, summary, done, open, onOpen, onConfirm, confirmLabel, children }) {
       if (!open) return h(CollapsedModule, { label, summary, done, onEdit: onOpen });
       return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } }, [
@@ -550,7 +577,18 @@ window.__ModuleLoader__.load({
       // 各自的 —— 所以这里要看全局 activity，不能只看这个按钮自己被点过没有。
       const busy = useAgentBusy();
       const [startDraft, setStartDraft] = useState(plan.planStart ?? '');
+      // 这个按钮以前没有状态：日期没改动时点下去是一次空写，页面上什么都不变 ——
+      // 用户看到的就是「点了没反应」。所以让它跟着数据的真实状态走，而不是跟着点击走：
+      // 与库里一致就显示「已保存」（不假装可点），改动了才是可点的「保存」。
+      const [saving, setSaving] = useState(false);
       useEffect(() => { setStartDraft(plan.planStart ?? ''); }, [plan.planStart]);
+      const startChanged = startDraft !== (plan.planStart ?? '');
+      const saveStart = async () => {
+        setSaving(true);
+        await post('/plan-start', { date: startDraft });
+        // 不在这里写「已保存」：成功与否由刷新后的 planStart 决定，那才是真的。
+        setSaving(false);
+      };
 
       if (plan.phases.length === 0) {
         const ready = state.profile.targetRole.length > 0 && state.catalog.missingBackground.length === 0 && state.catalog.activeRole !== null;
@@ -589,10 +627,13 @@ window.__ModuleLoader__.load({
           }),
           h('button', {
             key: 'save',
-            style: S.button,
+            // 没改动时它不是一个按钮，只是一个读数：把这层意思做进样式里，
+            // 而不是留一个点下去毫无反应的按钮让人反复试。
+            style: { ...S.button, ...(startChanged ? S.buttonLight : { color: 'var(--gw-muted, #718096)', background: 'transparent', borderColor: 'transparent', cursor: 'default' }) },
             type: 'button',
-            onClick: () => { void post('/plan-start', { date: startDraft }); },
-          }, '保存'),
+            disabled: !startChanged || saving,
+            onClick: () => { void saveStart(); },
+          }, saving ? '保存中…' : startChanged ? '保存' : '已保存'),
           h('span', { key: 'note', style: S.meta }, '计划的第 1 天，决定「第几天」与周次。'),
         ]),
       ]));
@@ -749,7 +790,7 @@ window.__ModuleLoader__.load({
     // ---------------------------------------------------------------- 画像
 
     /** Step ①: direction — the catalog, plus a free-text one. */
-    function DirectionForm({ state, post, draft, setDraft, commit }) {
+    function DirectionForm({ state, post, draft, setDraft, commit, onCollapse }) {
       const { catalog, profile } = state;
       const active = catalog.roles.find((entry) => entry.slug === profile.targetRoleSlug);
       const isCustom = profile.targetRoleSlug === catalog.customSlug;
@@ -758,7 +799,7 @@ window.__ModuleLoader__.load({
       const typing = draft.trim().length > 0;
 
       const kids = [
-        h('h3', { key: 't', style: S.h3 }, '目标岗位'),
+        h(OpenModuleHead, { key: 't', label: '目标岗位', onCollapse }),
         h('div', { key: 'pick', style: S.meta }, '从目录里选'),
         h('div', { key: 'choices', style: S.wrap }, catalog.roles.map((entry) => h('button', {
           key: entry.slug,
@@ -792,7 +833,7 @@ window.__ModuleLoader__.load({
     }
 
     /** Step ②: the growth choices, with route first. */
-    function IntakeForm({ state, post, bgDraft, setBgDraft }) {
+    function IntakeForm({ state, post, bgDraft, setBgDraft, onCollapse }) {
       const { catalog, profile } = state;
       const intake = profile.intake ?? {};
       const choose = (key, value) => {
@@ -804,7 +845,7 @@ window.__ModuleLoader__.load({
         });
       };
       return h('div', { 'data-anchor': 'intake', style: S.card }, [
-        h('h3', { key: 't', style: S.h3 }, '你的条件'),
+        h(OpenModuleHead, { key: 't', label: '你的条件', onCollapse }),
         h(RouteForm, { key: 'route-first', state, post }),
         ...catalog.questions.map((question) => h('div', { key: question.key, style: { display: 'flex', flexDirection: 'column', gap: '5px' } }, [
           h('div', { key: 'title', style: { fontSize: '13px', fontWeight: '600' } }, `${question.title}${intake[question.key] === undefined ? '（未答）' : ' ✓'}`),
@@ -902,7 +943,7 @@ window.__ModuleLoader__.load({
      * instead is a proposal derived from ②'s follow-ups, which the user checks
      * off — so every line in `verifiedFacts` is something they said yes to.
      */
-    function TransferableForm({ state, post }) {
+    function TransferableForm({ state, post, onCollapse }) {
       const { catalog, profile } = state;
       const confirmed = profile.verifiedFacts ?? [];
       const suggestions = profile.transferableSuggestions ?? [];
@@ -916,7 +957,7 @@ window.__ModuleLoader__.load({
       const dismiss = (text) => { void post('/transferable', { dismissed: [text] }); };
 
       const kids = [
-        h('h3', { key: 't', style: S.h3 }, '可迁移能力'),
+        h(OpenModuleHead, { key: 't', label: '可迁移能力', onCollapse }),
         h('div', { key: 'note', style: S.meta }, '下面是根据你的经历生成的候选。做过哪些就勾上，没做过点「没做过」。'),
       ];
 
@@ -989,7 +1030,7 @@ window.__ModuleLoader__.load({
 
 
     /** Step ⑤: the self-assessment — every item with its anchors on screen, one click each. */
-    function SelfAssessmentForm({ state, post, scores, setScores }) {
+    function SelfAssessmentForm({ state, post, scores, setScores, onCollapse }) {
       const { catalog, profile } = state;
       const role = catalog.activeRole;
       const busy = useAgentBusy();
@@ -1006,7 +1047,7 @@ window.__ModuleLoader__.load({
       if (role === null || role === undefined) {
         const canBuild = catalog.missingBackground.length === 0 && profile.targetRole.length > 0;
         return h('div', { style: S.card }, [
-          h('h3', { key: 't', style: S.h3 }, '能力自评'),
+          h(OpenModuleHead, { key: 't', label: '能力自评', onCollapse }),
           h('div', { key: 'note', style: S.empty },
             `${profile.targetRole || '当前方向'}还没有能力模型，所以现在还没法逐项打分。`),
           busy
@@ -1034,7 +1075,7 @@ window.__ModuleLoader__.load({
       };
 
       const kids = [
-        h('h3', { key: 't', style: S.h3 }, '能力自评'),
+        h(OpenModuleHead, { key: 't', label: '能力自评', onCollapse }),
         h('div', { key: 'source', style: S.fine }, `模型：${role.name} · ${String(role.groups.length)} 组 / ${String(role.items.length)} 项`),
         // 生成的模型与预置模型可信度不同，这个区别必须在打分的地方说明，而不是藏在别处。
         sourceNote === null || source === 'preset' ? null
@@ -1252,10 +1293,10 @@ window.__ModuleLoader__.load({
         if (state.catalog.activeRole === null) void askAgent('帮我建这个方向的能力模型');
       };
       return h('div', { style: S.stack }, [
-        h(ProfileModule, { key: 'direction', label: '目标岗位', summary: summary.direction, done: done.direction, open: open === 'direction', onOpen: () => setOpen('direction'), onConfirm: confirmRole, children: h(DirectionForm, { state, post, draft: roleDraft, setDraft: setRoleDraft, commit: saveRole }) }),
-        h(ProfileModule, { key: 'intake', label: '你的条件', summary: summary.intake, done: done.intake, open: open === 'intake', onOpen: () => setOpen('intake'), onConfirm: confirmIntake, children: h(IntakeForm, { state, post, bgDraft, setBgDraft }) }),
-        h(ProfileModule, { key: 'transferable', label: '可迁移能力', summary: summary.transferable, done: done.transferable, open: open === 'transferable', onOpen: () => setOpen('transferable'), onConfirm: () => confirm('self', startCapabilityModel), children: h(TransferableForm, { state, post }) }),
-        h(ProfileModule, { key: 'self', label: '能力自评', summary: summary.self, done: done.self, open: open === 'self', onOpen: () => setOpen('self'), onConfirm: confirmSelf, confirmLabel: selfLabel, children: h(SelfAssessmentForm, { state, post, scores: scoresDraft, setScores: setScoresDraft }) }),
+        h(ProfileModule, { key: 'direction', label: '目标岗位', summary: summary.direction, done: done.direction, open: open === 'direction', onOpen: () => setOpen('direction'), onConfirm: confirmRole, children: h(DirectionForm, { state, post, draft: roleDraft, setDraft: setRoleDraft, commit: saveRole, onCollapse: () => setOpen('') }) }),
+        h(ProfileModule, { key: 'intake', label: '你的条件', summary: summary.intake, done: done.intake, open: open === 'intake', onOpen: () => setOpen('intake'), onConfirm: confirmIntake, children: h(IntakeForm, { state, post, bgDraft, setBgDraft, onCollapse: () => setOpen('') }) }),
+        h(ProfileModule, { key: 'transferable', label: '可迁移能力', summary: summary.transferable, done: done.transferable, open: open === 'transferable', onOpen: () => setOpen('transferable'), onConfirm: () => confirm('self', startCapabilityModel), children: h(TransferableForm, { state, post, onCollapse: () => setOpen('') }) }),
+        h(ProfileModule, { key: 'self', label: '能力自评', summary: summary.self, done: done.self, open: open === 'self', onOpen: () => setOpen('self'), onConfirm: confirmSelf, confirmLabel: selfLabel, children: h(SelfAssessmentForm, { state, post, scores: scoresDraft, setScores: setScoresDraft, onCollapse: () => setOpen('') }) }),
         planReady ? h('div', { key: 'handoff', style: { ...S.card, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' } }, [
           h('div', { key: 'copy' }, [
             h('div', { key: 't', style: { fontSize: '14px', fontWeight: '700' } }, '画像齐了，下一步是 90 天计划'),
