@@ -261,6 +261,21 @@ await check('完成的反馈是真的，且 gap 不再被当成分数印', () =>
   assert.doesNotMatch(source, /gap\.toFixed\(2\)/, '不许再把它当分数印')
 })
 
+await check('计划页的层次：总目标是一整句，路径与能力块各自成层', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  // 目标句是 Agent 写的自由文本。结构只能从它**旁边**长出来 —— 拆它就得猜标点，而猜错
+  // 在别的方向上就是错的（「可面试」这种词只属于一个方向）。
+  assert.match(source, /key: 'quote'[^)]*fontFamily: 'var\(--gw-display/, '总目标要作为一整块渲染')
+  assert.match(source, /\}, plan\.goal \|\|/, '整句 plan.goal 一个节点，不许拆')
+  assert.doesNotMatch(source, /plan\.goal\.split|plan\.goal\.match/, '不许按标点拆目标句')
+  assert.match(source, /function PathBand\(\{ phases, currentIndex \}\)/)
+  assert.match(source, /currentIndex: state\.metrics\.phaseIndex/, '「你在这」用现成的 phaseIndex，不另存状态')
+  assert.match(source, /function GroupRows\(\{ role, scores \}\)/)
+  assert.match(source, /scores: state\.profile\.selfAssessment\?\.scores/, '能力块进度按已打分的项算')
+  assert.match(source, /gw-gchip/, '能力组要有字母章')
+  assert.match(source, /S\.chipPlain/, '身份标签用灰章，别和珊瑚色抢')
+})
+
 await check('package name is the bundle identity', () => assert.equal(pkg.name, NAME))
 await check('files[] ships cordis.patch.yml', () => assert.ok(pkg.files.includes('cordis.patch.yml')))
 await check('dsh.bundle.patch points at the patch layer', () => assert.equal(pkg.dsh?.bundle?.patch, './cordis.patch.yml'))

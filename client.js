@@ -107,6 +107,23 @@ window.__ModuleLoader__.load({
         + '.gw-seal.tone-amber{color:var(--gw-amber,#d59b3f)}'
         + '@keyframes gw-stamp-in{0%{transform:scale(1.7) rotate(-16deg);opacity:0}55%{transform:scale(.93) rotate(-2deg);opacity:1}100%{transform:scale(1) rotate(-4deg)}}'
         + '.gw-stamp-in{animation:gw-stamp-in .36s cubic-bezier(.2,.9,.3,1.35) both}'
+        // The path band: four nodes joined by a line, with "you are here" marked. The
+        // connector is drawn as two half-segments per node so the ends stop at the dots.
+        + '.gw-path{display:flex;justify-content:space-between;gap:6px}'
+        + '.gw-path > div{flex:1 1 0;text-align:center;position:relative;padding:18px 4px 0}'
+        + '.gw-path > div::before{content:"";position:absolute;top:5px;left:0;right:0;height:2px;background:var(--gw-line,#e5dfd5)}'
+        + '.gw-path > div:first-child::before{left:50%}'
+        + '.gw-path > div:last-child::before{right:50%}'
+        + '.gw-path i{position:absolute;top:0;left:50%;transform:translateX(-50%);width:12px;height:12px;border-radius:50%;background:#fff;border:2px solid var(--gw-line,#e5dfd5);box-sizing:border-box}'
+        + '.gw-path .done i{background:var(--gw-teal,#2f7d74);border-color:var(--gw-teal,#2f7d74)}'
+        + '.gw-path .done::before{background:var(--gw-teal,#2f7d74)}'
+        + '.gw-path .now i{background:var(--gw-coral,#e56b55);border-color:var(--gw-coral,#e56b55);box-shadow:0 0 0 4px var(--gw-coral-soft,rgba(229,107,85,.10))}'
+        + '.gw-path b{display:block;font-size:12.5px;font-weight:600;color:var(--gw-muted-2,#9aa7b1);line-height:1.45}'
+        + '.gw-path .done b{color:var(--gw-teal,#2f7d74)}'
+        + '.gw-path .now b{color:var(--gw-coral-deep,#a64132)}'
+        + '.gw-path span{display:block;font-family:var(--gw-mono,monospace);font-size:10.5px;color:var(--gw-muted-2,#9aa7b1);margin-top:4px}'
+        + '.gw-gchip{flex:0 0 24px;width:24px;height:24px;border-radius:8px;background:#f4f1ea;color:var(--gw-ink-2,#3d4a54);display:grid;place-items:center;font-family:var(--gw-mono,monospace);font-size:12px;font-weight:600}'
+        + '.gw-gchip.now{background:var(--gw-coral,#e56b55);color:#fff}'
         + '@media (prefers-reduced-motion:reduce){.gw-step,.gw-step .gw-step-edit,.gw-tf,.gw-tf .gw-tf-no,.gw-root button,.gw-root input,.gw-root select,.gw-root textarea{transition:none}.gw-stamp-in{animation:none}.gw-step:active,.gw-root button:not(:disabled):active{transform:none}}';
       document.head.appendChild(style);
     }
@@ -395,6 +412,7 @@ window.__ModuleLoader__.load({
       small: { padding: '9px 14px', minHeight: '44px', fontSize: '13px' },
       select: { padding: '10px 12px', fontSize: '13px', font: 'inherit', color: 'inherit', background: '#fffdf9', borderRadius: '11px', border: '1px solid var(--gw-line, #d9d0c4)' },
       chip: { display: 'inline-block', padding: '4px 10px', fontSize: '12px', borderRadius: '999px', color: 'var(--gw-coral-deep, #a64132)', background: 'var(--gw-coral-soft, rgba(229,107,85,.10))', border: '1px solid rgba(229,107,85,.2)' },
+      chipPlain: { display: 'inline-block', padding: '4px 10px', fontSize: '12px', borderRadius: '999px', color: 'var(--gw-muted, #6f7c87)', background: '#f4f1ea', border: '1px solid var(--gw-line-soft, #efeae2)' },
       error: { fontSize: '13px', color: '#b33a2d', background: '#fff0ed', border: '1px solid #f3c5be', borderRadius: '12px', padding: '12px 15px' },
       warn: { fontSize: '13px', color: '#8a5a1f', background: '#fdf7e8', border: '1px solid #ecd9a8', borderRadius: '12px', padding: '12px 15px' },
       empty: { fontSize: '14px', color: 'var(--gw-muted, #6f7c87)', padding: '14px 0' },
@@ -761,6 +779,50 @@ window.__ModuleLoader__.load({
       ])
     }
 
+    /**
+     * 路径带：四个阶段连成一条线，「你在这」标在当前那一段上。
+     *
+     * 状态不靠另存 —— `metrics.phaseIndex` 就是当前阶段，比它小的都已经走完。
+     * 这里只用短标签（长名字在这条带上会折到看不清），完整的名字、天区间与验收标准
+     * 在下面那张阶段列表里。
+     */
+    function PathBand({ phases, currentIndex }) {
+      if (phases.length === 0) return null;
+      return h('div', { className: 'gw-path' }, phases.map((phase, index) => {
+        const state = index === currentIndex ? 'now' : (currentIndex >= 0 && index < currentIndex ? 'done' : '');
+        return h('div', { key: phase.name, className: state }, [
+          h('i', { key: 'dot' }),
+          h('b', { key: 'name' }, phase.name),
+          h('span', { key: 'days' }, `${String(phase.days[0])}–${String(phase.days[1])}`),
+        ]);
+      }));
+    }
+
+    /**
+     * 四块能力：字母章 + 名称 + 权重 + 自评进度条。
+     *
+     * 这是总目标那层落到可度量的地方 —— 目标里说要补齐的，量的就是这个模型。
+     * 权重与项数都来自模型自己；进度按已打分的项数算（缺数据记为未提交，不是 0 分）。
+     */
+    function GroupRows({ role, scores }) {
+      const currentKey = (role.groups.find((group) => role.items.some((item) => item.group === group.key && scores[item.id] === undefined)) ?? {}).key;
+      return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '11px' } }, role.groups.map((group) => {
+        const items = role.items.filter((item) => item.group === group.key);
+        const scored = items.filter((item) => scores[item.id] !== undefined).length;
+        const current = group.key === currentKey;
+        const full = scored === items.length && items.length > 0;
+        return h('div', { key: group.key, style: { display: 'flex', alignItems: 'center', gap: '12px' } }, [
+          h('span', { key: 'chip', className: `gw-gchip${current ? ' now' : ''}` }, group.key),
+          h('span', { key: 'name', style: { flex: '0 0 150px', fontSize: '13px', ...(current ? { fontWeight: '600', color: 'var(--gw-coral-deep, #a64132)' } : {}) } }, group.name),
+          h('span', { key: 'weight', style: { flex: '0 0 auto', fontFamily: 'var(--gw-mono, monospace)', fontSize: '11.5px', color: 'var(--gw-muted-2, #9aa7b1)' } }, `${String(group.weight)}%`),
+          h('div', { key: 'bar', style: { ...S.bar, flex: '1 1 auto' } }, [
+            h('i', { key: 'fill', style: { ...S.barFill, width: `${String(items.length === 0 ? 0 : Math.round((scored / items.length) * 100))}%`, background: full ? 'var(--gw-teal, #2f7d74)' : 'var(--gw-coral, #e56b55)' } }),
+          ]),
+          h('span', { key: 'count', style: { flex: '0 0 36px', textAlign: 'right', fontFamily: 'var(--gw-mono, monospace)', fontSize: '12px', color: 'var(--gw-muted, #6f7c87)' } }, `${String(scored)}/${String(items.length)}`),
+        ]);
+      }));
+    }
+
     /** The plan tab: goal, execution trend, phases with their day intervals, the task contract, self-check, portfolio. */
     function PlanTabBody({ state, post }) {
       const plan = state.plan;
@@ -805,8 +867,23 @@ window.__ModuleLoader__.load({
       const kids = [];
 
       kids.push(h('div', { key: 'goal', style: S.card }, [
-        h('h2', { key: 't', style: S.h2 }, plan.goal || '（未写总目标）'),
-        h('div', { key: 'meta', style: S.meta }, `方向：${plan.role}　路线：${plan.route}`),
+        h('div', { key: 'kicker', style: S.subhead }, '总目标'),
+        // 总目标是 Agent 写的一整句。保持它完整、让它当这张卡上唯一的大字块 —— 周围那些
+        // 结构（阶段、能力组、作品集）各自从自己的字段渲染，不去拆这句话。
+        h('div', { key: 'quote', style: { fontFamily: 'var(--gw-display, Calistoga, Georgia, serif)', fontSize: '23px', lineHeight: '1.65', letterSpacing: '-.012em' } }, plan.goal || '（未写总目标）'),
+        h('div', { key: 'meta', style: S.wrap }, [
+          h('span', { key: 'role', style: S.chipPlain }, `方向 ${plan.role}`),
+          h('span', { key: 'route', style: S.chipPlain }, `路线 ${plan.route}`),
+          state.profile.timePerDay ? h('span', { key: 'time', style: S.chipPlain }, `每天 ${state.profile.timePerDay}`) : null,
+          state.profile.deadline ? h('span', { key: 'due', style: S.chipPlain }, `截止 ${state.profile.deadline}`) : null,
+        ]),
+        h('div', { key: 'path-head', style: { ...S.subhead, marginTop: '8px' } }, '路径 · 四个阶段'),
+        h(PathBand, { key: 'path', phases: plan.phases, currentIndex: state.metrics.phaseIndex }),
+        // 目标里说要补齐的东西，量的就是这份模型；没有模型时这一段不出现，而不是显示空壳。
+        state.catalog.activeRole === null || state.catalog.activeRole === undefined ? null
+          : h('div', { key: 'groups-head', style: { ...S.subhead, marginTop: '8px' } }, '要补的四块能力 · 权重高的先补'),
+        state.catalog.activeRole === null || state.catalog.activeRole === undefined ? null
+          : h(GroupRows, { key: 'groups', role: state.catalog.activeRole, scores: state.profile.selfAssessment?.scores ?? {} }),
         h('div', { key: 'start', style: S.inline }, [
           h('span', { key: 'label', style: { fontSize: '13px' } }, '第 1 天'),
           h('input', {
