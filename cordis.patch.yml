@@ -1,0 +1,14 @@
+# dsh-growth-workbench bundle patch layer.
+#
+# The row id, the package name, and the entry module's exported `name` are all
+# `dsh-growth-workbench`: one identity in the profile tree, in node_modules, and in
+# the process log.
+#
+# The package declares `dsh.bundle.patch` (package.json), so
+# `dsh plugin --profile web add ./dsh-growth-workbench` appends this insert to the
+# profile stack; the browser half is discovered from the same package's `dsh.client`
+# declaration and `exports["./client"]`, so it needs no second row.
+
+- insert:
+    - id: dsh-growth-workbench
+      name: dsh-growth-workbench

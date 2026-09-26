@@ -1,0 +1,78 @@
+{
+  "name": "dsh-growth-workbench",
+  "version": "0.1.0",
+  "private": false,
+  "description": "个人成长工作台：90 天计划、每日打卡与证据、加权能力缺口、分级考核复盘，页面与 Agent 读写同一份数据。A personal growth workbench bundle plugin for DeepSeek Harness (dsh).",
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./client": "./client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.mjs",
+    "api.mjs",
+    "model.mjs",
+    "store.mjs",
+    "tools.mjs",
+    "validate.mjs",
+    "client.js",
+    "selftest.mjs",
+    "cordis.patch.yml",
+    "docs",
+    "scripts",
+    "README.md",
+    "README.en.md",
+    "CHANGELOG.md",
+    "CLAUDE.md"
+  ],
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "immediately": true
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "engines": {
+    "node": ">=22.19"
+  },
+  "scripts": {
+    "check": "node --check index.mjs && node --check api.mjs && node --check model.mjs && node --check store.mjs && node --check tools.mjs && node --check validate.mjs && node --check client.js",
+    "test": "node selftest.mjs",
+    "pack:check": "npm pack --dry-run",
+    "install:plugin": "node scripts/install.mjs",
+    "update:plugin": "node scripts/update.mjs",
+    "prepublishOnly": "npm test"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "deepseek",
+    "ai-agent",
+    "plugin",
+    "growth",
+    "career-planning",
+    "personal-development"
+  ],
+  "homepage": "https://github.com/mingdui/dsh-growth-workbench#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mingdui/dsh-growth-workbench.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mingdui/dsh-growth-workbench/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "author": {
+    "name": "mingdui",
+    "url": "https://github.com/mingdui"
+  },
+  "license": "MIT"
+}

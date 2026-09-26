@@ -1,0 +1,204 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / Node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # 三平台都跑：插件的安装与数据目录行为在 Windows 上与 POSIX 不同，
+        # 而 Windows 正是作者的主平台 —— 只跑 ubuntu 会漏掉真实问题。
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: ["22", "24"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # 本插件没有依赖、没有构建步骤，所以不需要 npm ci —— 仓库里的
+      # .mjs / .js 就是发布产物，这一点是刻意的（见 CLAUDE.md）。
+      - name: Syntax check (each file as the form it is loaded as)
+        run: npm run check
+
+      - name: Offline self-test
+        run: npm test
+
+      - name: Pack contents are what we expect
+        run: npm pack --dry-run
+
+  manifest:
+    name: Validate the DSH bundle contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # DSH 的加载器按 id 寻址：三处名字拼错一处就静默不生效，
+      # 而"静默不生效"在真机上看起来就是"插件没反应"，很难查。
+      # 所以这里把 manifest 契约做成门禁，让机器拦住。
+      - name: Check bundle identity and exports
+        run: |
+          python - <<'PY'
+          import json, pathlib, re, sys
+
+          root = pathlib.Path(".")
+          errors = []
+
+          def read(p):
+              path = root / p
+              if not path.is_file():
+                  errors.append(f"缺少文件: {p}")
+                  return None
+              return path.read_text("utf-8")
+
+          pkg_raw = read("package.json")
+          if pkg_raw is None:
+              print("\n".join(errors)); sys.exit(1)
+          pkg = json.loads(pkg_raw)
+
+          name = pkg.get("name")
+          if name != "dsh-growth-workbench":
+              errors.append(f"package.json name 应为 dsh-growth-workbench，实为 {name!r}")
+
+          # 1) bundle 声明与 patch 文件
+          patch_rel = (pkg.get("dsh", {}).get("bundle") or {}).get("patch")
+          if not patch_rel:
+              errors.append("package.json 缺少 dsh.bundle.patch —— 这是插件可安装的唯一凭据")
+          else:
+              patch_text = read(patch_rel.lstrip("./"))
+              if patch_text:
+                  if "- insert:" not in patch_text:
+                      errors.append(f"{patch_rel} 里没有 insert 列表，等于什么都没挂载")
+                  pairs = re.findall(r"-\s*id:\s*(\S+)\s*\n\s*name:\s*(\S+)", patch_text)
+                  if not pairs:
+                      errors.append(f"{patch_rel} 里找不到成对的 id/name")
+                  elif not any(i == name and n == name for i, n in pairs):
+                      errors.append(
+                          f"{patch_rel} 的 id/name 与包名不一致（应为 {name}），实为 {pairs}"
+                      )
+
+          # 2) 宿主入口导出的 name 必须等于包名
+          index_src = read("index.mjs")
+          if index_src and not re.search(rf"export\s+const\s+name\s*=\s*['\"]{re.escape(name)}['\"]", index_src):
+              errors.append("index.mjs 的 export const name 与包名不一致")
+
+          # 3) client 半边：声明、导出、文件、loader id 四处都要对
+          client_decl = pkg.get("dsh", {}).get("client")
+          if not client_decl:
+              errors.append("package.json 缺少 dsh.client")
+          else:
+              if client_decl.get("platform") != "web":
+                  errors.append("dsh.client.platform 必须是 'web'")
+
+          exports = pkg.get("exports") or {}
+          client_target = exports.get("./client")
+          if isinstance(client_target, dict):
+              client_target = client_target.get("default")
+          if not client_target:
+              errors.append("exports 缺少 './client' —— 客户端模块系统会直接抛错")
+          else:
+              src = read(client_target.lstrip("./"))
+              if src and not re.search(rf"__ModuleLoader__\.load\(\s*\{{\s*id:\s*['\"]{re.escape(name)}['\"]", src):
+                  errors.append(
+                      f"{client_target} 不是 lazy-CJS factory，或 loader id 与包名不一致"
+                  )
+
+          if "./package.json" not in exports:
+              errors.append("exports 缺少 './package.json'（dsh 要读 manifest）")
+
+          # 4) files[] 必须收录运行时会用到的每一个文件
+          files = pkg.get("files") or []
+          for required in ("index.mjs", "client.js", "cordis.patch.yml", "README.md"):
+              if required not in files:
+                  errors.append(f"files[] 未收录 {required} —— 发布产物会缺件")
+
+          # 5) 宿主半边不得 import Harness 包（link 安装的硬约束）
+          for host in ("index.mjs", "api.mjs", "store.mjs", "model.mjs", "validate.mjs", "tools.mjs"):
+              src = read(host)
+              if src and re.search(r"from\s+['\"]@deepseek-ai/", src):
+                  errors.append(f"{host} import 了 @deepseek-ai/* 包，link 安装时会 ERR_MODULE_NOT_FOUND")
+
+          # 6) 身份信息
+          for key in ("version", "description", "license", "repository"):
+              if not pkg.get(key):
+                  errors.append(f"package.json 缺少 {key}")
+          if pkg.get("license") != "MIT":
+              errors.append("license 应为 MIT")
+
+          lic = read("LICENSE") or ""
+          if "MIT" not in lic or "mingdui" not in lic:
+              errors.append("LICENSE 应为 MIT 且版权人为 mingdui")
+
+          for readme in ("README.md", "README.en.md"):
+              if read(readme) is None:
+                  errors.append(f"缺少 {readme}（要求中英双语）")
+
+          if errors:
+              print("\n".join(errors))
+              sys.exit(1)
+          print("DSH bundle contract OK")
+          PY
+
+  hygiene:
+    name: Encoding and leak scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # U+FFFD 是"静默损坏"：文件仍然是合法 UTF-8，严格解码器抓不到，
+      # 但中文已经被逐字节替换成了替换字符。只能靠扫。
+      - name: No U+FFFD (silent mojibake)
+        run: |
+          if grep -rnI $'\xef\xbf\xbd' --exclude-dir=.git . ; then
+            echo "::error::发现 U+FFFD 乱码，拒绝合并"
+            exit 1
+          fi
+          echo "无乱码"
+
+      - name: No absolute local paths
+        run: |
+          # 公开仓库里不该出现某台机器的绝对路径（作者平台是 Windows，
+          # 所以盘符路径是这里最可能漏出去的一种）。
+          #
+          # 盘符那一支要求"盘符:\目录\"完整成形，不能只写 [A-Za-z]:\\ ——
+          # 正则字面量里的 `\\s*`（如 selftest.mjs 校验 patch 时写的
+          # `- id:\\s*`）会命中裸盘符模式，把自家测试误报成泄漏。
+          if grep -rnIE '[A-Za-z]:\\[A-Za-z0-9._-]+\\|[A-Za-z]:/(Users|Dev|per-workspace|workspace)|/Users/[a-z0-9._-]+/|/home/[a-z0-9._-]+/' \
+               --exclude-dir=.git --exclude-dir=.github . ; then
+            echo "::error::发现绝对本地路径，拒绝合并"
+            exit 1
+          fi
+          echo "无绝对本地路径"
+
+      # 哨兵词表（公司项目名、业务词、私有网段）的唯一真相源是 ming-qa 的 ci.yml。
+      # 刻意不在本文件里复述那些词 —— 否则这份公开文件本身就成了泄漏源。
+      # 拉不到就**响亮失败**，不做"静默跳过"的门禁。
+      - name: "Org sentinel list (single source of truth: ming-qa)"
+        run: |
+          set -euo pipefail
+          url="https://raw.githubusercontent.com/mingdui/ming-qa/main/.github/workflows/ci.yml"
+          curl -fsSL "$url" -o /tmp/ming-qa-ci.yml
+          SENTINELS=$(grep -oE "SENTINELS='[^']+'" /tmp/ming-qa-ci.yml | head -1 | sed "s/^SENTINELS='//; s/'\$//")
+          if [ -z "$SENTINELS" ]; then
+            echo "::error::无法从 ming-qa 的 ci.yml 提取哨兵列表（上游格式变了？）"
+            exit 1
+          fi
+          if grep -rniE "$SENTINELS" \
+               --include='*.md' --include='*.mjs' --include='*.js' \
+               --include='*.json' --include='*.yml' --include='*.yaml' \
+               --exclude-dir=.git . ; then
+            echo "::error::发现内部标识，拒绝合并"
+            exit 1
+          fi
+          echo "内部标识扫描通过"

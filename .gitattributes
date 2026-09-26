@@ -1,0 +1,26 @@
+# 统一行尾。不依赖每个人本地的 core.autocrlf —— 显式声明在仓库里才是确定的。
+#
+# 这个仓库有两类不能容忍行尾漂移的文件：
+#   .mjs / .js —— 会被 dsh 与浏览器直接加载，CRLF 不影响解析但会让 diff 噪声极大；
+#   .github/workflows/*.yml —— 在 Windows 上编辑后若变成 CRLF，CI 可能读不到。
+* text=auto eol=lf
+
+*.mjs     text eol=lf
+*.js      text eol=lf
+*.json    text eol=lf
+*.yml     text eol=lf
+*.yaml    text eol=lf
+*.md      text eol=lf
+
+# Windows 原生脚本用 CRLF
+*.ps1     text eol=crlf
+*.cmd     text eol=crlf
+*.bat     text eol=crlf
+
+# 二进制文件不做行尾转换
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.gif     binary
+*.ico     binary
+*.tgz     binary

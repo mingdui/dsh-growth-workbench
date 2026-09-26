@@ -1,0 +1,517 @@
+/**
+ * `dsh-growth-workbench` — the JSON endpoint the page talks to.
+ *
+ * Kept apart from `./index.mjs` so the whole page contract can be exercised
+ * without a Harness process: this module imports only the store and the model,
+ * and exports one plain `(req, res)` handler.
+ *
+ * Routes, all under {@link API_PREFIX}:
+ *
+ *     GET  /state                       everything the page renders, computed once
+ *     GET  /export                      四份文档合一份，供用户自己留存
+ *     POST /intake                      方向（预置或自定义）+ 四个选择题 → 路线
+ *     POST /background                  ② 的追问答案（专业 / 年级 / 岗位 / 行业 / 技能）
+ *     POST /plan-start                  显式保存第 1 天
+ *     POST /checkin                     { taskId, done?, evidence?, tier? }
+ *     POST /transferable                { facts, dismissed }  底盘确认与否决
+ *     POST /self-assessment             { scores: { A1: 3, … } }
+ *     POST /assessment                  登记一次考核成绩（四维）
+ *     POST /plan                        replace the plan document (used by the agent's write path)
+ *     POST /capability-model            { discard: true }  丢弃 AI 生成的能力模型
+ *     POST /reset                       { kind }  清空一份文档
+ *
+ * @module dsh-growth-workbench/api
+ */
+import {
+  ATTRIBUTIONS,
+  CUSTOM_SLUG,
+  EVIDENCE_TIERS,
+  FEEDBACK_ROWS,
+  GRADE_BANDS,
+  INTAKE_DEFAULTS,
+  INTAKE_QUESTIONS,
+  IRON_RULES,
+  ROLE_CHOICES,
+  ROLE_STATUS,
+  ROUTES,
+  RUBRIC,
+  TRANSFERABLE_NOTE,
+  backgroundQuestionsFor,
+  completionRate,
+  currentPhase,
+  curvePoints,
+  dateOfDay,
+  dayNumber,
+  evidenceDistribution,
+  gapAnalysis,
+  gradeOf,
+  highWeightItems,
+  missingBackground,
+  planTasks,
+  resolveRole,
+  resolveRoleStatus,
+  selfPointConfidence,
+  streakDays,
+  windowTier,
+  reviewWindow,
+  weekRate,
+} from './model.mjs'
+import {
+  KINDS,
+  appendAssessment,
+  checkIn,
+  dismissTransferable,
+  empty,
+  read,
+  readAll,
+  today,
+  updatePlan,
+  updateProfile,
+  write,
+} from './store.mjs'
+
+/** Path prefix this plugin owns on the Harness web server. */
+export const API_PREFIX = '/gw/api'
+
+/** Largest accepted request body, so one caller cannot exhaust the process. */
+const MAX_BODY_BYTES = 256 * 1024
+
+/** Write one JSON response. */
+function sendJson(res, status, payload) {
+  const body = `${JSON.stringify(payload)}\n`
+  res.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': String(Buffer.byteLength(body)),
+    'cache-control': 'no-store',
+  })
+  res.end(body)
+}
+
+/** Read and parse a JSON request body; refuses an oversized one before buffering it. */
+async function readJsonBody(req) {
+  const chunks = []
+  let size = 0
+  for await (const chunk of req) {
+    size += chunk.length
+    if (size > MAX_BODY_BYTES) throw new Error('request body is too large')
+    chunks.push(chunk)
+  }
+  if (size === 0) return {}
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'))
+  } catch {
+    throw new Error('request body is not valid JSON')
+  }
+}
+
+/** Narrow a parsed body to a plain object, so field reads never throw. */
+function record(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : {}
+}
+
+/**
+ * Everything the page renders, computed in one pass.
+ *
+ * One call instead of a dozen: the page's reads are all derived from the same
+ * documents, and splitting them would let the panel render two halves of two
+ * different moments.
+ */
+export function buildState() {
+  const date = today()
+  const { profile, plan, progress, assessments } = readAll()
+  const history = assessments.history ?? []
+  const tasks = planTasks(plan)
+  const day = dayNumber(plan.planStart, date)
+  const phase = currentPhase(plan, day)
+  const completion = completionRate(plan, progress)
+  const evidence = evidenceDistribution(plan, progress)
+  // 能力模型有两个来源，但下游只认这一个：自评、加权缺口、考核逐题落点全都用它。
+  const role = resolveRole(profile)
+  const scores = profile.selfAssessment?.scores ?? {}
+  const analysis = role === undefined ? null : gapAnalysis(role, scores)
+  const followUps = backgroundQuestionsFor(profile.intake)
+  const missing = missingBackground(profile)
+  const nextAction = nextActionFor({ profile, plan, role, followUps, missing, progress })
+  const revision = [profile.updated, plan.updated, progress.updated, assessments.updated].filter(Boolean).sort().at(-1) ?? ''
+
+  // 今日任务：排到今天的；今天没有排到时，退回到「接下来 3 个未完成」。
+  const scheduled = tasks.filter((task) => task.day === day)
+  const focus = scheduled.length > 0
+    ? scheduled
+    : tasks.filter((task) => progress.tasks?.[task.id]?.done !== true).slice(0, 3)
+
+  return {
+    ok: true,
+    today: date,
+    revision,
+    nextAction,
+    profile,
+    plan: { ...plan, tasks },
+    progress,
+    history,
+    curve: curvePoints(history),
+    metrics: {
+      day,
+      phaseName: phase?.name ?? '',
+      phaseIndex: phase === undefined ? -1 : plan.phases.indexOf(phase),
+      phaseDays: phase?.days ?? [],
+      completion,
+      streak: streakDays(progress, date),
+      weekRate: weekRate(plan, progress, day),
+      evidence,
+      gap: analysis?.gap ?? null,
+      gapWeight: analysis?.W ?? 0,
+      priorities: analysis?.priorities ?? [],
+      unansweredGroups: analysis?.unansweredGroups ?? [],
+      // 定级只在四维都齐时给；只有完成率时不给总分，避免报一个假的体检结果。
+      lastReview: history.filter((entry) => entry.kind === 'review').at(-1) ?? null,
+    },
+    /** 今日视图：排到今天的任务；今天没排到时退回「接下来的未完成」。 */
+    focus: {
+      day,
+      scheduled: scheduled.length > 0,
+      reason: scheduled.length > 0 ? 'scheduled' : (focus.length > 0 ? 'next-incomplete' : 'empty'),
+      phase: phase?.name ?? '',
+      tasks: focus,
+    },
+    catalog: {
+      roles: ROLE_CHOICES,
+      customSlug: CUSTOM_SLUG,
+      activeRole: role ?? null,
+      roleStatus: ROLE_STATUS,
+      /**
+       * 能力模型从哪来：`preset` 是随版本发布、人工写的；`generated` 是 Agent 为本方向
+       * 生成的。页面按这个标签决定说不说"锚点未经行业校准"。
+       */
+      activeRoleSource: resolveRoleStatus(profile),
+      /** 当前状态对应的追问字段；没答 ② 时是 undefined。 */
+      followUps: followUps ?? null,
+      background: profile.background ?? {},
+      missingBackground: missingBackground(profile),
+      transferableNote: TRANSFERABLE_NOTE,
+      questions: INTAKE_QUESTIONS,
+      defaults: INTAKE_DEFAULTS,
+      routes: ROUTES,
+      tiers: EVIDENCE_TIERS,
+      transferableGaps: profile.notTransferable ?? [],
+      rubric: RUBRIC,
+      gradeBands: GRADE_BANDS,
+      attributions: ATTRIBUTIONS,
+      feedbackRows: FEEDBACK_ROWS,
+      ironRules: IRON_RULES,
+      highWeightIds: role === undefined ? [] : highWeightItems(role).map((item) => item.id),
+    },
+  }
+}
+
+function nextActionFor({ profile, plan, role, followUps, missing, progress }) {
+  if (!profile.targetRole) return { id: 'direction', label: '先定一个目标方向', reason: '没有目标方向，后面的计划无法个性化。', targetTab: 'profile', targetAnchor: 'direction', blockedBy: [] }
+  if (profile.intake?.q1 === undefined || profile.intake?.q2 === undefined || profile.intake?.q3 === undefined || profile.intake?.q4 === undefined) return { id: 'intake', label: '完成 4 个快速选择题', reason: '用不到 1 分钟补齐当前状态与时间约束。', targetTab: 'profile', targetAnchor: 'intake', blockedBy: ['direction'] }
+  if (followUps !== undefined && missing.length > 0) return { id: 'background', label: '补完你的当前状态', reason: `还差：${missing.join('、')}。AI 需要这些信息，才能给出靠谱的底盘与能力模型。`, targetTab: 'profile', targetAnchor: 'background', blockedBy: ['intake'] }
+  if (!profile.route) return { id: 'route', label: '选一条成长路线', reason: '先决定节奏，计划才不会脱离你的现实。', targetTab: 'profile', targetAnchor: 'route', blockedBy: ['background'] }
+  if ((profile.transferableSuggestions ?? []).length > 0 && (profile.verifiedFacts ?? []).length === 0) return { id: 'transferable', label: '确认你已经有的底子', reason: '先确认已有经验，避免把会的东西重新学一遍。', targetTab: 'profile', targetAnchor: 'transferable', blockedBy: ['route'] }
+  if (role === undefined) return { id: 'capability-model', label: '让 AI 定制你的能力模型', reason: '有了能力模型，差距与计划才有统一的标尺。', targetTab: 'profile', targetAnchor: 'self', blockedBy: ['transferable'] }
+  if (Object.keys(profile.selfAssessment?.scores ?? {}).length === 0) return { id: 'self-assessment', label: '做一次能力自评', reason: '用 1 / 3 / 5 锚点标出当前起点。', targetTab: 'profile', targetAnchor: 'self', blockedBy: ['capability-model'] }
+  if (plan.phases.length === 0) return { id: 'plan', label: '定制我的 90 天计划', reason: '画像已经准备好，现在把它变成每天能执行的动作。', targetTab: 'plan', targetAnchor: 'plan-empty', blockedBy: ['self-assessment'] }
+  const tasks = planTasks(plan)
+  const incomplete = tasks.find((task) => progress.tasks?.[task.id]?.done !== true)
+  if (incomplete) return { id: 'check-in', label: '完成今天的最小动作', reason: `先做 ${incomplete.id}：${incomplete.minimumVersion}`, targetTab: 'today', targetAnchor: `task-${incomplete.id}`, blockedBy: [] }
+  return { id: 'review', label: '发起一次阶段复盘', reason: '当前计划任务已完成，做一次考核把成果沉淀下来。', targetTab: 'review', targetAnchor: 'review', blockedBy: [] }
+}
+
+/**
+ * Failures carry the operation's own message, so a blank task or an unknown id
+ * reads as itself in the panel instead of as a generic failure.
+ */
+async function serve(res, operation) {
+  try {
+    sendJson(res, 200, { ok: true, ...(await operation()) })
+  } catch (error) {
+    sendJson(res, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
+  }
+}
+
+/** Save the intake answers plus the chosen direction — step ①②⑤ in one write. */
+function saveIntake(body) {
+  const roleSlug = typeof body.roleSlug === 'string' ? body.roleSlug : ''
+  const choice = ROLE_CHOICES.find((entry) => entry.slug === roleSlug)
+  const customName = typeof body.roleName === 'string' ? body.roleName.trim() : ''
+  if (choice === undefined && customName.length === 0) throw new Error('请先选择一个目标方向，或自己填一个')
+  if (customName.length > 40) throw new Error('自定义方向名不超过 40 个字')
+
+  const intake = {}
+  for (const question of INTAKE_QUESTIONS) {
+    const answer = body.intake?.[question.key]
+    intake[question.key] = question.options.some((option) => option.value === answer)
+      ? answer
+      : (INTAKE_DEFAULTS[question.key] ?? '')
+  }
+  const route = ROUTES.some((entry) => entry.name === body.route) ? body.route : ROUTES[0].name
+  const targetRole = choice?.name ?? customName
+  const status = choice?.status ?? 'beta'
+  const positioning = choice?.positioning ?? `你自定义的方向`
+
+  // 当前状态换了，追问就换了一整套 —— 旧答案留着（切回去不用重填），但已生成的
+  // 能力模型与底盘提议都属于上一个状态，留着只会误导：模型自带 forSlug 保证它
+  // 对不上就失效，底盘提议则直接作废。
+  const previous = read('profile')
+  const stateChanged = previous.intake?.q1 !== undefined && previous.intake.q1 !== intake.q1
+  const directionChanged = previous.targetRoleSlug !== '' && previous.targetRoleSlug !== (choice?.slug ?? CUSTOM_SLUG)
+
+  const patch = {
+    targetRole,
+    targetRoleSlug: choice?.slug ?? CUSTOM_SLUG,
+    currentRole: INTAKE_QUESTIONS[0].options.find((option) => option.value === intake.q1)?.label ?? '',
+    targetRoleStatus: status,
+    positioning,
+    route,
+    // Q1 的选项直接决定「在职 / 离职 / 在读」这类约束文案，所以两者一起落。
+    intake,
+    timePerDay: (INTAKE_QUESTIONS[1].options.find((option) => option.value === intake.q2)?.label ?? ''),
+    deadline: deadlineFrom(intake.q4),
+    constraints: constraintsFrom(intake),
+  }
+  if (body.background !== undefined) patch.background = body.background
+
+  const profile = updateProfile(patch)
+  if (stateChanged || directionChanged) {
+    updateProfile({ transferableSuggestions: [] })
+    return { ...read('profile'), resetProposals: stateChanged ? '当前状态变了，追问与底盘提议已作废' : '方向变了，底盘提议已作废' }
+  }
+  return profile
+}
+
+/** 保存 ② 的追问答案（专业 / 年级 / 岗位 / 行业 / 收入来源 / 技能）。 */
+function saveBackground(body) {
+  const profile = read('profile')
+  if (profile.intake?.q1 === undefined) throw new Error('先答 ② 的第一题（当前状态），追问才定得下来')
+  const questions = backgroundQuestionsFor(profile.intake)
+  if (questions === undefined) throw new Error(`当前状态 ${JSON.stringify(profile.intake.q1)} 没有对应的追问`)
+  const fields = new Map(questions.fields.map((field) => [field.key, field]))
+  const patch = {}
+  for (const [key, value] of Object.entries(record(body.background))) {
+    const field = fields.get(key)
+    if (field === undefined) continue
+    patch[key] = value === null || value === undefined ? '' : String(value)
+  }
+  // 必填判定看**合并之后**的值：字段既不在本次提交里、也没存过，就是真的缺。
+  // 写成 `undefined === 0` 会静默放过 —— 那是把"没填"读成了"填了空的但不算空"。
+  for (const field of questions.fields) {
+    if (field.required !== true) continue
+    const effective = patch[field.key] === undefined ? (profile.background?.[field.key] ?? '') : patch[field.key]
+    if (String(effective).trim().length === 0) {
+      throw new Error(`「${field.label}」是必填 —— 底盘与能力模型都要从它推`)
+    }
+  }
+  return updateProfile({ background: patch })
+}
+
+/** 期限选项 → 截止日期（从今天起算；90 天就是 90 天）。 */
+function deadlineFrom(answer) {
+  const days = { A: 30, B: 90, C: 183, D: 365 }[answer]
+  if (days === undefined) return ''
+  const date = new Date(`${today()}T00:00:00.000Z`)
+  date.setUTCDate(date.getUTCDate() + days)
+  return date.toISOString().slice(0, 10)
+}
+
+/** Q1 + Q3 → 约束清单，写成用户能读懂的话。 */
+function constraintsFrom(intake) {
+  const constraints = []
+  const state = INTAKE_QUESTIONS[0].options.find((option) => option.value === intake.q1)?.label
+  const goal = INTAKE_QUESTIONS[2].options.find((option) => option.value === intake.q3)?.label
+  if (state !== undefined) constraints.push(state)
+  if (goal !== undefined) constraints.push(goal)
+  return constraints
+}
+
+/**
+ * Record one self-assessment round.
+ *
+ * The round carries a curve point per answered item with `来源: 自评`, and each
+ * point's confidence is lifted when the current window holds a check-in at that
+ * tier — that lift is the only route task evidence has into the curve.
+ */
+function saveSelfAssessment(body) {
+  const scores = {}
+  for (const [id, value] of Object.entries(record(body.scores))) {
+    if (value === null || value === undefined || value === '') continue
+    const number = Number(value)
+    if (!Number.isInteger(number) || number < 1 || number > 5) throw new Error(`${id}: 自评分数必须是 1-5 的整数，或留空表示未确认`)
+    scores[id] = number
+  }
+  if (Object.keys(scores).length === 0) throw new Error('至少要确认一项能力，否则这一轮没有读数')
+
+  const { profile, plan, progress, assessments } = readAll()
+  const role = resolveRole(profile)
+  if (role === undefined) {
+    throw new Error('当前方向还没有能力模型，无法逐项自评 —— 回对话里说一句「帮我建这个方向的能力模型」，AI 会基于预置模板生成一份')
+  }
+  const unknown = Object.keys(scores).filter((id) => role.items.every((item) => item.id !== id))
+  if (unknown.length > 0) {
+    throw new Error(`这些能力项不在当前模型里：${unknown.join('、')} —— 模型可能刚换过，刷新页面重打一次`)
+  }
+
+  const analysis = gapAnalysis(role, scores)
+  const date = today()
+  const day = dayNumber(plan.planStart, date)
+  const history = assessments.history ?? []
+  const window = reviewWindow(history, date, day, plan.planStart)
+
+  const points = []
+  for (const item of role.items) {
+    const score = scores[item.id]
+    if (score === undefined) continue
+    const tier = windowTier(plan, progress, window, item.id)
+    points.push({
+      能力项: item.id,
+      分: score,
+      置信度: selfPointConfidence(tier),
+      证据档位: tier,
+      来源: '自评',
+    })
+  }
+
+  const entry = {
+    date,
+    day: day ?? 1,
+    kind: 'self',
+    coverage: '全量',
+    scores: null,
+    unsubmitted: [],
+    gap: analysis.gap,
+    gapWeight: analysis.W,
+    confidence: points.some((point) => point.置信度 === 'high') ? 'high' : points.some((point) => point.置信度 === 'medium') ? 'medium' : 'low',
+    sources: ['页面'],
+    curvePoints: points,
+    answered: Object.keys(scores).length,
+    skipped: analysis.skippedCount,
+  }
+
+  updateProfile({ selfAssessment: { date, scores, gap: analysis.gap, weight: analysis.W } })
+  appendAssessment(entry)
+  return { entry, analysis }
+}
+
+/**
+ * Register one review round's four scores.
+ *
+ * The page registers a score the agent produced; the agent itself writes through
+ * its own tool. Both land in the same append-only history.
+ */
+function saveReview(body) {
+  const scores = {}
+  for (const dimension of ['完成率', '证据质量', '作品达标度', '知识考核']) {
+    const value = Number(body.scores?.[dimension] ?? 0)
+    if (!Number.isFinite(value) || value < 0 || value > 25) throw new Error(`${dimension} 必须是 0-25`)
+    scores[dimension] = Math.round(value)
+  }
+  const total = Object.values(scores).reduce((sum, value) => sum + value, 0)
+  const { plan } = readAll()
+  const date = today()
+  const day = dayNumber(plan.planStart, date) ?? Number(body.day ?? 1)
+  const grade = gradeOf(total)
+  const entry = {
+    date,
+    day,
+    kind: 'review',
+    scores,
+    total,
+    grade: grade.grade,
+    gradeAction: grade.action,
+    confidence: typeof body.confidence === 'string' ? body.confidence : 'medium',
+    sources: Array.isArray(body.sources) ? body.sources : ['页面'],
+    coverage: body.coverage === '定向' ? '定向' : '全量',
+    unsubmitted: Array.isArray(body.unsubmitted) ? body.unsubmitted : [],
+    attribution: typeof body.attribution === 'string' ? body.attribution : '',
+    adjustments: Array.isArray(body.adjustments) ? body.adjustments : [],
+    report: typeof body.report === 'string' ? body.report : '',
+    curvePoints: Array.isArray(body.curvePoints) ? body.curvePoints : [],
+  }
+  appendAssessment(entry)
+  return { entry }
+}
+
+/** The routes that mutate one document, kept in one switch. */
+async function mutate(route, body) {
+  switch (route) {
+    case '/intake':
+      return { profile: saveIntake(body) }
+    case '/background':
+      return { profile: saveBackground(body) }
+    case '/plan-start': {
+      const date = typeof body.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.date) ? body.date : ''
+      if (date.length === 0) throw new Error('第 1 天必须是 YYYY-MM-DD')
+      return { plan: updatePlan({ planStart: date }) }
+    }
+    case '/checkin': {
+      const taskId = String(body.taskId ?? '')
+      const { plan } = readAll()
+      if (planTasks(plan).every((task) => task.id !== taskId)) {
+        throw new Error(`计划里没有 ${taskId} 这个任务（任务可能已被删除）`)
+      }
+      return { entry: checkIn(taskId, { done: body.done, evidence: body.evidence, tier: body.tier }, typeof body.date === 'string' && body.date.length === 10 ? body.date : undefined) }
+    }
+    case '/transferable': {
+      // 一次提交可以同时做两件事：确认几条（进 verifiedFacts）、否掉几条（进
+      // dismissedTransferable，不再被提议）。只确认不否掉，会让列表越滚越长。
+      const facts = (Array.isArray(body.facts) ? body.facts : []).filter((item) => typeof item === 'string' && item.trim().length > 0)
+      const dismissed = (Array.isArray(body.dismissed) ? body.dismissed : []).filter((item) => typeof item === 'string' && item.trim().length > 0)
+      if (facts.length === 0 && dismissed.length === 0) throw new Error('至少勾选或否掉一条')
+      if (facts.length > 0) updateProfile({ verifiedFacts: facts })
+      for (const line of dismissed) dismissTransferable(line)
+      return { profile: read('profile') }
+    }
+    case '/self-assessment':
+      return saveSelfAssessment(body)
+    case '/assessment':
+      return saveReview(body)
+    case '/plan': {
+      const phases = Array.isArray(body.phases) ? body.phases : null
+      if (phases === null) throw new Error('计划必须带 phases 数组')
+      return { plan: updatePlan({ ...body, phases }) }
+    }
+    case '/capability-model': {
+      // 只有 Agent 生成模型；页面用它来「丢弃这份模型」（回到让 AI 重生成）。
+      if (body.discard !== true) throw new Error('能力模型只能由 Agent 生成（用 growth_propose_capability_model）；这个接口只接受 { discard: true }')
+      updateProfile({ capabilityModel: null, selfAssessment: null })
+      return { profile: read('profile') }
+    }
+    case '/reset': {
+      const kind = String(body.kind ?? '')
+      if (!KINDS.includes(kind)) throw new Error(`未知的数据分区：${kind}`)
+      write(kind, empty(kind))
+      return { reset: kind }
+    }
+    default:
+      throw new Error(`unknown growth-workbench route: POST ${route}`)
+  }
+}
+
+/**
+ * Dispatch one request.
+ * @param req - the incoming request; only `method` and `url` are read.
+ * @param res - the response this handler owns.
+ */
+export async function handleApi(req, res) {
+  const pathname = new URL(req.url ?? '/', 'http://localhost').pathname
+  const route = pathname.slice(API_PREFIX.length).replace(/\/+$/, '') || '/'
+  const method = req.method ?? 'GET'
+
+  if (method === 'GET' && (route === '/' || route === '/state')) {
+    return serve(res, () => buildState())
+  }
+  if (method === 'GET' && route === '/export') {
+    // One file with every document, so a user can keep their own backup —
+    // the data moved out of the browser, so it owes them a way to hold it.
+    return serve(res, () => ({ exported: today(), data: readAll() }))
+  }
+  if (method === 'POST') {
+    return serve(res, async () => mutate(route, record(await readJsonBody(req))))
+  }
+
+  sendJson(res, 404, { ok: false, error: `unknown growth-workbench route: ${method} ${route}` })
+}
+
+/** Re-exported for the agent's tools, which write through the same validations. */
+export { saveIntake, saveBackground, saveReview, saveSelfAssessment, deadlineFrom, constraintsFrom }

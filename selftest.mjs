@@ -1,0 +1,1011 @@
+/**
+ * Offline checks for dsh-growth-workbench, run before it is installed.
+ *
+ *  1. every file parses as the form it is loaded as
+ *  2. one identity across the four declarations, and no Harness import in the host half
+ *  3. the model's arithmetic: weights, gap, completion, streak, phase, curve
+ *  4. the plan write path actually refuses the things that fail silently
+ *  5. the agent's six tools, end to end, against a throwaway home
+ *  6. the page's HTTP routes
+ *
+ * Run: node dsh-growth-workbench/selftest.mjs
+ */
+import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const ROOT = dirname(fileURLToPath(import.meta.url))
+const NAME = 'dsh-growth-workbench'
+let failures = 0
+
+/** Run one check, reporting its outcome. `fn` may be async. */
+async function check(label, fn) {
+  try {
+    await fn()
+    console.log(`PASS  ${label}`)
+  } catch (error) {
+    failures += 1
+    console.log(`FAIL  ${label}\n        ${error instanceof Error ? error.message : String(error)}`)
+  }
+}
+
+/** A throwaway DSH home, so no check touches the real one. */
+const home = mkdtempSync(join(tmpdir(), 'growth-workbench-selftest-'))
+process.env.DSH_HOME = home
+
+const FILES = ['index.mjs', 'api.mjs', 'model.mjs', 'store.mjs', 'tools.mjs', 'validate.mjs', 'client.js']
+
+// ---------------------------------------------------------------- 1. parses
+
+for (const file of FILES) {
+  await check(`parses: ${file}`, () => execFileSync(process.execPath, ['--check', join(ROOT, file)], { stdio: 'pipe' }))
+}
+
+await check('client.js follows the browser module-loader contract', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  assert.match(source, /window\.__ModuleLoader__\.load\(/)
+  assert.match(source, /id: 'dsh-growth-workbench'/)
+  assert.match(source, /require\('react'\)/)
+  assert.match(source, /sidebarRightTabs\.register\(/)
+  assert.match(source, /sidebar\.right\.pane\.tab/)
+  assert.match(source, /name: 'sidebar\.panellist'/)
+  assert.match(source, /name: 'main'/)
+})
+
+await check('the left page is not selected on boot', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  assert.doesNotMatch(source, /selectPanel/, 'selecting a main panel would replace the conversation')
+})
+
+await check('client.js keeps the two views of one dataset in sync', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  assert.match(source, /const reloaders = new Set\(\)/)
+  assert.match(source, /refreshOthers\(load\)/)
+})
+
+await check('client.js never names a storage path of its own', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  assert.doesNotMatch(source, /DSH_HOME/, 'the browser must not know where the data lives')
+  assert.doesNotMatch(source, /dataPath|readFileSync|writeFileSync/, 'the browser talks to /gw/api, not to the disk')
+  assert.doesNotMatch(source, /[A-Za-z]:\\\\/, 'no absolute paths in the browser half')
+})
+
+await check('client.js has the four profile steps, in order', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  const order = ['DirectionForm', 'IntakeForm', 'TransferableForm', 'SelfAssessmentForm']
+  const positions = order.map((name) => source.indexOf(`h(${name}, {`))
+  assert.ok(positions.every((index) => index > 0), '每一个块都要挂进画像页')
+  assert.deepEqual([...positions].sort((left, right) => left - right), positions, '四步必须按顺序挂进画像页')
+  // 追问不再是独立一步：它由 ② 渲染 —— 调用点必须落在 IntakeForm 的函数体里。
+  const followUps = source.indexOf('h(BackgroundForm, {')
+  assert.ok(followUps > source.indexOf('function IntakeForm(') && followUps < source.indexOf('function BackgroundForm('), '追问要由 ② 自己渲染，而不是单独一步')
+})
+
+await check('client.js offers a free-text direction', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  assert.match(source, /'aria-label': '自定义岗位'/)
+  assert.match(source, /catalog\.customSlug/)
+})
+
+await check('client.js renders the follow-ups from the catalog, not a fixed list', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  assert.match(source, /catalog\.followUps/)
+  assert.match(source, /catalog\.missingBackground/)
+  assert.doesNotMatch(source, /transferableBase/, 'the built-in 底子 table is gone')
+})
+
+await check('client.js confirms and dismisses 底子 one line at a time', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  assert.match(source, /'data-tf': text/)
+  assert.match(source, /'data-tf-no': text/)
+  assert.match(source, /dismissed: \[text\]/)
+})
+
+await check('client.js warns when the model is not the preset one', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  assert.match(source, /catalog\.activeRoleSource/)
+  assert.match(source, /sourceNote\.note/, '未经校准这件事要在打分的地方说')
+})
+
+await check('「让 AI 来做」按钮是替你把这句说了，不是让你自己复制', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  // 发消息这条路必须真的在：拿到会话服务 → 取当前那一个 → 以用户回合的身份送出去。
+  assert.match(source, /rootCtx\.get\('sessions'\)/)
+  assert.match(source, /sessions\.binding\(current\)/)
+  assert.match(source, /beginSubmission\(\{ mode: 'queue'/)
+  assert.match(source, /\.prompt\(\[\{ type: 'text', text \}\]/)
+  // 'queue' 而不是 'steer'：点一下不能把正在跑的那一轮掐掉。
+  assert.match(source, /'queue', AbortSignal\.timeout\(/, '排队，不是打断')
+  // 退回"自己复制粘贴"就是退回这个按钮要解决的问题。
+  assert.doesNotMatch(source, /navigator\.clipboard|writeText\(|execCommand/)
+  // 需要按钮的生成类入口：计划 / 考核 / 重新生成模型。
+  assert.ok((source.match(/h\(AskButton, \{/g) ?? []).length >= 3, '生成类入口不能漏')
+  // 建能力模型不再有自己的按钮：它由 ③「确认可迁移能力」的确认按钮自动触发。
+  assert.match(source, /const startCapabilityModel = \(\) => \{/)
+  assert.match(source, /onConfirm: \(\) => confirm\('self', startCapabilityModel\)/)
+  // 但自评只能用户自己点：分数仍然是页面表单送出的，不是 AI 送的。
+  assert.match(source, /post\('\/self-assessment'/)
+})
+
+// ---------------------------------------------------------------- 2. identity
+
+const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
+const patch = readFileSync(join(ROOT, 'cordis.patch.yml'), 'utf8')
+
+await check('package name is the bundle identity', () => assert.equal(pkg.name, NAME))
+await check('files[] ships cordis.patch.yml', () => assert.ok(pkg.files.includes('cordis.patch.yml')))
+await check('dsh.bundle.patch points at the patch layer', () => assert.equal(pkg.dsh?.bundle?.patch, './cordis.patch.yml'))
+await check('dsh.client declares the web platform', () => assert.equal(pkg.dsh?.client?.platform, 'web'))
+await check('dsh.client is loaded eagerly', () => assert.equal(pkg.dsh?.client?.immediately, true))
+await check('exports["./client"] resolves the browser half', () => assert.equal(pkg.exports['./client'], './client.js'))
+await check('exports["."] resolves the host half', () => assert.equal(pkg.exports['.'], './index.mjs'))
+await check('the package declares no runtime dependencies', () => {
+  assert.equal(pkg.dependencies, undefined)
+  assert.equal(pkg.peerDependencies, undefined)
+})
+
+await check('cordis.patch.yml row id and name match the package name', () => {
+  assert.match(patch, new RegExp(`- id:\\s*${NAME}\\s*$`, 'm'))
+  assert.match(patch, new RegExp(`name:\\s*${NAME}\\s*$`, 'm'))
+})
+
+await check('every host file imports nothing from the Harness', () => {
+  for (const file of ['index.mjs', 'api.mjs', 'model.mjs', 'store.mjs', 'tools.mjs', 'validate.mjs']) {
+    const source = readFileSync(join(ROOT, file), 'utf8')
+    assert.doesNotMatch(source, /from '@deepseek-ai\//, `${file} imports a Harness package, which an installed-by-path plugin cannot resolve`)
+  }
+})
+
+// ---------------------------------------------------------------- imports
+const model = await import(new URL('./model.mjs', import.meta.url).href)
+const store = await import(new URL('./store.mjs', import.meta.url).href)
+const tools = await import(new URL('./tools.mjs', import.meta.url).href)
+const validate = await import(new URL('./validate.mjs', import.meta.url).href)
+const api = await import(new URL('./api.mjs', import.meta.url).href)
+const host = await import(new URL('./index.mjs', import.meta.url).href)
+
+await check('the host half loads and injects the two services', () => {
+  assert.equal(host.name, NAME)
+  assert.deepEqual([...host.inject].sort(), ['tools', 'webServer'])
+})
+
+await check('apply() registers one route and every tool, all disposable', () => {
+  const seen = []
+  const ctx = {
+    webServer: { register(route) { seen.push({ what: 'route', route }); return () => {} } },
+    tools: { register(definition) { seen.push({ what: 'tool', definition }); return () => {} } },
+    effect(setup, label) {
+      assert.equal(typeof label, 'string')
+      assert.equal(typeof setup(), 'function', 'every effect must return a disposer')
+    },
+  }
+  host.apply(ctx)
+  const routes = seen.filter((entry) => entry.what === 'route')
+  const registered = seen.filter((entry) => entry.what === 'tool')
+  assert.equal(routes.length, 1)
+  assert.equal(routes[0].route.path, '/gw/api')
+  assert.equal(routes[0].route.kind, 'prefix')
+  assert.equal(tools.TOOL_NAMES.length, 6)
+  assert.deepEqual(registered.map((entry) => entry.definition.name).sort(), [...tools.TOOL_NAMES].sort())
+})
+
+// ---------------------------------------------------------------- 3. model
+
+const ROLE = model.ROLES['data-ops']
+
+await check('the capability model mirrors the source table', () => {
+  assert.equal(ROLE.items.length, 20)
+  assert.equal(ROLE.groups.reduce((sum, group) => sum + group.weight, 0), 100)
+  assert.ok(ROLE.groups.every((group) => group.weight > 0), 'a 0% group would silently drop out of W')
+  assert.equal(ROLE.items.filter((item) => item.level === '高').length, 11)
+  assert.ok(ROLE.items.every((item) => item.anchors.length === 3))
+})
+
+// 同一套结构规则既管预置模型也管生成的模型 —— 两边共用 capabilityModelProblems，
+// 所以不可能出现"生成的模型符合规则、预置的不符合"。
+await check('the shipped model passes the same validator a generated one must', () => {
+  assert.deepEqual(model.capabilityModelProblems(ROLE), [])
+})
+
+await check('a 0%-weight group is refused (it vanishes from W while still showing anchors)', () => {
+  const broken = { ...ROLE, groups: ROLE.groups.map((group, index) => (index === 0 ? { ...group, weight: 0 } : group)) }
+  const problems = model.capabilityModelProblems(broken)
+  assert.ok(problems.some((line) => line.includes('weight 必须 > 0')), problems.join(' | '))
+})
+
+await check('weights that do not sum to 100 are refused (gap would be incomparable)', () => {
+  const broken = { ...ROLE, groups: ROLE.groups.map((group, index) => (index === 0 ? { ...group, weight: group.weight - 10 } : group)) }
+  assert.ok(model.capabilityModelProblems(broken).some((line) => line.includes('合计必须是 100%')))
+})
+
+await check('a placeholder anchor is refused (an invented 3 is indistinguishable from a measured one)', () => {
+  for (const placeholder of ['待补', 'TBD', '—', '...']) {
+    const broken = { ...ROLE, items: ROLE.items.map((item, index) => (index === 0 ? { ...item, anchors: [item.anchors[0], item.anchors[1], placeholder] } : item)) }
+    assert.ok(
+      model.capabilityModelProblems(broken).some((line) => line.includes('占位符')),
+      `${placeholder} should be refused`,
+    )
+  }
+})
+
+await check('duplicate capability ids are refused (two capabilities would become one column)', () => {
+  const broken = { ...ROLE, items: ROLE.items.map((item, index) => (index === 1 ? { ...item, id: ROLE.items[0].id } : item)) }
+  assert.ok(model.capabilityModelProblems(broken).some((line) => line.includes('id 重复')))
+})
+
+await check('a capability pointing at an unknown group is refused', () => {
+  const broken = { ...ROLE, items: ROLE.items.map((item, index) => (index === 0 ? { ...item, group: 'Z' } : item)) }
+  assert.ok(model.capabilityModelProblems(broken).some((line) => line.includes('不在 groups 里')))
+})
+
+await check('a group with no capabilities is refused', () => {
+  const broken = { ...ROLE, items: ROLE.items.filter((item) => item.group !== 'D') }
+  // D 组还在 groups 里，但已经没有任何能力项 —— 它的权重会落进分母却没有任何可评的项。
+  assert.deepEqual(model.capabilityModelProblems(broken), [], '结构上合法：组空着不影响 W，因为 W 只累加已答项')
+  assert.ok(model.capabilityModelProblems({ ...ROLE, items: [] }).some((line) => line.includes('至少要有 8 项')))
+})
+
+await check('resolveRole prefers a generated model, but only for its own direction', () => {
+  const generated = { ...ROLE, forSlug: 'custom', name: '数据分析师' }
+  assert.equal(model.resolveRole({ targetRoleSlug: 'data-ops', capabilityModel: generated })?.name, ROLE.name)
+  assert.equal(model.resolveRole({ targetRoleSlug: 'custom', capabilityModel: generated })?.name, '数据分析师')
+  assert.equal(model.resolveRoleStatus({ targetRoleSlug: 'custom', capabilityModel: generated }), 'generated')
+  assert.equal(model.resolveRoleStatus({ targetRoleSlug: 'data-ops', capabilityModel: generated }), 'preset')
+  assert.equal(model.resolveRole({ targetRoleSlug: 'fullstack' }), undefined)
+  assert.equal(model.resolveRoleStatus({ targetRoleSlug: 'fullstack' }), 'beta')
+})
+
+await check('generated models validate through canonicalCapabilityModel', () => {
+  const model0 = validate.canonicalCapabilityModel(ROLE, { forSlug: 'custom', forName: '数据分析师', basedOn: ['当前岗位：测试工程师'] })
+  assert.equal(model0.provenance, 'generated')
+  assert.equal(model0.forSlug, 'custom')
+  assert.equal(model0.items.length, 20)
+  assert.deepEqual(model0.basedOn, ['当前岗位：测试工程师'])
+  assert.throws(
+    () => validate.canonicalCapabilityModel(ROLE, {}),
+    /必须指名它为哪个方向生成/,
+    '没有 forSlug 的模型会在换方向后继续给新方向打分',
+  )
+})
+
+await check('the follow-up questions change with 当前状态', () => {
+  assert.deepEqual(model.backgroundQuestionsFor({ q1: 'A' }).fields.map((field) => field.key), ['major', 'grade'])
+  assert.deepEqual(model.backgroundQuestionsFor({ q1: 'C' }).fields.map((field) => field.key), ['currentJob', 'industry', 'years', 'scope'])
+  assert.deepEqual(model.backgroundQuestionsFor({ q1: 'D' }).fields.map((field) => field.key), ['income', 'dollars', 'strengths'])
+  assert.equal(model.backgroundQuestionsFor({}), undefined)
+  assert.equal(model.backgroundQuestionsFor({ q1: 'A' }).fields.find((field) => field.key === 'grade').options.includes('大一'), true)
+})
+
+await check('missingBackground lists only the required fields left blank', () => {
+  assert.deepEqual(model.missingBackground({ intake: { q1: 'C' } }), ['当前岗位', '日常经手的事'])
+  assert.deepEqual(model.missingBackground({ intake: { q1: 'C' }, background: { currentJob: '测试工程师' } }), ['日常经手的事'])
+  assert.deepEqual(model.missingBackground({ intake: { q1: 'C' }, background: { currentJob: '测试工程师', scope: '写用例' } }), [])
+  assert.deepEqual(model.missingBackground({}), ['当前状态（② 的第一题）'])
+})
+
+await check('backgroundLines marks the skills field as the 底盘 source', () => {
+  const lines = model.backgroundLines({ intake: { q1: 'C' }, background: { currentJob: '测试工程师', scope: '写用例' } })
+  assert.deepEqual(lines, ['当前岗位：测试工程师', '日常经手的事：写用例（底盘的主要来源）'])
+})
+
+await check('there is no built-in 底子 table any more', () => {
+  assert.equal(model.TRANSFERABLE_BASE, undefined, 'a fixed table is wrong for everyone it was not written for')
+  assert.equal(model.TRANSFERABLE_GAPS, undefined, '写死的缺口清单没了：它和底盘表一样，对不是那个背景的人全是错的，现在由 Agent 从追问推')
+  assert.ok(model.TRANSFERABLE_NOTE.proposePrompt.length > 0)
+})
+
+await check('item weights follow 组权重 × 组内系数', () => {
+  const item = (id) => ROLE.items.find((entry) => entry.id === id)
+  assert.equal(model.itemWeight(ROLE, item('A1')), 90) // A 30% × 高 3
+  assert.equal(model.itemWeight(ROLE, item('A7')), 30) // A 30% × 低 1
+  assert.equal(model.itemWeight(ROLE, item('D3')), 15) // D 15% × 低 1
+})
+
+await check('all twenty answered gives W = 1300 (the documented example)', () => {
+  const scores = Object.fromEntries(ROLE.items.map((item) => [item.id, 3]))
+  const analysis = model.gapAnalysis(ROLE, scores)
+  assert.equal(analysis.W, 1300)
+  assert.equal(analysis.gap, 0)
+})
+
+await check('the documented gap example reproduces', () => {
+  const scores = Object.fromEntries(ROLE.items.map((item) => [item.id, 3]))
+  scores.A2 = 1 // 差 2 分、w = 90
+  const analysis = model.gapAnalysis(ROLE, scores)
+  assert.ok(Math.abs(analysis.gap - 180 / 1300) < 1e-9, `got ${String(analysis.gap)}`)
+})
+
+await check('未确认的项不进分母，也不补零', () => {
+  const partial = model.gapAnalysis(ROLE, { A1: 1 })
+  assert.equal(partial.W, 90)
+  assert.equal(partial.answeredCount, 1)
+  assert.equal(partial.skippedCount, 19)
+  assert.deepEqual(partial.unansweredGroups, ['A', 'B', 'C', 'D'], '只答了一项时，四个组都还没答全')
+  const oneGroupDone = model.gapAnalysis(ROLE, Object.fromEntries(ROLE.items.filter((item) => item.group === 'A').map((item) => [item.id, 3])))
+  assert.deepEqual(oneGroupDone.unansweredGroups, ['B', 'C', 'D'])
+  const allNull = model.gapAnalysis(ROLE, {})
+  assert.equal(allNull.gap, null, '没有已确认项时没有读数，不是 0')
+})
+
+await check('补强优先级按单项缺口降序', () => {
+  const analysis = model.gapAnalysis(ROLE, { A1: 1, A7: 1 })
+  assert.equal(analysis.priorities[0].id, 'A1', 'A1 的缺口 180 应排在 A7 的 60 前面')
+})
+
+await check('高权重项在超过 10 项时按组权重降序截断', () => {
+  const picked = model.highWeightItems(ROLE)
+  assert.equal(picked.length, 10)
+  assert.ok(!picked.some((item) => item.id === 'D1'), 'D 组权重最低，它的高权重项被砍掉')
+})
+
+// ---------------------------------------------------------------- 完成率 / 打卡
+
+const PLAN = {
+  planStart: '2026-09-25',
+  phases: [
+    { name: '基础', days: [1, 30], tasks: [
+      { id: 'T1', day: 1, action: 'a', capability: 'A6', minutes: 30 },
+      { id: 'T2', day: 2, action: 'b', capability: 'B1', minutes: 30 },
+    ] },
+    { name: '实战', days: [31, 60], tasks: [
+      { id: 'T3', day: 31, action: 'c', capability: 'D1', minutes: 45 },
+    ] },
+    { name: '作品', days: [61, 90], tasks: [] },
+  ],
+}
+
+await check('完成率是整个计划口径：已完成 / 全部已排出的任务', () => {
+  const rate = model.completionRate(PLAN, { tasks: { T1: { done: true }, T3: { done: true } } })
+  assert.deepEqual([rate.done, rate.total], [2, 3])
+  const empty = model.completionRate({ phases: [] }, { tasks: {} })
+  assert.equal(empty.rate, null, '没有任务时完成率无定义，不是 0')
+})
+
+await check('任务引用由位置派生，任务标识才是身份', () => {
+  const tasks = model.planTasks(PLAN)
+  assert.deepEqual(tasks.map((task) => task.ref), ['1.1', '1.2', '2.1'])
+  assert.deepEqual(tasks.map((task) => task.id), ['T1', 'T2', 'T3'])
+  assert.equal(model.taskById(PLAN, 'T3').ref, '2.1')
+})
+
+await check('连续打卡天数从全部任务打卡日的并集数', () => {
+  // 同一任务连打三天 —— 按「每任务最新日」算会读成 1 天。
+  const progress = { tasks: { T1: { checkInDates: ['2026-09-25', '2026-09-26', '2026-09-27'] } } }
+  assert.equal(model.streakDays(progress, '2026-09-27'), 3)
+  assert.equal(model.streakDays(progress, '2026-09-28'), 3, '今天还没打卡不算断')
+  assert.equal(model.streakDays(progress, '2026-09-30'), 0)
+  assert.equal(model.streakDays({ tasks: {} }, '2026-09-27'), 0)
+})
+
+await check('第几天与当前阶段', () => {
+  assert.equal(model.dayNumber('2026-09-25', '2026-09-25'), 1)
+  assert.equal(model.dayNumber('2026-09-25', '2026-10-24'), 30)
+  assert.equal(model.currentPhase(PLAN, 45).name, '实战')
+  assert.equal(model.currentPhase(PLAN, 75).name, '作品', '只排到周、tasks 为空的阶段照样要能被判到')
+  assert.equal(model.dayNumber('', '2026-09-25'), null)
+})
+
+await check('本周完成率在没有排到天的任务时是 null，不是 0', () => {
+  assert.equal(model.weekRate(PLAN, { tasks: {} }, 1), 0, '第 1 周有两项任务、一项没完成 → 0')
+  assert.equal(model.weekRate(PLAN, { tasks: {} }, 75), null, '第 11 周没有排到天的任务 → 无数据')
+  assert.equal(model.weekRate(PLAN, { tasks: { T1: { done: true } } }, 2), 0.5)
+})
+
+await check('证据档位分布只统计已完成的任务', () => {
+  const distribution = model.evidenceDistribution(PLAN, { tasks: {
+    T1: { done: true, tier: '成果' },
+    T2: { done: false, tier: '成果' },
+    T3: { done: true, tier: null },
+  } })
+  assert.deepEqual(distribution, { 成果: 1, 过程: 0, 自述: 0, 无证据: 1 })
+})
+
+await check('自评点的置信度由窗口内的任务证据抬升', () => {
+  assert.equal(model.selfPointConfidence(null), 'low')
+  assert.equal(model.selfPointConfidence('自述'), 'low', '自述不算抬高')
+  assert.equal(model.selfPointConfidence('过程'), 'medium')
+  assert.equal(model.selfPointConfidence('成果'), 'high')
+})
+
+await check('只有全量轮次的点进曲线；定向轮只留记录', () => {
+  const history = [
+    { date: '2026-10-01', day: 7, coverage: '全量', curvePoints: [{ 能力项: 'A1', 分: 2, 置信度: 'low', 证据档位: null, 来源: '自评' }] },
+    { date: '2026-10-10', day: 16, coverage: '定向', curvePoints: [{ 能力项: 'A1', 分: 3, 置信度: 'low', 证据档位: null, 来源: '自评' }] },
+  ]
+  assert.equal(model.curvePoints(history).length, 1)
+})
+
+await check('不得只用自评点宣称能力提升', () => {
+  const selfOnly = [{ date: '2026-10-01', day: 7, coverage: '全量', curvePoints: [{ 能力项: 'A1', 分: 5, 置信度: 'low', 证据档位: null, 来源: '自评' }] }]
+  assert.equal(model.canClaimProgress(selfOnly, 'A1'), false)
+  const withReview = [{ date: '2026-10-01', day: 7, coverage: '全量', curvePoints: [{ 能力项: 'A1', 分: 5, 置信度: 'high', 证据档位: null, 来源: '考核' }] }]
+  assert.equal(model.canClaimProgress(withReview, 'A1'), true)
+  const withEvidence = [{ date: '2026-10-01', day: 7, coverage: '全量', curvePoints: [{ 能力项: 'A1', 分: 5, 置信度: 'medium', 证据档位: '过程', 来源: '自评' }] }]
+  assert.equal(model.canClaimProgress(withEvidence, 'A1'), true)
+})
+
+await check('总分定级按 rubric 的四档', () => {
+  assert.equal(model.gradeOf(90).grade, '优')
+  assert.equal(model.gradeOf(75).grade, '良')
+  assert.equal(model.gradeOf(60).grade, '及格')
+  assert.equal(model.gradeOf(40).grade, '需努力')
+})
+
+// ---------------------------------------------------------------- 4. 计划写入门禁
+
+const goodPhase = (name, days, tasks) => ({ name, days, goal: `${name}目标`, project: `${name}项目`, criteria: '标准', tasks })
+const goodTask = (extra) => ({
+  action: '做一件事', capability: 'A6', reason: '因为差距', minutes: 30,
+  minimumVersion: '十分钟版', doneCriteria: '能指出 3 个环节', acceptableEvidence: '完整版交截图；最低版交 3 行笔记', dependsOn: '无',
+  ...extra,
+})
+
+await check('合法计划通过，并分配任务标识', () => {
+  const plan = validate.canonicalPlan({
+    planStart: '2026-09-25', goal: '三个月能独立产出分析报告',
+    phases: [goodPhase('基础', [1, 30], [goodTask({ day: 1 }), goodTask({ day: 2, capability: 'B1' })]), goodPhase('实战', [31, 60], [])],
+    selfCheck: [{ id: 'Q1', phase: '基础', question: '漏斗怎么用', capability: 'B1' }],
+  }, undefined, ROLE)
+  assert.deepEqual(plan.phases[0].tasks.map((task) => task.id), ['T1', 'T2'])
+  assert.equal(plan.nextTaskNumber, 3)
+  assert.equal(plan.phases[0].tasks[0].ref, '1.1')
+})
+
+await check('缺 planStart 被拒（否则「第几天」只能拿首次打开日凑）', () => {
+  assert.throws(() => validate.canonicalPlan({ goal: 'x', phases: [goodPhase('a', [1, 10], [])] }, undefined, ROLE), /planStart/)
+})
+
+// 没有模型时不能只是"跳过校验" —— 那样计划可以挂任意编号，而面板与考核都按编号落点。
+await check('方向没有能力模型时，计划写入被拒而不是跳过校验', () => {
+  assert.throws(
+    () => validate.canonicalPlan({
+      planStart: '2026-09-25', goal: 'x', phases: [goodPhase('a', [1, 30], [goodTask({ day: 1 })])],
+    }, undefined, undefined),
+    /还没有能力模型/,
+  )
+})
+
+// 生成的模型与预置模型走同一个门禁：能力项校验用的是**传进来的那份模型**。
+await check('计划可以按 Agent 生成的能力模型挂编号', () => {
+  const generated = { forSlug: 'custom', name: '数据分析师', positioning: 'p', groups: [{ key: 'A', name: 'a', weight: 100 }], items: [
+    { id: 'A1', group: 'A', name: 'x', level: '高', anchors: ['1', '3', '5'] },
+  ] }
+  const plan = validate.canonicalPlan({
+    planStart: '2026-09-25', goal: 'x', phases: [goodPhase('a', [1, 30], [goodTask({ day: 1, capability: 'A1' })])],
+  }, undefined, generated)
+  assert.equal(plan.phases[0].tasks[0].capability, 'A1')
+  assert.throws(
+    () => validate.canonicalPlan({
+      planStart: '2026-09-25', goal: 'x', phases: [goodPhase('a', [1, 30], [goodTask({ day: 1, capability: 'A6' })])],
+    }, undefined, generated),
+    /不在当前方向的能力模型里/,
+  )
+})
+
+await check('阶段天区间不重不漏被强制', () => {
+  assert.throws(() => validate.canonicalPlan({
+    planStart: '2026-09-25', goal: 'x',
+    phases: [goodPhase('a', [1, 30], []), goodPhase('b', [40, 60], [])],
+  }, undefined, ROLE), /不重叠、不留缝/)
+})
+
+await check('任务合同 8 字段缺一不可', () => {
+  const incomplete = goodTask({ day: 1 })
+  delete incomplete.minimumVersion
+  assert.throws(() => validate.canonicalPlan({
+    planStart: '2026-09-25', goal: 'x', phases: [goodPhase('a', [1, 30], [incomplete])],
+  }, undefined, ROLE), /最低完成版本/)
+})
+
+await check('预计分钟超出 15-60 被拒', () => {
+  for (const minutes of [10, 90]) {
+    assert.throws(() => validate.canonicalPlan({
+      planStart: '2026-09-25', goal: 'x', phases: [goodPhase('a', [1, 30], [goodTask({ day: 1, minutes })])],
+    }, undefined, ROLE), /预计分钟/)
+  }
+})
+
+await check('能力项必须在当前方向的模型里', () => {
+  assert.throws(() => validate.canonicalPlan({
+    planStart: '2026-09-25', goal: 'x', phases: [goodPhase('a', [1, 30], [goodTask({ day: 1, capability: 'Z9' })])],
+  }, undefined, ROLE), /不在当前方向的能力模型里/)
+})
+
+await check('评估类任务写全角 — 是允许的', () => {
+  const plan = validate.canonicalPlan({
+    planStart: '2026-09-25', goal: 'x', phases: [goodPhase('a', [1, 30], [goodTask({ day: 1, capability: '—' })])],
+  }, undefined, ROLE)
+  assert.equal(plan.phases[0].tasks[0].capability, '—')
+})
+
+await check('考核自查不得含答案，且必须挂能力项', () => {
+  assert.throws(() => validate.canonicalPlan({
+    planStart: '2026-09-25', goal: 'x', phases: [goodPhase('a', [1, 30], [])],
+    selfCheck: [{ id: 'Q1', phase: 'a', question: 'q', capability: 'B1', answer: '答案' }],
+  }, undefined, ROLE), /不得含答案/)
+  assert.throws(() => validate.canonicalPlan({
+    planStart: '2026-09-25', goal: 'x', phases: [goodPhase('a', [1, 30], [])],
+    selfCheck: [{ id: 'Q1', phase: 'a', question: 'q' }],
+  }, undefined, ROLE), /必须挂一个能力项编号/)
+})
+
+await check('删除过的任务标识作废不复用', () => {
+  const first = validate.canonicalPlan({
+    planStart: '2026-09-25', goal: 'x', phases: [goodPhase('a', [1, 30], [goodTask({ day: 1 }), goodTask({ day: 2 })])],
+  }, undefined, ROLE)
+  // 删掉 T1，保留 T2；新任务必须拿 T3，不能顶掉 T1。
+  const second = validate.canonicalPlan({
+    planStart: '2026-09-25', goal: 'x', phases: [goodPhase('a', [1, 30], [
+      { ...first.phases[0].tasks[1], id: 'T2' },
+      goodTask({ day: 3 }),
+    ])],
+  }, first, ROLE)
+  assert.deepEqual(second.phases[0].tasks.map((task) => task.id), ['T2', 'T3'])
+  assert.equal(second.nextTaskNumber, 4)
+})
+
+await check('改措辞不改任务标识（标识永不变）', () => {
+  const first = validate.canonicalPlan({
+    planStart: '2026-09-25', goal: 'x', phases: [goodPhase('a', [1, 30], [goodTask({ day: 1 })])],
+  }, undefined, ROLE)
+  const renamed = validate.canonicalPlan({
+    planStart: '2026-09-25', goal: 'x',
+    phases: [goodPhase('a', [1, 30], [{ ...first.phases[0].tasks[0], action: '换了个说法' }])],
+  }, first, ROLE)
+  assert.equal(renamed.phases[0].tasks[0].id, 'T1', '位置无关的标识不该因为改措辞而换')
+})
+
+await check('复用已作废的编号被拒（否则会连旧记录一起继承）', () => {
+  const first = validate.canonicalPlan({
+    planStart: '2026-09-25', goal: 'x', phases: [goodPhase('a', [1, 30], [goodTask({ day: 1 }), goodTask({ day: 2 })])],
+  }, undefined, ROLE)
+  // T1 在磁盘上被删掉：只剩 T2，且 nextTaskNumber 已推到 3 —— T1 这个号段退休了。
+  const afterDeletion = { ...first, phases: [{ ...first.phases[0], tasks: [first.phases[0].tasks[1]] }] }
+  assert.throws(() => validate.canonicalPlan({
+    planStart: '2026-09-25', goal: 'x',
+    phases: [goodPhase('a', [1, 30], [{ ...goodTask({ day: 3 }), id: 'T1' }])],
+  }, afterDeletion, ROLE), /已被删除并作废/)
+})
+
+await check('前置依赖必须指向真实任务引用', () => {
+  assert.throws(() => validate.canonicalPlan({
+    planStart: '2026-09-25', goal: 'x', phases: [goodPhase('a', [1, 30], [goodTask({ day: 1, dependsOn: '9.9' })])],
+  }, undefined, ROLE), /前置依赖/)
+})
+
+await check('四维考核必须四维齐全且在 0-25', () => {
+  assert.throws(() => validate.canonicalReview({ scores: { 完成率: 20 }, day: 1 }), /缺 证据质量/)
+  assert.throws(() => validate.canonicalReview({ scores: { 完成率: 26, 证据质量: 1, 作品达标度: 1, 知识考核: 1 }, day: 1 }), /0-25/)
+  const ok = validate.canonicalReview({ scores: { 完成率: 20, 证据质量: 18, 作品达标度: 15, 知识考核: 22 }, day: 30 })
+  assert.equal(ok.total, 75)
+})
+
+// ---------------------------------------------------------------- 5. 工具
+
+await check('store 落盘到 $DSH_HOME/growth-workbench', () => {
+  assert.equal(store.dataDir(), join(home, 'growth-workbench'))
+  assert.deepEqual(store.read('plan').phases, [])
+})
+
+await check('growth_context 在空白实例上也能回答', async () => {
+  const text = await tools.growthContext.execute({ scope: 'brief' })
+  assert.match(text, /成长工作台 · 现状/)
+  assert.match(text, /还没有计划|未设定/)
+})
+
+await check('growth_save_plan 在没有目标方向时拒绝', async () => {
+  await assert.rejects(() => tools.growthSavePlan.execute({ planStart: '2026-09-25', goal: 'x', phases: [] }), /还没有目标方向/)
+})
+
+await check('growth_save_profile 更新画像，verifiedFacts 只追加', async () => {
+  await tools.growthSaveProfile.execute({ targetRole: '数据运营', targetRoleSlug: 'data-ops', targetRoleStatus: 'preset', route: '稳妥路线', verifiedFacts: ['怀疑：看到结论先问依据'] })
+  await tools.growthSaveProfile.execute({ verifiedFacts: ['怀疑：看到结论先问依据', '复现：能把问题稳定重现'], pending: ['可能偏好结构化表达'] })
+  const profile = store.read('profile')
+  assert.deepEqual(profile.verifiedFacts, ['怀疑：看到结论先问依据', '复现：能把问题稳定重现'], '重复的不该再进一次')
+  assert.deepEqual(profile.pending, ['可能偏好结构化表达'])
+})
+
+await check('growth_save_profile 合并追问答案，不覆盖别的键', async () => {
+  store.updateProfile({ intake: { q1: 'C', q2: 'B', q3: 'A', q4: 'B' } })
+  await tools.growthSaveProfile.execute({ background: { currentJob: '测试工程师' } })
+  await tools.growthSaveProfile.execute({ background: { scope: '写用例、跑回归' } })
+  assert.deepEqual(store.read('profile').background, { currentJob: '测试工程师', scope: '写用例、跑回归' })
+  // 清一个键：空串表示删掉它，而不是写一个空值进去
+  store.updateProfile({ background: { scope: '' } })
+  assert.deepEqual(store.read('profile').background, { currentJob: '测试工程师' })
+  store.updateProfile({ background: { scope: '写用例、跑回归' } })
+})
+
+await check('growth_propose_transferable 拒绝在空白背景上编', async () => {
+  const saved = store.read('profile').background
+  store.updateProfile({ background: { currentJob: '', scope: '' } })
+  await assert.rejects(
+    () => tools.growthProposeTransferable.execute({ items: [{ name: 'A', text: 'a' }, { name: 'B', text: 'b' }, { name: 'C', text: 'c' }] }),
+    /底盘必须从那里推/,
+  )
+  store.updateProfile({ background: saved })
+})
+
+await check('growth_propose_transferable 同时落「经历替代不了」的部分，并丢掉空白行', async () => {
+  const saved = store.read('profile').background
+  store.updateProfile({ background: { currentJob: '测试工程师', scope: '写用例、跑回归' } })
+  await tools.growthProposeTransferable.execute({
+    items: [
+      { name: '怀疑', text: '对结论先怀疑再验证' },
+      { name: '复现', text: '把问题稳定复现出来' },
+      { name: '闭环', text: '把问题推到修完并验证' },
+    ],
+    notTransferable: ['要能对模糊需求做出判断', '表达要给结论、给依据', '   '],
+  })
+  assert.deepEqual(
+    store.read('profile').notTransferable,
+    ['要能对模糊需求做出判断', '表达要给结论、给依据'],
+    '空白行必须被丢掉，否则页面上会出现一个空的项目符号',
+  )
+  store.updateProfile({ background: saved })
+})
+
+await check('growth_propose_transferable 拒绝无法确认的概括', async () => {
+  await assert.rejects(
+    () => tools.growthProposeTransferable.execute({
+      items: [{ name: '学习', text: '学习能力强' }, { name: 'B', text: '能把一个偶现缺陷稳定重现' }, { name: 'C', text: '完整跟过一次上线' }],
+    }),
+    /不是一条可确认的底子/,
+  )
+})
+
+await check('growth_propose_transferable 落成待确认清单，不直接写 verifiedFacts', async () => {
+  const text = await tools.growthProposeTransferable.execute({
+    items: [
+      { name: '复现', text: '能把一个偶现缺陷稳定重现出来' },
+      { name: '边界', text: '习惯找边界值和异常输入' },
+      { name: '跟发布', text: '完整跟过一次上线并处理线上问题' },
+    ],
+  })
+  assert.match(text, /已生成 3 条待确认的底子/)
+  const profile = store.read('profile')
+  assert.equal(profile.transferableSuggestions.length, 3)
+  assert.equal(profile.verifiedFacts.length, 2, '未经用户确认的提议绝不能自己走进 verifiedFacts')
+})
+
+await check('否掉一条底子后不再被提议，且不会悄悄回来', async () => {
+  assert.equal(store.dismissTransferable('复现：能把一个偶现缺陷稳定重现出来'), true)
+  store.setTransferableSuggestions([
+    { name: '复现', text: '能把一个偶现缺陷稳定重现出来' },
+    { name: '闭环', text: '把发现的问题推到一个结论' },
+  ])
+  assert.deepEqual(store.read('profile').transferableSuggestions.map((item) => item.name), ['闭环'])
+  assert.deepEqual(store.read('profile').dismissedTransferable, ['复现：能把一个偶现缺陷稳定重现出来'])
+})
+
+await check('确认过的底子也不会再被提议', async () => {
+  store.updateProfile({ verifiedFacts: ['闭环：把发现的问题推到一个结论'] })
+  store.setTransferableSuggestions([{ name: '闭环', text: '把发现的问题推到一个结论' }])
+  assert.deepEqual(store.read('profile').transferableSuggestions, [])
+})
+
+await check('growth_propose_capability_model 拒绝覆盖预置模型', async () => {
+  await assert.rejects(
+    () => tools.growthProposeCapabilityModel.execute({ name: 'x', positioning: 'y', groups: [], items: [] }),
+    /已经有随版本发布的预置能力模型/,
+  )
+})
+
+await check('生成的模型能支撑逐项自评（走同一条 gapAnalysis）', async () => {
+  store.updateProfile({ targetRole: '数据分析师', targetRoleSlug: 'custom', targetRoleStatus: 'beta' })
+  const items = [
+    { id: 'A1', group: 'A', name: 'SQL 取数', level: '高', anchors: ['会写单表查询', '能多表关联取业务口径数据', '能写窗口函数做复杂分层'] },
+    { id: 'A2', group: 'A', name: '数据清洗', level: '中', anchors: ['知道要查缺失', '能写清洗流程', '能建立可复用的清洗规范'] },
+    { id: 'A3', group: 'A', name: '指标体系', level: '中', anchors: ['认识常见指标', '能为一款产品定指标', '能设计指标树并推动治理'] },
+    { id: 'B1', group: 'B', name: '结论产出', level: '高', anchors: ['能复述数字', '能给出有依据的结论', '能给出结论并标出不确定性'] },
+    { id: 'B2', group: 'B', name: '可视化', level: '中', anchors: ['会画基础图表', '能选对图表类型', '能用最少图表说清最复杂的事'] },
+    { id: 'B3', group: 'B', name: '报告写作', level: '高', anchors: ['能把结论写清楚', '能写完整报告', '能写出让决策者行动的结论'] },
+    { id: 'B4', group: 'B', name: '业务理解', level: '中', anchors: ['知道公司在做什么生意', '能说清盈利模式', '能预判下一步关键变量'] },
+    { id: 'B5', group: 'B', name: '跨部门沟通', level: '低', anchors: ['能把需求说清楚', '能推动配合', '能对齐多方目标'] },
+  ]
+  const text = await tools.growthProposeCapabilityModel.execute({
+    name: '数据分析师', positioning: '把业务数据变成可决策的洞察与报告。',
+    groups: [{ key: 'A', name: '数据处理', weight: 40 }, { key: 'B', name: '分析表达', weight: 60 }],
+    items,
+  })
+  assert.match(text, /能力模型已生成/)
+  assert.match(text, /未经行业校准/, '未经校准这件事必须说出来')
+  const profile = store.read('profile')
+  assert.equal(profile.capabilityModel.provenance, 'generated')
+  assert.equal(model.resolveRoleStatus(profile), 'generated')
+
+  const round = api.saveSelfAssessment({ scores: { A1: 3, B1: 1, B3: 2 } })
+  assert.equal(round.entry.gapWeight, 40 * 3 + 60 * 3 + 60 * 3, 'W 用的是生成模型自己的权重')
+  assert.deepEqual(round.analysis.priorities.map((entry) => entry.id), ['B1', 'B3'])
+  assert.deepEqual(round.entry.curvePoints.map((point) => point.能力项), ['A1', 'B1', 'B3'])
+})
+
+await check('换方向后生成的模型自动失效，不会拿旧模型给新方向打分', async () => {
+  store.updateProfile({ targetRoleSlug: 'data-ops' })
+  const state = api.buildState()
+  assert.equal(state.catalog.activeRoleSource, 'preset')
+  assert.equal(state.catalog.activeRole.name, '数据运营')
+  assert.equal(store.read('profile').capabilityModel.forSlug, 'custom', '模型还在，只是不再生效')
+})
+
+await check('自评带上模型里不存在的编号时明确拒绝', async () => {
+  assert.throws(() => api.saveSelfAssessment({ scores: { ZZ9: 3 } }), /不在当前模型里/)
+})
+
+await check('growth_context scope=model 给出结构模板', async () => {
+  const text = await tools.growthContext.execute({ scope: 'model' })
+  assert.match(text, /## 能力模型/)
+  assert.match(text, /1 分锚点/)
+  assert.match(text, /高权重项/)
+})
+
+await check('growth_context scope=profile 带上追问与底盘提议状态', async () => {
+  const text = await tools.growthContext.execute({ scope: 'profile' })
+  assert.match(text, /当前状态的追问/)
+  assert.match(text, /已否掉的底子/)
+  assert.match(text, /能力模型来源/)
+})
+
+await check('growth_save_plan 写入并分配标识', async () => {
+  const text = await tools.growthSavePlan.execute({
+    planStart: '2026-09-25', goal: '三个月能独立产出分析报告',
+    phases: [goodPhase('基础', [1, 30], [goodTask({ day: 1 })]), goodPhase('实战', [31, 60], [])],
+    selfCheck: [{ id: 'Q1', phase: '基础', question: '漏斗怎么用', capability: 'B1' }],
+  })
+  assert.match(text, /计划已写入/)
+  assert.match(text, /T1/)
+  assert.deepEqual(store.read('plan').phases[0].tasks.map((task) => task.id), ['T1'])
+})
+
+await check('growth_context scope=progress 给出每个任务一行', async () => {
+  const text = await tools.growthContext.execute({ scope: 'progress' })
+  assert.match(text, /任务标识：T1/)
+  assert.match(text, /证据档位：null/, '没交证据时档位是字面量 null，不是自述')
+})
+
+await check('打卡累积打卡日，且证据为空时档位回落 null', async () => {
+  store.checkIn('T1', { done: true, evidence: '看了三篇', tier: '过程' }, '2026-09-25')
+  store.checkIn('T1', { done: true }, '2026-09-26')
+  const entry = store.read('progress').tasks.T1
+  assert.deepEqual(entry.checkInDates, ['2026-09-25', '2026-09-26'], '打卡日必须累积，不能覆盖')
+  assert.equal(entry.tier, '过程')
+  store.checkIn('T1', { evidence: '' })
+  assert.equal(store.read('progress').tasks.T1.tier, null, '证据清空后档位不能停留在旧值')
+})
+
+await check('打卡只接受 T<n> 形式的任务标识', () => {
+  assert.throws(() => store.checkIn('1.1', {}), /task id must look like/)
+})
+
+await check('growth_save_assessment 落历史并给出机制提示', async () => {
+  const text = await tools.growthSaveAssessment.execute({
+    scores: { 完成率: 8, 证据质量: 18, 作品达标度: 15, 知识考核: 20 },
+    day: 30, confidence: 'medium', coverage: '全量',
+    attribution: '计划问题', adjustments: [{ 任务标识: 'T1', 一句话动作: '换成十分钟版' }],
+  })
+  assert.match(text, /考核已记入历史/)
+  assert.match(text, /触发铁律/, '完成率 8 分应触发减量那条铁律')
+  assert.match(text, /总分 61（及格）/)
+  const history = store.read('assessments').history
+  const reviews = history.filter((entry) => entry.kind === 'review')
+  assert.equal(reviews.length, 1)
+  assert.equal(reviews[0].kind, 'review')
+})
+
+await check('考核历史只追加、按日期升序', async () => {
+  store.appendAssessment({ date: '2026-09-01', day: 1, kind: 'self', coverage: '全量', curvePoints: [] })
+  const dates = store.read('assessments').history.map((entry) => entry.date)
+  assert.deepEqual(dates, [...dates].sort(), '历史必须按日期升序')
+  assert.ok(dates.includes('2026-09-01') && dates.length >= 2, '追加不该覆盖已有的轮次')
+})
+
+await check('一段写坏的 JSON 会被明确报错，而不是静默当空', () => {
+  // 复现后必须把计划放回去 —— 后面的检查要跑在真实计划上。
+  const preserved = store.read('plan')
+  writeFileSync(store.dataPath('plan'), 'not json')
+  assert.throws(() => store.read('plan'), /not valid JSON/)
+  store.write('plan', preserved)
+  assert.ok(store.read('plan').phases.length > 0)
+})
+
+await check('写入是原子的：不留临时文件', () => {
+  store.updateProfile({ currentRole: '测试工程师' })
+  assert.deepEqual(readdirSync(store.dataDir()).filter((file) => file.endsWith('.tmp')), [])
+})
+
+// ---------------------------------------------------------------- 6. HTTP
+
+/** Install a fake request/response pair and run the handler against it. */
+async function callApi(method, url, body) {
+  const chunks = body === undefined ? [] : [Buffer.from(JSON.stringify(body), 'utf8')]
+  const req = {
+    method,
+    url,
+    async *[Symbol.asyncIterator]() { for (const chunk of chunks) yield chunk },
+  }
+  let status
+  let payload = ''
+  const res = { writeHead(code) { status = code; return this }, end(text) { payload = text ?? ''; return this } }
+  await api.handleApi(req, res)
+  let parsed
+  try { parsed = JSON.parse(payload) } catch { parsed = { raw: payload } }
+  return { status, body: parsed }
+}
+
+await check('GET /state 一次给全页面需要的东西', async () => {
+  const reply = await callApi('GET', `${api.API_PREFIX}/state`)
+  assert.equal(reply.status, 200)
+  assert.equal(reply.body.ok, true)
+  assert.ok(Array.isArray(reply.body.plan.tasks))
+  assert.ok(reply.body.metrics.completion !== undefined)
+  assert.ok(Array.isArray(reply.body.history))
+  assert.ok(Array.isArray(reply.body.catalog.questions))
+  assert.equal(reply.body.catalog.activeRole.slug, 'data-ops')
+  assert.equal(reply.body.catalog.highWeightIds.length, 10)
+  assert.equal(reply.body.catalog.activeRoleSource, 'preset')
+  assert.ok(reply.body.catalog.followUps !== undefined, '当前状态答了就一定有追问')
+  assert.ok(Array.isArray(reply.body.catalog.missingBackground), '页面靠它决定要不要显示必填告警')
+  assert.ok(typeof reply.body.catalog.transferableNote.proposePrompt === 'string')
+})
+
+await check('POST /intake 保存四个选择题并推出约束与截止', async () => {
+  const reply = await callApi('POST', `${api.API_PREFIX}/intake`, {
+    roleSlug: 'data-ops', intake: { q1: 'C', q2: 'B', q3: 'A', q4: 'B' }, route: '冲刺路线',
+  })
+  assert.equal(reply.status, 200)
+  const profile = store.read('profile')
+  assert.equal(profile.route, '冲刺路线')
+  assert.equal(profile.timePerDay, '约 1 小时')
+  assert.ok(profile.deadline.length === 10)
+  assert.ok(profile.constraints.includes('在职想转行'))
+})
+
+await check('POST /intake 收到非法选项时回落到最保守默认', async () => {
+  await callApi('POST', `${api.API_PREFIX}/intake`, { roleSlug: 'data-ops', intake: { q1: 'H', q2: null, q3: 'H', q4: 'H' } })
+  assert.deepEqual(store.read('profile').intake, model.INTAKE_DEFAULTS)
+})
+
+await check('POST /intake 支持自定义方向', async () => {
+  const reply = await callApi('POST', `${api.API_PREFIX}/intake`, {
+    roleSlug: model.CUSTOM_SLUG, roleName: '数据分析师', intake: { q1: 'C', q2: 'B', q3: 'A', q4: 'B' }, route: '稳妥路线',
+  })
+  assert.equal(reply.status, 200)
+  const profile = store.read('profile')
+  assert.equal(profile.targetRole, '数据分析师')
+  assert.equal(profile.targetRoleSlug, model.CUSTOM_SLUG)
+  assert.equal(profile.targetRoleStatus, 'beta')
+  assert.match(profile.positioning, /自定义/)
+})
+
+await check('POST /intake 拒绝空的自定义方向名', async () => {
+  const reply = await callApi('POST', `${api.API_PREFIX}/intake`, { roleName: '   ', intake: {} })
+  assert.equal(reply.status, 400)
+  assert.match(reply.body.error, /请先选择一个目标方向/)
+})
+
+await check('POST /background 保存追问，缺必填时拒绝', async () => {
+  store.updateProfile({ background: { currentJob: '', scope: '', industry: '', years: '' } })
+  const missing = await callApi('POST', `${api.API_PREFIX}/background`, { background: { currentJob: '测试工程师' } })
+  assert.equal(missing.status, 400)
+  assert.match(missing.body.error, /必填/)
+  const ok = await callApi('POST', `${api.API_PREFIX}/background`, { background: { currentJob: '测试工程师', scope: '写用例、跑回归、跟发布' } })
+  assert.equal(ok.status, 200)
+  assert.equal(store.read('profile').background.scope, '写用例、跑回归、跟发布')
+})
+
+await check('POST /background 在没答 ② 的第一题时拒绝', async () => {
+  const saved = store.read('profile').intake
+  store.updateProfile({ intake: {} })
+  const reply = await callApi('POST', `${api.API_PREFIX}/background`, { background: { currentJob: 'x' } })
+  assert.equal(reply.status, 400)
+  assert.match(reply.body.error, /先答 ② 的第一题/)
+  store.updateProfile({ intake: saved })
+})
+
+await check('POST /transferable 一次同时确认与否决', async () => {
+  await callApi('POST', `${api.API_PREFIX}/transferable`, {
+    facts: ['复现：能把一个偶现缺陷稳定重现出来'],
+    dismissed: ['跟发布：完整跟过一次上线并处理线上问题'],
+  })
+  const profile = store.read('profile')
+  assert.ok(profile.verifiedFacts.includes('复现：能把一个偶现缺陷稳定重现出来'))
+  assert.ok(profile.dismissedTransferable.includes('跟发布：完整跟过一次上线并处理线上问题'))
+  assert.ok(!profile.transferableSuggestions.some((item) => item.name === '跟发布'), '否掉的要从待确认里拿掉')
+  const empty = await callApi('POST', `${api.API_PREFIX}/transferable`, {})
+  assert.equal(empty.status, 400)
+})
+
+await check('POST /capability-model 只接受 discard', async () => {
+  const refused = await callApi('POST', `${api.API_PREFIX}/capability-model`, { name: 'x' })
+  assert.equal(refused.status, 400)
+  assert.match(refused.body.error, /只能由 Agent 生成/)
+  const discarded = await callApi('POST', `${api.API_PREFIX}/capability-model`, { discard: true })
+  assert.equal(discarded.status, 200)
+  assert.equal(store.read('profile').capabilityModel, null)
+  // 回到预置方向，后面的自评与考核才有模型可用。
+  await callApi('POST', `${api.API_PREFIX}/intake`, { roleSlug: 'data-ops', intake: { q1: 'C', q2: 'B', q3: 'A', q4: 'B' }, route: '稳妥路线' })
+  assert.equal(store.read('profile').targetRoleSlug, 'data-ops')
+})
+
+await check('POST /plan-start 保存第 1 天，并拒绝坏日期', async () => {
+  const ok = await callApi('POST', `${api.API_PREFIX}/plan-start`, { date: '2026-09-25' })
+  assert.equal(ok.status, 200)
+  assert.equal(store.read('plan').planStart, '2026-09-25')
+  const bad = await callApi('POST', `${api.API_PREFIX}/plan-start`, { date: '25/09/2026' })
+  assert.equal(bad.status, 400)
+  assert.match(bad.body.error, /YYYY-MM-DD/)
+})
+
+await check('POST /checkin 拒绝计划里不存在的任务', async () => {
+  const reply = await callApi('POST', `${api.API_PREFIX}/checkin`, { taskId: 'T99', done: true })
+  assert.equal(reply.status, 400)
+  assert.match(reply.body.error, /计划里没有 T99/)
+})
+
+await check('POST /self-assessment 逐项落点、算 gap、写进历史', async () => {
+  const scores = Object.fromEntries(model.ROLES['data-ops'].items.map((item) => [item.id, 3]))
+  scores.A2 = 1
+  const reply = await callApi('POST', `${api.API_PREFIX}/self-assessment`, { scores })
+  assert.equal(reply.status, 200)
+  assert.equal(reply.body.entry.kind, 'self')
+  assert.equal(reply.body.entry.coverage, '全量', '快速自评是全部 20 项，算全量')
+  assert.equal(reply.body.entry.answered, 20)
+  assert.equal(reply.body.entry.curvePoints.length, 20)
+  assert.ok(Math.abs(store.read('profile').selfAssessment.gap - 180 / 1300) < 1e-9)
+})
+
+await check('自评分数越界被拒', async () => {
+  const reply = await callApi('POST', `${api.API_PREFIX}/self-assessment`, { scores: { A1: 9 } })
+  assert.equal(reply.status, 400)
+  assert.match(reply.body.error, /1-5/)
+})
+
+await check('自评点被窗口内的过程级证据抬到 medium', async () => {
+  // 本轮窗口是 [上一轮评估日 + 1, 今天]，所以同日重评会得到空窗口 —— 这是契约
+  // 定义的形状（间隔本来就不固定，以「上一次评估」为界首尾相接）。这里从干净
+  // 的历史开始，验的是「任务证据进入曲线的唯一通路」本身。
+  store.write('assessments', store.empty('assessments'))
+  store.checkIn('T1', { done: true, evidence: '笔记', tier: '过程' }, store.today())
+  const reply = await callApi('POST', `${api.API_PREFIX}/self-assessment`, { scores: { A6: 3 } })
+  assert.equal(reply.body.entry.curvePoints[0].能力项, 'A6')
+  assert.equal(reply.body.entry.curvePoints[0].置信度, 'medium')
+  assert.equal(reply.body.entry.curvePoints[0].证据档位, '过程')
+})
+
+await check('POST /assessment 登记四维成绩', async () => {
+  const reply = await callApi('POST', `${api.API_PREFIX}/assessment`, {
+    scores: { 完成率: 20, 证据质量: 18, 作品达标度: 15, 知识考核: 22 }, day: 30,
+  })
+  assert.equal(reply.status, 200)
+  assert.equal(reply.body.entry.total, 75)
+  assert.equal(reply.body.entry.grade, '良')
+})
+
+await check('POST /reset 只清指定分区', async () => {
+  const reply = await callApi('POST', `${api.API_PREFIX}/reset`, { kind: 'progress' })
+  assert.equal(reply.status, 200)
+  assert.deepEqual(store.read('progress').tasks, {})
+  assert.ok(store.read('plan').phases.length > 0, '清打卡不该动计划')
+  const bad = await callApi('POST', `${api.API_PREFIX}/reset`, { kind: 'nope' })
+  assert.equal(bad.status, 400)
+})
+
+await check('GET /export 给一份可自己留存的备份', async () => {
+  const reply = await callApi('GET', `${api.API_PREFIX}/export`)
+  assert.equal(reply.status, 200)
+  assert.ok(reply.body.data.profile !== undefined && reply.body.data.plan !== undefined)
+  assert.ok(reply.body.exported.length === 10)
+})
+
+await check('未知路由是 404', async () => {
+  const reply = await callApi('GET', `${api.API_PREFIX}/nope`)
+  assert.equal(reply.status, 404)
+})
+
+rmSync(home, { recursive: true, force: true })
+
+console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : `${String(failures)} CHECK(S) FAILED`}`)
+process.exit(failures === 0 ? 0 : 1)
