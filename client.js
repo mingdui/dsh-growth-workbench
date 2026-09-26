@@ -1024,7 +1024,7 @@ window.__ModuleLoader__.load({
           : h('div', { key: 'uncal', style: S.warn }, `${sourceNote.note}`),
         h('div', { key: 'note', style: S.meta },
           '带锚点打分：每项都给你 1 / 3 / 5 的原文。'
-          + '答不上来的选「不知道」—— 不要替自己填 1 分或 0 分。'),
+          + '拿不准的项就点它 —— 这一项不进缺口计算，也不会被当成 0 分；随时可以回来补。'),
       ];
       if (source !== 'preset') {
         // 「重新生成」是反复发生的动作（这份模型已经在了，没法用"存在与否"判断完成），
@@ -1055,11 +1055,12 @@ window.__ModuleLoader__.load({
                 type: 'button',
                 'data-item': item.id,
                 'data-value': 'unknown',
-                // 不按"未答"高亮：选「不知道」会删掉那个键，所以"没答过"与"答了不知道"在数据上
+                  title: '1/3/5 之间拿不准，或者对这一项不熟悉 —— 两种情况都算',
+                // 不按"未答"高亮：选「拿不准」会删掉那个键，所以"没答过"与"答了拿不准"在数据上
                 // 是同一个状态 —— 把未答画成已选，会让 19 项看起来全都答完了。
                 style: { ...S.button, ...S.small },
                 onClick: () => set(item.id, null),
-              }, '不知道'),
+              }, '拿不准'),
             ]),
             h('div', { key: 'anchors', style: S.fine }, anchorText(item)),
           ])),
