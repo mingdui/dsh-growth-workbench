@@ -960,6 +960,12 @@ window.__ModuleLoader__.load({
             }, '没做过'),
           ]);
         })));
+        // 「重新生成」是反复发生的动作（候选已经在了，没法用「存在与否」判断完成），所以不带 `done`：
+        // 点完等它跑，冷却之后再可用。与 ⑤ 的「重新生成模型」对称。
+        kids.push(h('div', { key: 'rebuild', style: S.inline }, [
+          h(AskButton, { key: 'btn', text: '帮我看看我有什么底子', label: '重新生成候选', style: S.small,
+            hint: '不满意就直接说哪一条不对 —— 它会重新读你的追问。' }),
+        ]));
       }
 
       const confirmedOnly = confirmed.filter((text) => !suggestions.some((item) => line(item) === text));
@@ -1127,8 +1133,20 @@ window.__ModuleLoader__.load({
       return h('div', { 'data-anchor': 'self', style: S.card }, kids);
     }
 
-    function ProfileFlow({ state, post, onNavigate }) {
+    /** 深链锚点 → 它落在哪一步。route 与 background 都在 ② 里面。 */
+    const ANCHOR_STEP = {
+      direction: 'direction', intake: 'intake', route: 'intake',
+      background: 'intake', transferable: 'transferable', self: 'self',
+    }
+
+    function ProfileFlow({ state, post, onNavigate, focusAnchor }) {
       const profile = state.profile;
+      // 深链指到哪一步就先展开哪一步 —— 折叠状态下锚点不在 DOM 里，滚动会扑空。
+      useEffect(() => {
+        if (focusAnchor === null || focusAnchor === undefined) return;
+        const step = ANCHOR_STEP[focusAnchor.anchor];
+        if (step !== undefined) setOpen(step);
+      }, [focusAnchor]);
       // 折叠行左侧那个点：填色 = 这一步已经产出了东西，空心 = 还没有。
       // 口径是「这一步自己的产出有没有」，不是「表单是不是每一项都填满了」。
       const done = {
@@ -1255,14 +1273,20 @@ window.__ModuleLoader__.load({
     function Panel() {
       const { state, error, post } = useWorkbench();
        const [tab, setTab] = useState('today');
+       // 深链落到画像时先让那一步展开 —— 折叠状态下锚点不在 DOM 里，滚动会扑空。
+       // 存对象而不是字符串：连点同一个目标时也要能重新触发。
+       const [focusAnchor, setFocusAnchor] = useState(null);
 
        const navigate = useCallback((targetTab, anchor) => {
          setTab(targetTab);
+         if (targetTab === 'profile' && typeof anchor === 'string' && anchor.length > 0) {
+           setFocusAnchor({ anchor, at: Date.now() });
+         }
          setTimeout(() => {
            if (typeof document === 'undefined' || !anchor) return;
            const node = document.querySelector(`[data-anchor="${anchor}"]`) || document.querySelector(`[data-task-id="${anchor.replace('task-', '')}"]`);
            node?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
-         }, 50);
+         }, 160);
        }, []);
 
       if (state === null) {
@@ -1276,7 +1300,7 @@ window.__ModuleLoader__.load({
         today: () => h(TodayBody, { state, post, compact: false }),
         plan: () => h(PlanTabBody, { state, post }),
         review: () => h(ReviewTabBody, { state, post }),
-        profile: () => h(ProfileFlow, { key: 'profile-flow', state, post, onNavigate: navigate }),
+        profile: () => h(ProfileFlow, { key: 'profile-flow', state, post, onNavigate: navigate, focusAnchor }),
       };
 
       return h('div', { style: S.page }, [
