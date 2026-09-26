@@ -190,6 +190,19 @@ await check('被幂等闸拦下的那次点击，不能说成「已排进对话�
   assert.doesNotMatch(source, /setNote\(outcome\.queued \?/, '别再让「被拦下」借用「排队」那句话')
 })
 
+await check('考核的收尾契约写在模型一定看得到的地方', () => {
+  const toolsSource = readFileSync(join(ROOT, 'tools.mjs'), 'utf8')
+  // 考核内容只有在 growth_save_assessment 落盘之后才会出现在页面上 —— 问答本身不逐步
+  // 落盘。没有这句话，模型会在对话里一路问下去，页面永远空着；用户看到的就是
+  // 「考核没有同步回考核页」。工具描述常驻上下文，所以契约写在它开头，简报里再复述一遍。
+  assert.match(toolsSource, /\*\*考核的收尾动作\*\*/)
+  assert.match(toolsSource, /拿到用户回答之后必须调用本工具落盘/)
+  assert.match(toolsSource, /考完必须调用 growth_save_assessment 收尾/)
+  // 页面这边也要说清：考核在对话里进行，答完才写回 —— 否则用户会以为点了就该立刻出现。
+  const clientSource = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  assert.match(clientSource, /考核在你的对话里一问一答/)
+})
+
 await check('package name is the bundle identity', () => assert.equal(pkg.name, NAME))
 await check('files[] ships cordis.patch.yml', () => assert.ok(pkg.files.includes('cordis.patch.yml')))
 await check('dsh.bundle.patch points at the patch layer', () => assert.equal(pkg.dsh?.bundle?.patch, './cordis.patch.yml'))

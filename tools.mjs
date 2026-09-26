@@ -156,7 +156,7 @@ function planBlock(state) {
     lines.push('')
   }
   if (plan.selfCheck.length > 0) {
-    lines.push('### 考核自查（只有题目，答案在考核时现场给）')
+    lines.push('### 考核自查（只有题目，答案在考核时现场给）\n**考完必须调用 growth_save_assessment 收尾** —— 只在对话里问完不算考过，页面上不会出现这一轮。')
     for (const item of plan.selfCheck) lines.push(`- [${item.id}]（${item.phase}）${item.question}　→ 能力项 ${item.capability}`)
   }
   return lines.join('\n')
@@ -682,7 +682,7 @@ export const growthProposeCapabilityModel = {
  */
 export const growthSaveAssessment = {
   name: 'growth_save_assessment',
-  description: '写入一次考核结果（四维各 0-25：完成率 / 证据质量 / 作品达标度 / 知识考核）。写之前先用 growth_context 读 scope=progress 与 scope=plan，按 rubric 逐维给依据。数据缺失的维度必须放进 unsubmitted 标「未提交」按 0 计，**不要把 0 分和真的得 0 分混为一谈**；完成率与证据质量必须分开报，不得合成一个「真实完成率」。调整建议必须动到任务（换最低完成版本 / 改预计分钟 / 明确可接受证据），只给鼓励不算调整；并把下一场考核日期写进调整项。',
+  description: '**考核的收尾动作**：问完 2-3 道自查题、拿到用户回答之后必须调用本工具落盘 —— 考核内容只有在写进这一轮之后才会出现在页面上；只在对话里问完不算考过，页面会一直是空的。逐题记录、四维依据、下一场考核日期都写进 report。写入一次考核结果（四维各 0-25：完成率 / 证据质量 / 作品达标度 / 知识考核）。写之前先用 growth_context 读 scope=progress 与 scope=plan，按 rubric 逐维给依据。数据缺失的维度必须放进 unsubmitted 标「未提交」按 0 计，**不要把 0 分和真的得 0 分混为一谈**；完成率与证据质量必须分开报，不得合成一个「真实完成率」。调整建议必须动到任务（换最低完成版本 / 改预计分钟 / 明确可接受证据），只给鼓励不算调整；并把下一场考核日期写进调整项。',
   parameters: {
     type: 'object',
     properties: {

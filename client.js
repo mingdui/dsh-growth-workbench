@@ -753,7 +753,7 @@ window.__ModuleLoader__.load({
           h('div', { key: 'act', style: S.inline }, [
             // 反复发生的动作 → 不带 `done`：点完冷却一会儿就重新可用。
             h(AskButton, { key: 'ask', text: '考核我', label: '让 AI 现在考核', style: S.buttonOn,
-              hint: '它会读进度、打分、写回这一页，并给出接下来 7 天的调整版任务。' }),
+              hint: '考核在你的对话里一问一答；答完写回这一页，并给接下来 7 天的调整版任务。' }),
           ]),
         ]),
         h('div', { key: 'trend', style: S.card }, [
