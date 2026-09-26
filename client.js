@@ -962,6 +962,18 @@ window.__ModuleLoader__.load({
       return h('div', { 'data-anchor': 'transferable', style: S.card }, kids);
     }
 
+    /**
+     * One capability item's 1 / 3 / 5 anchors, as a single line.
+     *
+     * This was a call to a helper that was never defined anywhere: the first item threw
+     * `ReferenceError` on render, so opening ⑤ with a model in force showed nothing at
+     * all. The three anchors are the one thing that has to stay on screen while the
+     * user scores — they are why the scoring happens on a page and not in a chat.
+     */
+    const anchorText = (item) => (item.anchors ?? [])
+      .map((text, index) => `${String([1, 3, 5][index] ?? index + 1)}　${text}`)
+      .join('　·　')
+
     /** Step ⑤: the self-assessment — every item with its anchors on screen, one click each. */
     function SelfAssessmentForm({ state, post }) {
       const { catalog, profile } = state;
@@ -1097,6 +1109,8 @@ window.__ModuleLoader__.load({
         if (!done.direction) return 'direction';
         if (!done.intake) return 'intake';
         if (!done.transferable) return 'transferable';
+        // 能力模型建好、还没打过分时，自评就是下一步 —— 它不该被跳过（见下面的 planReady）。
+        if (!done.self && state.catalog.activeRole !== null) return 'self';
         return '';
       });
       // 自定义岗位名的草稿与提交都放在这里：表单里已经没有自己的提交按钮了，
@@ -1122,12 +1136,14 @@ window.__ModuleLoader__.load({
         self: Object.keys(profile.selfAssessment?.scores ?? {}).length > 0 ? `${String(Object.keys(profile.selfAssessment.scores).length)} 项已完成` : '未开始',
       };
 
-      // 计划能不能生成，判断口径必须与「计划」页空状态里的 ready 完全一致，
-      // 否则两处会互相矛盾。生成计划不需要自评分数，所以这里不看 done.self。
+      // 计划的输入条件与「计划」页空状态里的 ready 保持同一口径（方向 + 追问齐全 + 有模型），
+      // 另外还要等自评做完：缺口与补强优先级是打分产出的，而它们决定计划该补哪几项能力。
+      // 少了这一条，卡片会在自评还没做的时候就催用户去生成计划。
       const planReady = state.plan.phases.length === 0
         && state.profile.targetRole.length > 0
         && state.catalog.missingBackground.length === 0
-        && state.catalog.activeRole !== null;
+        && state.catalog.activeRole !== null
+        && done.self;
       const confirm = (next, action) => { setOpen(next); if (action) action(); };
       const saveRole = (slug, name) => {
         void post('/intake', {

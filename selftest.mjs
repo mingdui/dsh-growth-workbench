@@ -84,6 +84,12 @@ await check('client.js has the four profile steps, in order', () => {
   assert.ok(followUps > source.indexOf('function IntakeForm(') && followUps < source.indexOf('function BackgroundForm('), '追问要由 ② 自己渲染，而不是单独一步')
 })
 
+await check('client.js 的锚点渲染函数有定义（曾漏定义，展开 ⑤ 会抛 ReferenceError）', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  assert.match(source, /const anchorText = \(item\) =>/, '缺失时整步渲染不出来，而且只有真渲染才会暴露')
+  assert.match(source, /anchorText\(item\)/, '定义好了却没人调用，同样说明这一步断了')
+})
+
 await check('client.js offers a free-text direction', () => {
   const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
   assert.match(source, /'aria-label': '自定义岗位'/)
