@@ -138,6 +138,19 @@ window.__ModuleLoader__.load({
       listener(agentActivity);
       return () => activityListeners.delete(listener);
     }
+    /**
+     * Is one of our agent runs in flight right now?
+     *
+     * 空状态写「生成中」而其实没在跑，与写「去点上一页的按钮」而其实已经跑起来了，
+     * 是同一种错误的两面：文案必须跟着真实状态走。页头那条 AI 状态栏用的就是这个信号。
+     */
+    function useAgentBusy() {
+      const [activity, setActivity] = useState(agentActivity);
+      useEffect(() => subscribeActivity(setActivity), []);
+      return activity !== null && activity !== undefined
+        && (activity.status === 'running' || activity.status === 'queued');
+    }
+
     function startExternalRefresh(load) {
       let stopped = false;
       let timer;
@@ -183,6 +196,12 @@ window.__ModuleLoader__.load({
      */
     async function askAgent(text) {
       if (rootCtx === undefined) throw new Error('工作台还没挂载完成，稍后重试');
+      // 幂等：同一条指令还在跑（或已排进队列、结果还没落盘）时不再发第二条。
+      // 模块确认按钮上的自动触发是直接调这里的，绕过了 AskButton 那道 sendInFlight 闸 ——
+      // 连点两下确认就是两次 Agent 运行，而它们要写的是同一份候选。
+      if (agentActivity !== null && agentActivity !== undefined
+        && (agentActivity.status === 'running' || agentActivity.status === 'queued')
+        && agentActivity.text === text) return { queued: true };
       setAgentActivity({ status: 'running', text, startedAt: Date.now() });
       // 用 ctx.get 而不是 inject：inject 里写一个不存在的服务会让整个插件静默不挂载，
       // 而这里只需要"拿不到就说清楚"。
@@ -868,6 +887,7 @@ window.__ModuleLoader__.load({
       const { catalog, profile } = state;
       const confirmed = profile.verifiedFacts ?? [];
       const suggestions = profile.transferableSuggestions ?? [];
+      const busy = useAgentBusy();
       const line = (item) => `${item.name}：${item.text}`;
 
       const confirm = (text) => {
@@ -886,10 +906,12 @@ window.__ModuleLoader__.load({
       } else if (catalog.missingBackground.length > 0) {
         kids.push(h('div', { key: 'need', style: S.meta }, `先补完「当前状态」里的：${catalog.missingBackground.join('、')}`));
       } else if (suggestions.length === 0) {
-        kids.push(h('div', { key: 'empty', style: { ...S.empty, display: 'flex', alignItems: 'center', gap: '8px' } }, [
-          h('span', { key: 'dot', style: { width: '8px', height: '8px', borderRadius: '50%', background: 'var(--gw-coral, #e56b55)' } }),
-          '智能生成中…',
-        ]));
+        kids.push(busy
+          ? h('div', { key: 'empty', style: { ...S.empty, display: 'flex', alignItems: 'center', gap: '8px' } }, [
+            h('span', { key: 'dot', style: { width: '8px', height: '8px', borderRadius: '50%', background: 'var(--gw-coral, #e56b55)' } }),
+            '智能生成中…',
+          ])
+          : h('div', { key: 'empty', style: S.empty }, '还没有候选 —— 确认「你的条件」时会自动生成一份；也可以在对话里说一句「帮我看看我有什么底子」。'));
       } else {
         const onCount = suggestions.filter((item) => confirmed.includes(line(item))).length;
         kids.push(h('div', { key: 'tally', style: S.meta }, `已确认 ${String(onCount)} / ${String(suggestions.length)} 条`));
@@ -944,6 +966,7 @@ window.__ModuleLoader__.load({
     function SelfAssessmentForm({ state, post }) {
       const { catalog, profile } = state;
       const role = catalog.activeRole;
+      const busy = useAgentBusy();
       const [scores, setScores] = useState(() => ({ ...(profile.selfAssessment?.scores ?? {}) }));
       useEffect(() => {
         setScores({ ...(profile.selfAssessment?.scores ?? {}) });
@@ -957,7 +980,9 @@ window.__ModuleLoader__.load({
           h('h3', { key: 't', style: S.h3 }, '能力自评'),
           h('div', { key: 'note', style: S.empty },
             `${profile.targetRole || '当前方向'}还没有能力模型，所以现在还没法逐项打分。`),
-          h('div', { key: 'why', style: S.fine }, '上一步点「确认可迁移能力，继续 →」时会自动让 AI 生成一份；生成后这里就能逐项打分，每项带 1/3/5 锚点原文。'),
+          busy
+            ? h('div', { key: 'why', style: S.meta }, 'AI 正在生成这个方向的能力模型 —— 完成后这里会自动变成逐项打分，不用回上一步。')
+            : h('div', { key: 'why', style: S.fine }, '确认「可迁移能力」时会自动生成一份；生成后这里就能逐项打分，每项带 1/3/5 锚点原文。一直没生成的话，在对话里说一句「帮我建这个方向的能力模型」。'),
           canBuild ? null : h('div', { key: 'block', style: S.meta },
             '先选定方向，并补完「当前状态」里的追问。'),
         ]);
