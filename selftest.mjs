@@ -323,6 +323,15 @@ await check('原型里定下的那些块，实现里也都在', () => {
   assert.match(source, /key: 'groupBar'/, '自评有组内进度条')
 })
 
+await check('画像展开态是一张卡：表单与确认按钮都在里面', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  // 原先表单各自带一张卡，确认按钮落在卡**外面**右对齐飘着，看着像孤儿。
+  // 现在外层一张卡，五个表单的根都只是普通列 —— 谁把 S.card 加回去，这条会响。
+  assert.match(source, /return h\('div', \{ style: \{ \.\.\.S\.card, gap: '0' \} \}, \[\s+children,/, '展开态外层只该有一张卡')
+  assert.match(source, /key: 'confirm', style: \{ display: 'flex', justifyContent: 'flex-end', paddingTop: '18px' \}/, '确认按钮在卡内的底部')
+  assert.doesNotMatch(source, /'data-anchor': '[a-z]+', style: S\.card/, '四个表单的根不再是自己的卡')
+})
+
 await check('package name is the bundle identity', () => assert.equal(pkg.name, NAME))
 await check('files[] ships cordis.patch.yml', () => assert.ok(pkg.files.includes('cordis.patch.yml')))
 await check('dsh.bundle.patch points at the patch layer', () => assert.equal(pkg.dsh?.bundle?.patch, './cordis.patch.yml'))

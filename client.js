@@ -502,9 +502,11 @@ window.__ModuleLoader__.load({
 
     function ProfileModule({ label, summary, done, open, onOpen, onConfirm, confirmLabel, children }) {
       if (!open) return h(CollapsedModule, { label, summary, done, onEdit: onOpen });
-      return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } }, [
+      // 展开态是**一张**卡：标题、表单、确认按钮都在里面。原先表单自带一张卡，确认按钮
+      // 落在它外面右对齐飘着，看着像个孤儿 —— 而它属于这一步，就该长在卡片里。
+      return h('div', { style: { ...S.card, gap: '0' } }, [
         children,
-        h('div', { key: 'confirm', style: { display: 'flex', justifyContent: 'flex-end' } }, h('button', { type: 'button', style: { ...S.button, ...S.buttonOn }, onClick: onConfirm }, confirmLabel ?? `确认${label}，继续 →`)),
+        h('div', { key: 'confirm', style: { display: 'flex', justifyContent: 'flex-end', paddingTop: '18px' } }, h('button', { type: 'button', style: { ...S.button, ...S.buttonOn }, onClick: onConfirm }, confirmLabel ?? `确认${label}，继续 →`)),
       ]);
     }
 
@@ -1398,7 +1400,7 @@ window.__ModuleLoader__.load({
       if (isCustom && profile.positioning.length > 0) {
         kids.push(h('div', { key: 'pos', style: S.meta }, profile.positioning));
       }
-      return h('div', { 'data-anchor': 'direction', style: S.card }, kids);
+      return h('div', { 'data-anchor': 'direction', style: { display: 'flex', flexDirection: 'column', gap: '12px' } }, kids);
     }
 
     /** Step ②: the growth choices, with route first. */
@@ -1413,7 +1415,7 @@ window.__ModuleLoader__.load({
           route: profile.route || undefined,
         });
       };
-      return h('div', { 'data-anchor': 'intake', style: S.card }, [
+      return h('div', { 'data-anchor': 'intake', style: { display: 'flex', flexDirection: 'column', gap: '12px' } }, [
         h(OpenModuleHead, { key: 't', label: '你的条件', onCollapse }),
         h(RouteForm, { key: 'route-first', state, post }),
         ...catalog.questions.map((question) => h('div', { key: question.key, style: { display: 'flex', flexDirection: 'column', gap: '5px' } }, [
@@ -1594,7 +1596,7 @@ window.__ModuleLoader__.load({
           ...catalog.transferableGaps.map((text, index) => h('div', { key: `gap${String(index)}`, style: S.fine }, `· ${text}`)),
         );
       }
-      return h('div', { 'data-anchor': 'transferable', style: S.card }, kids);
+      return h('div', { 'data-anchor': 'transferable', style: { display: 'flex', flexDirection: 'column', gap: '12px' } }, kids);
     }
 
 
@@ -1615,8 +1617,8 @@ window.__ModuleLoader__.load({
       // 不退化成一个通用问卷，而是把"去生成一份"这条路指出来。
       if (role === null || role === undefined) {
         const canBuild = catalog.missingBackground.length === 0 && profile.targetRole.length > 0;
-        return h('div', { style: S.card }, [
-          h(OpenModuleHead, { key: 't', label: '能力自评', onCollapse }),
+        return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px' } }, [
+        h(OpenModuleHead, { key: 't', label: '能力自评', onCollapse }),
           h('div', { key: 'note', style: S.empty },
             `${profile.targetRole || '当前方向'}还没有能力模型，所以现在还没法逐项打分。`),
           busy
@@ -1751,7 +1753,7 @@ window.__ModuleLoader__.load({
         }
       }
 
-      return h('div', { 'data-anchor': 'self', style: S.card }, kids);
+      return h('div', { 'data-anchor': 'self', style: { display: 'flex', flexDirection: 'column', gap: '12px' } }, kids);
     }
 
     /** 深链锚点 → 它落在哪一步。route 与 background 都在 ② 里面。 */
