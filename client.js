@@ -98,7 +98,16 @@ window.__ModuleLoader__.load({
         // makes a card read as labelled tiers instead of one grey block.
         + '.gw-subhead::before{content:"";width:16px;height:2px;border-radius:2px;background:var(--gw-coral,#e56b55);flex:0 0 auto}'
         + '.gw-seal-sub{font-size:9px;font-weight:500;letter-spacing:.12em;opacity:.72}'
-        + '@media (prefers-reduced-motion:reduce){.gw-step,.gw-step .gw-step-edit,.gw-tf,.gw-tf .gw-tf-no,.gw-root button,.gw-root input,.gw-root select,.gw-root textarea{transition:none}.gw-step:active,.gw-root button:not(:disabled):active{transform:none}}';
+        // The seals are the journal layer: one stamp for a finished task, one grade stamp
+        // per graded round. `currentColor` drives the border, so a tone class is all it
+        // takes to re-colour one — no second rule per colour.
+        + '.gw-seal{transform:rotate(-4deg)}'
+        + '.gw-seal.tone-teal{color:var(--gw-teal,#2f7d74)}'
+        + '.gw-seal.tone-slate{color:var(--gw-slate,#8f9ba6)}'
+        + '.gw-seal.tone-amber{color:var(--gw-amber,#d59b3f)}'
+        + '@keyframes gw-stamp-in{0%{transform:scale(1.7) rotate(-16deg);opacity:0}55%{transform:scale(.93) rotate(-2deg);opacity:1}100%{transform:scale(1) rotate(-4deg)}}'
+        + '.gw-stamp-in{animation:gw-stamp-in .36s cubic-bezier(.2,.9,.3,1.35) both}'
+        + '@media (prefers-reduced-motion:reduce){.gw-step,.gw-step .gw-step-edit,.gw-tf,.gw-tf .gw-tf-no,.gw-root button,.gw-root input,.gw-root select,.gw-root textarea{transition:none}.gw-stamp-in{animation:none}.gw-step:active,.gw-root button:not(:disabled):active{transform:none}}';
       document.head.appendChild(style);
     }
 
@@ -478,14 +487,20 @@ window.__ModuleLoader__.load({
 
       return h('div', { 'data-task-id': task.id, style: { ...S.row, flexDirection: 'column', alignItems: 'stretch', gap: '6px' } }, [
         h('div', { key: 'head', style: { display: 'flex', alignItems: 'flex-start', gap: '8px' } }, [
-          h('input', {
+          // A native checkbox can be neither filled nor stamped, and this one has to hold
+          // the 完成 moment. Same contract as before: clicking toggles, aria-checked
+          // carries the state, and the row is still the real touch target.
+          h('button', {
             key: 'box',
-            type: 'checkbox',
-            checked: done,
-            style: { marginTop: '3px', cursor: 'pointer' },
+            type: 'button',
+            role: 'checkbox',
+            'aria-checked': done,
             'aria-label': task.action,
-            onChange: (event) => { void save({ done: event.target.checked }); },
-          }),
+            style: { marginTop: '1px', flex: '0 0 auto', width: '24px', height: '24px', padding: '0', display: 'grid', placeItems: 'center', borderRadius: '8px', cursor: 'pointer', transition: 'background 160ms ease, border-color 160ms ease, transform 120ms ease', border: `2px solid ${done ? 'var(--gw-teal, #2f7d74)' : 'var(--gw-line, #e5dfd5)'}`, background: done ? 'var(--gw-teal, #2f7d74)' : '#fff' },
+            onClick: () => { void save({ done: !done }); },
+          }, [
+            done ? h('span', { key: 'tick', style: { width: '10px', height: '6px', borderLeft: '2px solid #fff', borderBottom: '2px solid #fff', transform: 'rotate(-45deg) translate(1px, -1px)' } }) : null,
+          ]),
           h('div', { key: 'text', style: { flex: '1 1 auto', minWidth: '0' } }, [
             h('div', {
               key: 'action',
@@ -501,6 +516,9 @@ window.__ModuleLoader__.load({
               `完成标准：${task.doneCriteria}　|　可接受证据：${task.acceptableEvidence}`),
           ]),
           h('span', { key: 'days', style: S.chip }, `打卡 ${String(days)} 天`),
+          // 完成时落一枚印章。它只在 done 时挂载 —— 挂载即跑动画，所以勾下去就有
+          // 「盖上去」的那一下；取消再勾会重来一次。
+          done ? h(Seal, { key: 'mark', tone: 'teal', label: '已完成', stamp: true }) : null,
         ]),
         h('div', { key: 'evidence', style: { ...S.inline, paddingLeft: '22px' } }, [
           h('input', {
@@ -530,20 +548,68 @@ window.__ModuleLoader__.load({
       ]);
     }
 
+    /**
+     * 一枚印章。手账那一层 —— 完成的、定级的、连续打卡的，都用它落款，而不是再写一行灰字。
+     * `S.seal` 是底子，`tone` 决定颜色（描边走 currentColor，所以一个类比一条规则省事）。
+     */
+    function Seal({ label, sub, tone, round, stamp }) {
+      const style = { ...S.seal };
+      if (round === true) {
+        style.borderRadius = '50%';
+        style.width = '66px';
+        style.height = '66px';
+        style.padding = '0';
+        style.fontSize = '16px';
+        style.letterSpacing = '0';
+      }
+      return h('span', {
+        className: `gw-seal${tone === undefined ? '' : ` tone-${tone}`}${stamp === true ? ' gw-stamp-in' : ''}`,
+        style,
+      }, [
+        h('span', { key: 'label' }, label),
+        sub === undefined ? null : h('span', { key: 'sub', className: 'gw-seal-sub' }, sub),
+      ]);
+    }
+
+    /**
+     * 一个读数：等宽大数字 + 大写间距小标签。这是治「一大堆同重的灰字」的地方 ——
+     * 先看到 9/9、67%、12，再决定要不要去读那行说明。
+     */
+    function Readout({ value, unit, cap, first }) {
+      const style = { padding: '0 22px', borderLeft: '1px solid var(--gw-line-soft, #efeae2)' };
+      if (first === true) {
+        style.paddingLeft = '0';
+        style.borderLeft = '0';
+      }
+      return h('div', { style }, [
+        h('div', { key: 'v', style: S.readoutNum }, [
+          value,
+          unit === undefined ? null : h('small', { key: 'u', style: { fontSize: '14px', fontWeight: '500', color: 'var(--gw-muted-2, #9aa7b1)', marginLeft: '2px' } }, unit),
+        ]),
+        h('div', { key: 'c', style: S.readoutCap }, cap),
+      ]);
+    }
+
     /** The metrics strip the page and the tab both show. */
     function Metrics({ state }) {
       const { metrics, focus } = state;
-      const rate = metrics.completion.rate;
+      const day = metrics.day === null ? '—' : String(Math.max(1, metrics.day));
+      const week = metrics.weekRate === null ? undefined : String(Math.round(metrics.weekRate * 100));
+      // gap 是加权缺口的**比例**（模型里断言的就是 180/1300 这种值），不是分数 ——
+      // 所以这里印成百分比，而不是把它当"分"报出去。
+      const gap = metrics.gap === null || metrics.gap === undefined ? undefined : String(Math.round(metrics.gap * 100));
       const kids = [
-        h('div', { key: 'numbers', style: S.spread }, [
-          h('span', { key: 'day' }, `第 ${metrics.day === null ? '—' : String(Math.max(1, metrics.day))} 天`),
-          h('span', { key: 'phase' }, `阶段：${metrics.phaseName || '—'}`),
-          h('span', { key: 'rate' }, `完成率 ${String(metrics.completion.done)}/${String(metrics.completion.total)}${rate === null ? '' : `（${String(Math.round(rate * 100))}%）`}`),
-          h('span', { key: 'streak' }, `连续打卡 ${String(metrics.streak)} 天`),
-          h('span', { key: 'week' }, `本周完成率 ${metrics.weekRate === null ? '—' : `${String(Math.round(metrics.weekRate * 100))}%`}`),
+        h('div', { key: 'numbers', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '16px', flexWrap: 'wrap' } }, [
+          h('div', { key: 'strip', style: { display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', flex: '1 1 auto' } }, [
+            h(Readout, { key: 'day', first: true, value: day, cap: '第几天' }),
+            h(Readout, { key: 'done', value: `${String(metrics.completion.done)}/${String(metrics.completion.total)}`, cap: '完成' }),
+            h(Readout, { key: 'week', value: week === undefined ? '—' : week, unit: week === undefined ? undefined : '%', cap: '本周完成率' }),
+            h(Readout, { key: 'gap', value: gap === undefined ? '—' : gap, unit: gap === undefined ? undefined : '%', cap: '距达标线' }),
+          ]),
+          metrics.streak > 0 ? h(Seal, { key: 'streak', tone: 'teal', label: `连续 ${String(metrics.streak)} 天`, sub: '不间断' }) : null,
         ]),
         h('div', { key: 'evidence', style: S.meta },
-          `证据：成果 ${String(metrics.evidence.成果)} / 过程 ${String(metrics.evidence.过程)} / 自述 ${String(metrics.evidence.自述)} / 无 ${String(metrics.evidence.无证据)}`),
+          `证据档位：成果 ${String(metrics.evidence.成果)} · 过程 ${String(metrics.evidence.过程)} · 自述 ${String(metrics.evidence.自述)} · 无 ${String(metrics.evidence.无证据)}　（过程与成果都算数，自述只作辅证）`),
       ];
       if (state.plan.planStart === '') {
         kids.push(h('div', { key: 'warn', style: S.warn },
@@ -565,7 +631,13 @@ window.__ModuleLoader__.load({
           : '计划里没有待办任务。')]
         : state.focus.tasks.slice(0, 1).map((task) => h(TaskRow, { key: task.id, task, entry: state.progress.tasks?.[task.id], post }));
       kids.push(h('div', { key: 'card', style: S.card }, [
-        h('h3', { key: 'title', style: S.h3 }, state.focus.scheduled ? '今天要做' : '接下来要做'),
+        h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '14px', flexWrap: 'wrap' } }, [
+          h('h3', { key: 'title', style: S.h3 }, state.focus.scheduled ? '今天要做' : '接下来要做'),
+          // 全部做完才落这枚章 —— 它得是真的，否则就成了那种"永远在表扬你"的装饰。
+          state.focus.tasks.length > 0 && state.focus.tasks.every((task) => state.progress.tasks?.[task.id]?.done === true)
+            ? h(Seal, { key: 'all', tone: 'teal', label: '已全部完成', sub: `共 ${String(state.focus.tasks.length)} 件`, stamp: true })
+            : null,
+        ]),
         ...rows,
       ]));
       return h('div', { style: { display: 'flex', flexDirection: 'column', gap: compact ? '8px' : '18px' } }, kids);
@@ -1367,7 +1439,7 @@ window.__ModuleLoader__.load({
 
       // 提交入口不在这里：④ 的「确认能力自评」负责落盘。这里只留读数 —— 它是上一次已提交
       // 自评的结果，不是这份草稿的。
-      if (gap !== null) kids.push(h('div', { key: 'gap', style: S.meta }, `离达标线还差 ${gap.toFixed(2)} 分（每项 3 分算达标）`));
+      if (gap !== null) kids.push(h('div', { key: 'gap', style: S.meta }, `距达标线 ${String(Math.round(gap * 100))}%（每项 3 分算达标）`));
       if (state.metrics.priorities.length > 0) {
         kids.push(h('div', { key: 'prio' }, [
           h('div', { key: 'label', style: S.meta }, '补强优先级（差得多、又重要的排前面）：'),

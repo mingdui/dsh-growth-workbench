@@ -246,6 +246,21 @@ await check('设计系统:令牌齐全，样式规则全部作用域化', () => 
   }
 })
 
+await check('完成的反馈是真的，且 gap 不再被当成分数印', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  // 原生 checkbox 既不能填色也不能盖章，所以勾选框换成按钮 —— 但契约不变：
+  // 点一下切换、状态走 aria-checked、整行仍是真正的触控目标。
+  assert.match(source, /role: 'checkbox'/, '勾选框要承载完成态')
+  assert.match(source, /'aria-checked': done/, '勾选状态走 aria-checked')
+  assert.match(source, /done \? h\(Seal, \{ key: 'mark'/, '完成才落印章 —— 不做永远在表扬你的装饰')
+  assert.match(source, /state\.focus\.tasks\.every\(/, '「已全部完成」必须真的全部完成')
+  assert.match(source, /function Seal\(\{ label, sub, tone, round, stamp \}\)/)
+  assert.match(source, /function Readout\(\{ value, unit, cap, first \}\)/)
+  // gap 是加权缺口的比例（模型里断言的就是 180/1300 这种值）。印成「X 分」是单位错误。
+  assert.match(source, /Math\.round\(gap \* 100\)/, 'gap 要按百分比印')
+  assert.doesNotMatch(source, /gap\.toFixed\(2\)/, '不许再把它当分数印')
+})
+
 await check('package name is the bundle identity', () => assert.equal(pkg.name, NAME))
 await check('files[] ships cordis.patch.yml', () => assert.ok(pkg.files.includes('cordis.patch.yml')))
 await check('dsh.bundle.patch points at the patch layer', () => assert.equal(pkg.dsh?.bundle?.patch, './cordis.patch.yml'))
