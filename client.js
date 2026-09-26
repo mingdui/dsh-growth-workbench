@@ -635,9 +635,21 @@ window.__ModuleLoader__.load({
     }
 
     /** The metrics strip the page and the tab both show. */
+    /**
+     * 第几天：计划还没开始时它还不是 1。
+     *
+     * 原先到处写 `Math.max(1, day)` —— 那会把「还没开始」显示成「第 1 天」，而这是用户
+     * 在这页上读到的第一个数字。没开始就直说还差几天。
+     */
+    function dayInfo(day) {
+      if (day === null || day === undefined) return { value: '—', cap: '第几天', chip: 'DAY --', started: false };
+      if (day < 1) return { value: String(1 - day), cap: '天后开始', chip: `${String(1 - day)} 天后开始`, started: false };
+      return { value: String(day), cap: '第几天', chip: `DAY ${String(day).padStart(2, '0')}`, started: true };
+    }
+
     function Metrics({ state }) {
-      const { metrics, focus } = state;
-      const day = metrics.day === null ? '—' : String(Math.max(1, metrics.day));
+      const { metrics } = state;
+      const day = dayInfo(metrics.day);
       const week = metrics.weekRate === null ? undefined : String(Math.round(metrics.weekRate * 100));
       // gap 是加权缺口的**比例**（模型里断言的就是 180/1300 这种值），不是分数 ——
       // 所以这里印成百分比，而不是把它当"分"报出去。
@@ -645,7 +657,7 @@ window.__ModuleLoader__.load({
       const kids = [
         h('div', { key: 'numbers', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '16px', flexWrap: 'wrap' } }, [
           h('div', { key: 'strip', style: { display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', flex: '1 1 auto' } }, [
-            h(Readout, { key: 'day', first: true, value: day, cap: '第几天' }),
+            h(Readout, { key: 'day', first: true, value: day.value, cap: day.cap }),
             h(Readout, { key: 'done', value: `${String(metrics.completion.done)}/${String(metrics.completion.total)}`, cap: '完成' }),
             h(Readout, { key: 'week', value: week === undefined ? '—' : week, unit: week === undefined ? undefined : '%', cap: '本周完成率' }),
             h(Readout, { key: 'gap', value: gap === undefined ? '—' : gap, unit: gap === undefined ? undefined : '%', cap: '距达标线' }),
@@ -659,9 +671,8 @@ window.__ModuleLoader__.load({
         kids.push(h('div', { key: 'warn', style: S.warn },
           '计划还没有起始日 —— 去「计划」页设定第 1 天。'));
       }
-      if (focus !== undefined && focus.scheduled === false) {
-        kids.push(h('div', { key: 'nosched', style: S.meta }, '今天没有排到天的任务，下面是接下来的未完成任务。'));
-      }
+      // 「今天没排到任务」这句原先也在这里说了一遍，和下面那张卡的标题重复。留一处就够 ——
+      // 那是这一页唯一说「你该看哪一批任务」的地方。
       return h('div', { style: S.card }, kids);
     }
 
@@ -669,10 +680,15 @@ window.__ModuleLoader__.load({
     function TodayBody({ state, post, compact }) {
       const kids = [];
       if (!compact) kids.push(h(Metrics, { key: 'metrics', state }));
+      // 空状态要说清「为什么空、下一步怎么办」。原先只有一句「计划里没有待办任务」，
+      // 而下面这三种情况的原因完全不同 —— 用户看完还是不知道该做什么。
+      const taskTotal = state.plan.phases.reduce((sum, phase) => sum + ((phase.tasks ?? []).length), 0);
       const rows = state.focus.tasks.length === 0
         ? [h('div', { key: 'empty', style: S.empty }, state.plan.phases.length === 0
           ? '还没有计划。完成「画像」后就能生成。'
-          : '计划里没有待办任务。')]
+          : taskTotal === 0
+            ? '计划目前只排到周，还没有排到天的任务 —— 让 AI 把计划细化到天，这里就会出现今天该做的事。'
+            : '计划里的任务都做完了 —— 该做一次考核，把成果沉淀下来。')]
         : state.focus.tasks.slice(0, 1).map((task) => h(TaskRow, { key: task.id, task, entry: state.progress.tasks?.[task.id], post }));
       kids.push(h('div', { key: 'card', style: S.card }, [
         h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '14px', flexWrap: 'wrap' } }, [
@@ -694,6 +710,7 @@ window.__ModuleLoader__.load({
       // 于是这个按钮完全空转。理由留着（它解释为什么是现在），按钮去掉：这一页自己的
       // 动作就在下面（考核页是「让 AI 现在考核」）。
       const onThisTab = action !== undefined && action !== null && action.targetTab === currentTab;
+      const day = dayInfo(state.metrics.day);
       const [activity, setActivity] = useState(agentActivity);
       useEffect(() => subscribeActivity(setActivity), []);
       return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '14px' } }, [
@@ -703,7 +720,7 @@ window.__ModuleLoader__.load({
             h('h1', { key: 'title', style: { ...S.h2, fontSize: '40px', lineHeight: '1.08', marginTop: '8px' } }, state.profile.targetRole ? `向 ${state.profile.targetRole} 走` : '把成长，变成下一步'),
             h('div', { key: 'sub', style: S.meta }, state.profile.positioning || '不是填表，而是把今天真正做成一小步。'),
           ]),
-          h('div', { key: 'day', style: { ...S.chip, fontFamily: 'var(--gw-mono, monospace)' } }, state.metrics.day === null ? 'DAY --' : `DAY ${String(Math.max(1, state.metrics.day)).padStart(2, '0')}`),
+          h('div', { key: 'day', style: { ...S.chip, fontFamily: 'var(--gw-mono, monospace)' } }, day.value === '—' ? 'DAY --' : (day.started ? `DAY ${String(day.value).padStart(2, '0')}` : `${day.value} 天后开始`)),
         ]),
         action === undefined || action === null || hideNext === true ? null : h('div', { key: 'next', style: { display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap', padding: '16px 18px', borderRadius: '15px', background: 'linear-gradient(100deg, #253b39, #36534d)', color: '#fff', boxShadow: '0 14px 28px rgba(37,59,57,.16)' } }, [
           h('div', { key: 'copy', style: { flex: '1 1 260px' } }, [
@@ -1207,7 +1224,18 @@ window.__ModuleLoader__.load({
       const take = pool.slice(offset * PAPER_SIZE, offset * PAPER_SIZE + PAPER_SIZE);
       const filled = take.filter((entry) => (answers[entry.question.id] ?? '').trim().length > 0).length;
       const ready = take.length > 0 && filled === take.length;
-      const day = Math.max(1, state.metrics.day ?? 1);
+      // 档位要和「这次考的是哪个」对得上：大考针对的是**已走完的那个阶段**，通常不是当前阶段
+      // （原先这里一律写当前阶段，于是「阶段大考」旁边挂着另一个阶段的名字）。
+      // 阶段那条由上面那条阶梯给出（nextAction.scope），单一来源；小考的周次页面自己就算得出。
+      const action = state.nextAction;
+      const week = state.metrics.day === null || state.metrics.day < 1 ? null : Math.floor((state.metrics.day - 1) / 7) + 1;
+      const scope = tier === 'phase'
+        ? (action !== null && action !== undefined && action.id === 'review-phase' && typeof action.scope === 'string'
+          ? action.scope
+          : (state.metrics.phaseName.length > 0 ? `阶段 ${state.metrics.phaseName}` : '还没进入阶段'))
+        : (week === null ? '计划还没开始' : `节点 第 ${String(week)} 周`);
+      // 不再 Math.max(1, …)：0 或负数要原样留着，标题与交卷文案都靠 dayInfo 判断该怎么写。
+      const day = state.metrics.day;
 
       const send = async () => {
         if (!ready || phase === 'sent') return;
@@ -1218,7 +1246,7 @@ window.__ModuleLoader__.load({
           `我的回答：${answers[entry.question.id]}`,
         ].join('\n'));
         try {
-          await askAgent(`我的考核作答（计划第 ${String(day)} 天，${state.metrics.phaseName || '未进入阶段'}）—— 本次是${tier === 'phase' ? '阶段大考' : '节点小考'}，coverage 请用「${tier === 'phase' ? '全量' : '定向'}」：\n\n${lines.join('\n\n')}\n\n请按 rubric 打四维分，并用 growth_save_assessment 把这一轮写进历史。`);
+          await askAgent(`我的考核作答（${day === null || day === undefined ? '计划还没开始' : `计划第 ${String(day)} 天`}，${state.metrics.phaseName || '未进入阶段'}）—— 本次是${tier === 'phase' ? '阶段大考' : '节点小考'}，coverage 请用「${tier === 'phase' ? '全量' : '定向'}」：\n\n${lines.join('\n\n')}\n\n请按 rubric 打四维分，并用 growth_save_assessment 把这一轮写进历史。`);
         } catch (failure) {
           setPhase('idle');
         }
@@ -1226,7 +1254,7 @@ window.__ModuleLoader__.load({
 
       return h('div', { className: 'gw-paper', style: { ...S.card, padding: '30px 34px 26px' } }, [
         h('div', { key: 'mast', className: 'gw-masthead' }, [
-          h('div', { key: 't', className: 't' }, `考核 · 第 ${String(day)} 天`),
+          h('div', { key: 't', className: 't' }, dayInfo(state.metrics.day).started ? `考核 · 第 ${String(day)} 天` : '考核 · 计划还没开始'),
           h('div', { key: 'right', style: { display: 'flex', alignItems: 'baseline', gap: '16px' } }, [
             h('div', { key: 'd', className: 'd' }, state.today),
             h('button', {
@@ -1239,7 +1267,7 @@ window.__ModuleLoader__.load({
         ]),
         h('div', { key: 'strap', className: 'gw-strap' }, [
           h('span', { key: 'role' }, `方向 ${state.plan.role || '—'}`),
-          h('span', { key: 'phase' }, `阶段 ${state.metrics.phaseName || '—'}`),
+          h('span', { key: 'scope' }, scope),
           // 两档都在这一页上，差别只是出题排序的依据：小考按缺口，大考按高权重项。
           // 切换时把「第几组」归零 —— 池子换了，原来的窗口号没有意义。
           h('span', { key: 'tier', style: { display: 'inline-flex', gap: '6px' } }, [
@@ -1987,7 +2015,7 @@ window.__ModuleLoader__.load({
             h('div', { key: 'eyebrow', style: { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '.14em', color: 'var(--gw-coral-deep, #a64132)' } }, 'Today'),
             h('div', { key: 'title', style: { fontFamily: 'var(--gw-display, Calistoga, Georgia, serif)', fontSize: '24px', lineHeight: '1.15', marginTop: '5px' } }, state.profile.targetRole ? `向 ${state.profile.targetRole} 走` : '今天，先走一步'),
           ]),
-          h('span', { key: 'day', style: { ...S.chip, fontFamily: 'var(--gw-mono, monospace)', whiteSpace: 'nowrap' } }, state.metrics.day === null ? 'DAY --' : `DAY ${String(Math.max(1, state.metrics.day)).padStart(2, '0')}`),
+          h('span', { key: 'day', style: { ...S.chip, fontFamily: 'var(--gw-mono, monospace)', whiteSpace: 'nowrap' } }, dayInfo(state.metrics.day).chip),
         ]),
         h('div', { key: 'metrics', style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' } }, [
           h('div', { key: 'progress', style: { padding: '11px', borderRadius: '12px', background: '#fffdf9', border: '1px solid #e5dfd5' } }, [h('div', { key: 'label', style: S.fine }, '计划完成'), h('strong', { key: 'value', style: { display: 'block', fontSize: '20px', marginTop: '4px' } }, `${String(done)}%`), h('div', { key: 'bar', style: { height: '4px', background: '#eee9e1', borderRadius: '99px', marginTop: '8px' } }, h('div', { style: { height: '100%', width: `${String(done)}%`, borderRadius: '99px', background: 'var(--gw-coral, #e56b55)' } }))]),

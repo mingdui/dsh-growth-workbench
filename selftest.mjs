@@ -344,6 +344,23 @@ await check('today() 取本地日期，不是 UTC', () => {
   assert.match(body, /padStart\(2, '0'\)/, '仍是补零的 ISO 形状')
 })
 
+await check('状态文案跟着真实状态：没开始的计划不说「第 1 天」，空状态说清原因', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  // Math.max(1, day) 会把「还没开始」显示成「第 1 天」—— 而那是用户在这一页上读到的第一个数字。
+  assert.match(source, /function dayInfo\(day\)/)
+  assert.match(source, /cap: '天后开始'/, '计划没开始就说还差几天，不夹成 1')
+  assert.doesNotMatch(source, /Math\.max\(1, (state\.)?metrics\.day/, '不许再把第几天夹成 1')
+  // 空状态要说清「为什么空、下一步怎么办」—— 三种原因完全不同。
+  assert.match(source, /计划目前只排到周/, '没有排到天的任务时，要说清原因与下一步')
+  assert.match(source, /该做一次考核，把成果沉淀下来/, '任务都做完了就指向考核')
+  assert.doesNotMatch(source, /计划里没有待办任务。/, '那句什么都不解释的空话不许回来')
+  // 考卷的档位与「这次考的是哪个」必须一致：大考针对的是**已走完的那个阶段**，通常不是当前阶段。
+  assert.match(source, /action\.id === 'review-phase' && typeof action\.scope === 'string'/, '大考的信息栏取自那条阶梯给出的 scope')
+  const apiSource = readFileSync(join(ROOT, 'api.mjs'), 'utf8')
+  assert.match(apiSource, /id: 'review-phase',[\s\S]{0,400}?scope:/, '阶段大考要给出 scope')
+  assert.match(apiSource, /id: 'review-node',[\s\S]{0,400}?scope:/, '节点小考也要')
+})
+
 await check('package name is the bundle identity', () => assert.equal(pkg.name, NAME))
 await check('files[] ships cordis.patch.yml', () => assert.ok(pkg.files.includes('cordis.patch.yml')))
 await check('dsh.bundle.patch points at the patch layer', () => assert.equal(pkg.dsh?.bundle?.patch, './cordis.patch.yml'))

@@ -235,6 +235,9 @@ function nextActionFor({ profile, plan, role, followUps, missing, progress, hist
       id: 'review-phase',
       label: `阶段「${owedPhase.name}」该做一次大考`,
       reason: '这个阶段已经走完，但还没有一次全量考核 —— 交割物换了，四维口径要重算。',
+      // 考卷的信息栏要显示「这次考的是哪个阶段」—— 而它往往**不是**当前阶段（大考针对的是
+      // 已走完的那个）。规则只在这里判一次，页面直接用，别再自己算一遍。
+      scope: `阶段${String(plan.phases.indexOf(owedPhase) + 1)}「${owedPhase.name}」`,
       targetTab: 'review',
       targetAnchor: 'review',
       blockedBy: [],
@@ -253,6 +256,7 @@ function nextActionFor({ profile, plan, role, followUps, missing, progress, hist
         id: 'review-node',
         label: `第 ${week} 周这个节点该考一次`,
         reason: '节点小考只重测这一周相关的几项，答 2-3 道就够。',
+        scope: `节点 第 ${String(week)} 周`,
         targetTab: 'review',
         targetAnchor: 'review',
         blockedBy: [],
