@@ -192,7 +192,9 @@ window.__ModuleLoader__.load({
      * reported back as `queued`.
      *
      * @param text - the instruction to deliver verbatim.
-     * @returns `{ queued }` — whether the session was already busy when it landed.
+     * @returns `{ queued, deduped }` — whether the session was already busy when it
+     * landed, and whether this call was stopped by the idempotency gate (in which
+     * case nothing was sent at all).
      */
     async function askAgent(text) {
       if (rootCtx === undefined) throw new Error('工作台还没挂载完成，稍后重试');
@@ -201,7 +203,7 @@ window.__ModuleLoader__.load({
       // 连点两下确认就是两次 Agent 运行，而它们要写的是同一份候选。
       if (agentActivity !== null && agentActivity !== undefined
         && (agentActivity.status === 'running' || agentActivity.status === 'queued')
-        && agentActivity.text === text) return { queued: true };
+        && agentActivity.text === text) return { queued: true, deduped: true };
       setAgentActivity({ status: 'running', text, startedAt: Date.now() });
       // 用 ctx.get 而不是 inject：inject 里写一个不存在的服务会让整个插件静默不挂载，
       // 而这里只需要"拿不到就说清楚"。
@@ -275,7 +277,11 @@ window.__ModuleLoader__.load({
           const outcome = await askAgent(text);
           setPhase('sent');
           setArmed((value) => !value);
-          setNote(outcome.queued ? '已排进对话（前面还有一条在跑，跑完就到它）' : '已发进对话 —— 切过去就能看到它开始干活');
+          // 被幂等闸拦下的那一次什么都没发出去 —— 不能说成「已排进对话」，否则用户
+          // 以为排了两次，实际只有一次。
+          setNote(outcome.deduped === true
+            ? '已经在跑了 —— 没有重复发送。'
+            : outcome.queued ? '已排进对话（前面还有一条在跑，跑完就到它）' : '已发进对话 —— 切过去就能看到它开始干活');
         // 发送成功之后才回调：调用方拿它做「送去哪、顺便跳到哪」这类交接。
         if (typeof onSent === 'function') onSent();
         } catch (failure) {
@@ -544,8 +550,13 @@ window.__ModuleLoader__.load({
       return h('div', { style: { display: 'flex', flexDirection: 'column', gap: compact ? '8px' : '18px' } }, kids);
     }
 
-    function WorkbenchHeader({ state, onNavigate, hideNext }) {
+    function WorkbenchHeader({ state, onNavigate, hideNext, currentTab }) {
       const action = state.nextAction;
+      // 下一步就落在用户正在看的这一页时，「现在去做 →」是让他去他已经站在的地方 ——
+      // 考核那条的 targetTab 与 targetAnchor 都是 review，而页面上没有这个锚点，
+      // 于是这个按钮完全空转。理由留着（它解释为什么是现在），按钮去掉：这一页自己的
+      // 动作就在下面（考核页是「让 AI 现在考核」）。
+      const onThisTab = action !== undefined && action !== null && action.targetTab === currentTab;
       const [activity, setActivity] = useState(agentActivity);
       useEffect(() => subscribeActivity(setActivity), []);
       return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '14px' } }, [
@@ -563,7 +574,7 @@ window.__ModuleLoader__.load({
             h('div', { key: 'title', style: { fontSize: '17px', fontWeight: '700', marginTop: '4px' } }, action.label),
             h('div', { key: 'reason', style: { fontSize: '13px', opacity: '.78', marginTop: '4px', lineHeight: '1.5' } }, action.reason),
           ]),
-          h('button', { key: 'go', type: 'button', style: { ...S.button, background: '#f3c26b', borderColor: '#f3c26b', color: '#253b39' }, onClick: () => onNavigate(action.targetTab, action.targetAnchor) }, '现在去做 →'),
+          onThisTab ? null : h('button', { key: 'go', type: 'button', style: { ...S.button, background: '#f3c26b', borderColor: '#f3c26b', color: '#253b39' }, onClick: () => onNavigate(action.targetTab, action.targetAnchor) }, '现在去做 →'),
         ]),
         activity === null ? null : h('div', { key: 'activity', role: 'status', 'aria-live': 'polite', style: { ...S.meta, padding: '9px 12px', borderRadius: '10px', background: activity.status === 'error' ? '#fff0ed' : activity.status === 'completed' ? '#edf7ef' : '#f3efe8' } }, activity.status === 'completed' ? 'AI 已返回结果，页面已自动更新。' : activity.status === 'error' ? `AI 处理失败：${activity.error}` : activity.status === 'queued' ? 'AI 已接手，页面会自动刷新结果，不需要守着对话。' : '正在把请求送进当前对话…'),
       ]);
@@ -1353,7 +1364,7 @@ window.__ModuleLoader__.load({
         }, entry.label))),
          h('div', { key: 'body', style: S.body }, h('div', { style: S.inner }, [
            error.length > 0 ? h('div', { key: 'error', style: S.error }, error) : null,
-           h(WorkbenchHeader, { key: 'header', state, onNavigate: navigate, hideNext: tab === 'profile' }),
+           h(WorkbenchHeader, { key: 'header', state, onNavigate: navigate, hideNext: tab === 'profile', currentTab: tab }),
            bodies[tab](),
          ])),
       ]);

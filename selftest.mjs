@@ -171,6 +171,25 @@ await check('计划第 1 天的保存按钮跟着数据走，不留一个点了�
   assert.match(source, /setSaving\(true\)/, '保存中要看得出来')
 })
 
+await check('下一步落在当前这一页时，页头不再给一个空转的「现在去做」', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  // 考核那条 nextAction 的 targetTab 与 targetAnchor 都是 review，而页面上没有
+  // data-anchor="review" —— 站在考核页点那个按钮，等于「切到你已经在的页签，再滚到
+  // 一个不存在的锚点」，也就是什么都不发生。理由留着（它解释为什么是现在），按钮去掉。
+  assert.match(source, /const onThisTab = action !== undefined && action !== null && action\.targetTab === currentTab/)
+  assert.match(source, /onThisTab \? null : h\('button', \{ key: 'go'/)
+  assert.match(source, /hideNext: tab === 'profile', currentTab: tab/)
+})
+
+await check('被幂等闸拦下的那次点击，不能说成「已排进对话」', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  // 幂等闸拦下时 askAgent 什么都没发出去，而按钮原先照样说「已排进对话（前面还有
+  // 一条在跑）」—— 用户会以为排了两次考核，实际只有一次。
+  assert.match(source, /return \{ queued: true, deduped: true \}/, '被拦下要能跟「真的排队了」分开')
+  assert.match(source, /outcome\.deduped === true/)
+  assert.doesNotMatch(source, /setNote\(outcome\.queued \?/, '别再让「被拦下」借用「排队」那句话')
+})
+
 await check('package name is the bundle identity', () => assert.equal(pkg.name, NAME))
 await check('files[] ships cordis.patch.yml', () => assert.ok(pkg.files.includes('cordis.patch.yml')))
 await check('dsh.bundle.patch points at the patch layer', () => assert.equal(pkg.dsh?.bundle?.patch, './cordis.patch.yml'))
