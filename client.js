@@ -349,34 +349,34 @@ window.__ModuleLoader__.load({
     const S = {
       page: { '--gw-paper': '#f8f6f1', '--gw-ink': '#1f2933', '--gw-muted': '#718096', '--gw-line': '#e5dfd5', '--gw-line-soft': '#eee9e1', '--gw-coral': '#e56b55', '--gw-coral-deep': '#a64132', '--gw-display': 'Calistoga, Georgia, serif', '--gw-body': 'Inter, system-ui, sans-serif', '--gw-mono': 'JetBrains Mono, ui-monospace, monospace', height: '100%', display: 'flex', flexDirection: 'column', boxSizing: 'border-box', color: 'var(--gw-ink)', background: 'var(--gw-paper)', fontFamily: 'var(--gw-body)' },
       tabbar: { display: 'flex', gap: '6px', padding: '16px 30px 0', borderBottom: '1px solid var(--gw-line, #e5dfd5)', background: 'var(--gw-paper, #f8f6f1)', position: 'sticky', top: 0, zIndex: 2 },
-      tab: { padding: '10px 14px 12px', fontSize: '13px', fontWeight: '600', font: 'inherit', cursor: 'pointer', color: 'var(--gw-muted, #718096)', background: 'transparent', border: 'none', borderBottom: '2px solid transparent', borderRadius: '8px 8px 0 0', transition: 'color 180ms ease, border-color 180ms ease' },
+      tab: { padding: '10px 14px 12px', fontSize: '14px', fontWeight: '600', font: 'inherit', cursor: 'pointer', color: 'var(--gw-muted, #718096)', background: 'transparent', border: 'none', borderBottom: '2px solid transparent', borderRadius: '8px 8px 0 0', transition: 'color 180ms ease, border-color 180ms ease' },
       tabOn: { color: 'var(--gw-ink, #1f2933)', borderBottom: '2px solid var(--gw-coral, #e56b55)' },
       body: { flex: '1 1 auto', overflowY: 'auto', padding: '28px 30px 56px', background: 'radial-gradient(circle at 82% 8%, rgba(229,107,85,.12), transparent 28%), var(--gw-paper, #f8f6f1)' },
       inner: { maxWidth: '1060px', width: '100%', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' },
       stack: { display: 'flex', flexDirection: 'column', gap: '20px' },
       card: { border: '1px solid var(--gw-line, #e5dfd5)', borderRadius: '18px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px', background: 'rgba(255,255,255,.78)', boxShadow: '0 12px 30px rgba(54,42,32,.06)' },
       h2: { margin: '0', fontFamily: 'var(--gw-display, Calistoga, Georgia, serif)', fontSize: '25px', lineHeight: '1.15', fontWeight: '400', letterSpacing: '-.02em' },
-      h3: { margin: '0', fontSize: '14px', fontWeight: '700', letterSpacing: '.01em' },
-      meta: { fontSize: '12px', color: 'var(--gw-muted, #718096)', lineHeight: '1.7' },
-      fine: { fontSize: '11px', color: 'var(--gw-muted, #718096)', lineHeight: '1.6' },
+      h3: { margin: '0', fontSize: '16px', fontWeight: '700', letterSpacing: '.01em' },
+      meta: { fontSize: '13px', color: 'var(--gw-muted, #718096)', lineHeight: '1.7' },
+      fine: { fontSize: '12px', color: 'var(--gw-muted, #718096)', lineHeight: '1.6' },
       row: { display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 0', borderBottom: '1px solid var(--gw-line-soft, #eee9e1)' },
-      input: { flex: '1 1 auto', minWidth: '0', padding: '10px 12px', fontSize: '13px', font: 'inherit', color: 'inherit', background: '#fffdf9', borderRadius: '10px', border: '1px solid var(--gw-line, #e5dfd5)', outline: 'none' },
-      button: { padding: '9px 14px', minHeight: '40px', fontSize: '13px', fontWeight: '600', font: 'inherit', cursor: 'pointer', color: 'var(--gw-ink, #1f2933)', background: '#fffdf9', borderRadius: '10px', border: '1px solid var(--gw-line, #d9d0c4)', transition: 'transform 150ms ease, background 150ms ease, border-color 150ms ease' },
+      input: { flex: '1 1 auto', minWidth: '0', padding: '11px 14px', fontSize: '14px', font: 'inherit', color: 'inherit', background: '#fffdf9', borderRadius: '10px', border: '1px solid var(--gw-line, #e5dfd5)', outline: 'none' },
+      button: { padding: '11px 16px', minHeight: '44px', fontSize: '14px', fontWeight: '600', font: 'inherit', cursor: 'pointer', color: 'var(--gw-ink, #1f2933)', background: '#fffdf9', borderRadius: '10px', border: '1px solid var(--gw-line, #d9d0c4)', transition: 'transform 150ms ease, background 150ms ease, border-color 150ms ease' },
       buttonOn: { borderColor: 'var(--gw-coral, #e56b55)', background: 'var(--gw-coral, #e56b55)', color: '#fff' },
       buttonLight: { borderColor: 'var(--gw-coral, #e56b55)', color: 'var(--gw-coral-deep, #a64132)' },
-      small: { padding: '5px 10px', minHeight: '32px', fontSize: '12px' },
-      select: { padding: '9px 10px', fontSize: '12px', font: 'inherit', color: 'inherit', background: '#fffdf9', borderRadius: '10px', border: '1px solid var(--gw-line, #d9d0c4)' },
-      chip: { display: 'inline-block', padding: '4px 9px', fontSize: '11px', borderRadius: '999px', color: 'var(--gw-coral-deep, #a64132)', background: 'rgba(229,107,85,.11)', border: '1px solid rgba(229,107,85,.2)' },
-      error: { fontSize: '12px', color: '#b33a2d', background: '#fff0ed', border: '1px solid #f3c5be', borderRadius: '10px', padding: '10px 12px' },
-      warn: { fontSize: '12px', color: '#8a5a1f', background: '#fdf7e8', border: '1px solid #ecd9a8', borderRadius: '10px', padding: '10px 12px' },
-      empty: { fontSize: '13px', color: 'var(--gw-muted, #718096)', padding: '14px 0' },
-      table: { width: '100%', borderCollapse: 'collapse', fontSize: '12px', display: 'block', overflowX: 'auto' },
+      small: { padding: '7px 12px', minHeight: '32px', fontSize: '13px' },
+      select: { padding: '10px 12px', fontSize: '13px', font: 'inherit', color: 'inherit', background: '#fffdf9', borderRadius: '10px', border: '1px solid var(--gw-line, #d9d0c4)' },
+      chip: { display: 'inline-block', padding: '4px 9px', fontSize: '12px', borderRadius: '999px', color: 'var(--gw-coral-deep, #a64132)', background: 'rgba(229,107,85,.11)', border: '1px solid rgba(229,107,85,.2)' },
+      error: { fontSize: '13px', color: '#b33a2d', background: '#fff0ed', border: '1px solid #f3c5be', borderRadius: '10px', padding: '11px 14px' },
+      warn: { fontSize: '13px', color: '#8a5a1f', background: '#fdf7e8', border: '1px solid #ecd9a8', borderRadius: '10px', padding: '11px 14px' },
+      empty: { fontSize: '14px', color: 'var(--gw-muted, #718096)', padding: '14px 0' },
+      table: { width: '100%', borderCollapse: 'collapse', fontSize: '13px', display: 'block', overflowX: 'auto' },
       th: { textAlign: 'left', padding: '9px 8px', borderBottom: '1px solid var(--gw-line, #e5dfd5)', fontWeight: '700', whiteSpace: 'nowrap', color: 'var(--gw-muted, #718096)' },
       td: { padding: '9px 8px', borderBottom: '1px solid var(--gw-line-soft, #eee9e1)', verticalAlign: 'top', minWidth: '90px' },
-      pre: { margin: '0', padding: '12px 14px', fontSize: '12px', lineHeight: '1.6', whiteSpace: 'pre-wrap', wordBreak: 'break-word', background: '#f3efe8', borderRadius: '10px' },
+      pre: { margin: '0', padding: '12px 14px', fontSize: '13px', lineHeight: '1.6', whiteSpace: 'pre-wrap', wordBreak: 'break-word', background: '#f3efe8', borderRadius: '10px' },
       inline: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' },
       wrap: { display: 'flex', gap: '7px', flexWrap: 'wrap' },
-      spread: { display: 'flex', gap: '18px', flexWrap: 'wrap', fontSize: '13px' },
+      spread: { display: 'flex', gap: '18px', flexWrap: 'wrap', fontSize: '14px' },
     };
 
     /**
@@ -394,8 +394,8 @@ window.__ModuleLoader__.load({
       return h('button', { type: 'button', className: 'gw-step', style: { ...S.card, padding: '13px 16px', gap: '5px', flexDirection: 'column', alignItems: 'stretch', textAlign: 'left', cursor: 'pointer', width: '100%', color: 'var(--gw-ink, #1f2933)' }, onClick: onEdit }, [
         h('div', { key: 'head', style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [
 
-          h('span', { key: 'label', style: { fontWeight: '700', fontSize: '13px', flex: '1 1 auto', color: 'var(--gw-ink, #1f2933)' } }, label),
-          h('span', { key: 'edit', className: 'gw-step-edit', style: { color: 'var(--gw-coral-deep, #a64132)', fontSize: '12px', flex: '0 0 auto' } }, '编辑'),
+          h('span', { key: 'label', style: { fontWeight: '700', fontSize: '14px', flex: '1 1 auto', color: 'var(--gw-ink, #1f2933)' } }, label),
+          h('span', { key: 'edit', className: 'gw-step-edit', style: { color: 'var(--gw-coral-deep, #a64132)', fontSize: '13px', flex: '0 0 auto' } }, '编辑'),
         ]),
         h('div', { key: 'sub', style: { display: 'flex', alignItems: 'flex-start', gap: '7px' } }, [
           h('span', { key: 'dot', style: { width: '6px', height: '6px', borderRadius: '50%', flex: '0 0 auto', marginTop: '6px', background: done ? 'var(--gw-coral, #e56b55)' : 'var(--gw-line, #e5dfd5)' } }),
@@ -439,7 +439,7 @@ window.__ModuleLoader__.load({
             h('div', {
               key: 'action',
               style: {
-                fontSize: '13px', lineHeight: '1.6', cursor: 'pointer', wordBreak: 'break-word',
+                fontSize: '14px', lineHeight: '1.6', cursor: 'pointer', wordBreak: 'break-word',
                 textDecoration: done ? 'line-through' : 'none', opacity: done ? '0.6' : '1',
               },
               onClick: () => { void save({ done: !done }); },
@@ -454,7 +454,7 @@ window.__ModuleLoader__.load({
         h('div', { key: 'evidence', style: { ...S.inline, paddingLeft: '22px' } }, [
           h('input', {
             key: 'input',
-            style: { ...S.input, fontSize: '12px' },
+            style: { ...S.input, fontSize: '13px' },
             placeholder: '证据：链接 / 文件路径 / 一段心得（可留空）',
             value: evidence,
             onChange: (event) => setEvidence(event.target.value),
@@ -535,9 +535,9 @@ window.__ModuleLoader__.load({
         ]),
         action === undefined || hideNext === true ? null : h('div', { key: 'next', style: { display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap', padding: '16px 18px', borderRadius: '15px', background: 'linear-gradient(100deg, #253b39, #36534d)', color: '#fff', boxShadow: '0 14px 28px rgba(37,59,57,.16)' } }, [
           h('div', { key: 'copy', style: { flex: '1 1 260px' } }, [
-            h('div', { key: 'label', style: { fontSize: '11px', opacity: '.7', textTransform: 'uppercase', letterSpacing: '.12em' } }, '下一步'),
+            h('div', { key: 'label', style: { fontSize: '12px', opacity: '.7', textTransform: 'uppercase', letterSpacing: '.12em' } }, '下一步'),
             h('div', { key: 'title', style: { fontSize: '17px', fontWeight: '700', marginTop: '4px' } }, action.label),
-            h('div', { key: 'reason', style: { fontSize: '12px', opacity: '.78', marginTop: '4px', lineHeight: '1.5' } }, action.reason),
+            h('div', { key: 'reason', style: { fontSize: '13px', opacity: '.78', marginTop: '4px', lineHeight: '1.5' } }, action.reason),
           ]),
           h('button', { key: 'go', type: 'button', style: { ...S.button, background: '#f3c26b', borderColor: '#f3c26b', color: '#253b39' }, onClick: () => onNavigate(action.targetTab, action.targetAnchor) }, '现在去做 →'),
         ]),
@@ -576,7 +576,7 @@ window.__ModuleLoader__.load({
         h('h2', { key: 't', style: S.h2 }, plan.goal || '（未写总目标）'),
         h('div', { key: 'meta', style: S.meta }, `方向：${plan.role}　路线：${plan.route}`),
         h('div', { key: 'start', style: S.inline }, [
-          h('span', { key: 'label', style: { fontSize: '12px' } }, '第 1 天'),
+          h('span', { key: 'label', style: { fontSize: '13px' } }, '第 1 天'),
           h('input', {
             key: 'date',
             style: { ...S.input, maxWidth: '150px' },
@@ -622,7 +622,7 @@ window.__ModuleLoader__.load({
         kids.push(h('div', { key: 'selfcheck', style: S.card }, [
           h('h3', { key: 't', style: S.h3 }, '考核自查（只有题目）'),
           h('div', { key: 'note', style: S.meta }, '考核时抽 2-3 题现场作答，答案由你给。'),
-          ...plan.selfCheck.map((item) => h('div', { key: item.id, style: { fontSize: '13px', padding: '3px 0' } },
+          ...plan.selfCheck.map((item) => h('div', { key: item.id, style: { fontSize: '14px', padding: '3px 0' } },
             `[${item.id}]（${item.phase}）${item.question}　→ 能力项 ${item.capability}`)),
         ]));
       }
@@ -630,7 +630,7 @@ window.__ModuleLoader__.load({
       if (plan.portfolio.length > 0) {
         kids.push(h('div', { key: 'portfolio', style: S.card }, [
           h('h3', { key: 't', style: S.h3 }, '作品集清单'),
-          ...plan.portfolio.map((item, index) => h('div', { key: `p${String(index)}`, style: { fontSize: '13px' } },
+          ...plan.portfolio.map((item, index) => h('div', { key: `p${String(index)}`, style: { fontSize: '14px' } },
             `${item.phase ?? ''}　${item.item ?? JSON.stringify(item)}`)),
         ]));
       }
@@ -662,7 +662,7 @@ window.__ModuleLoader__.load({
         if (entry.total !== undefined && entry.total !== null) {
           head.push(h('span', { key: 'total', style: { marginLeft: '8px', fontWeight: '600' } }, `总分 ${String(entry.total)}（${entry.grade}）`));
         }
-        const lines = [h('div', { key: 'head', style: { fontSize: '13px' } }, head)];
+        const lines = [h('div', { key: 'head', style: { fontSize: '14px' } }, head)];
         if ((entry.unsubmitted ?? []).length > 0) {
           lines.push(h('div', { key: 'unsub', style: S.meta }, `未提交（按 0 计）：${entry.unsubmitted.join('、')}　补上对应数据可重评这几维`));
         }
@@ -670,7 +670,7 @@ window.__ModuleLoader__.load({
         if (entry.attribution) lines.push(h('div', { key: 'attr', style: S.meta }, `归因：${entry.attribution}（只有「计划问题」允许改任务定义）`));
         if (entry.report) lines.push(h('pre', { key: 'report', style: S.pre }, entry.report));
         if ((entry.adjustments ?? []).length > 0) {
-          lines.push(h('div', { key: 'adj', style: { fontSize: '12px' } }, [
+          lines.push(h('div', { key: 'adj', style: { fontSize: '13px' } }, [
             h('div', { key: 'label', style: S.meta }, '接下来 7 天的调整版任务：'),
             ...entry.adjustments.map((item, index) => h('div', { key: `a${String(index)}`, style: { padding: '2px 0' } },
               `${item['任务标识'] ?? item.id ?? '—'}　${item['一句话动作'] ?? item.action ?? ''}　→ ${item['改了什么'] ?? item.why ?? ''}`)),
@@ -703,7 +703,7 @@ window.__ModuleLoader__.load({
           h('div', { key: 'form', style: S.inline }, [
             ...['完成率', '证据质量', '作品达标度', '知识考核'].map((dimension) => h('label', {
               key: dimension,
-              style: { fontSize: '12px', display: 'flex', gap: '4px', alignItems: 'center' },
+              style: { fontSize: '13px', display: 'flex', gap: '4px', alignItems: 'center' },
             }, [
               dimension,
               h('input', {
@@ -788,7 +788,7 @@ window.__ModuleLoader__.load({
         h('h3', { key: 't', style: S.h3 }, '你的条件'),
         h(RouteForm, { key: 'route-first', state, post }),
         ...catalog.questions.map((question) => h('div', { key: question.key, style: { display: 'flex', flexDirection: 'column', gap: '5px' } }, [
-          h('div', { key: 'title', style: { fontSize: '12px', fontWeight: '600' } }, `${question.title}${intake[question.key] === undefined ? '（未答）' : ' ✓'}`),
+          h('div', { key: 'title', style: { fontSize: '13px', fontWeight: '600' } }, `${question.title}${intake[question.key] === undefined ? '（未答）' : ' ✓'}`),
           h('div', { key: 'options', style: S.wrap }, question.options.map((option) => h('button', {
             key: option.value,
             type: 'button',
@@ -820,10 +820,10 @@ window.__ModuleLoader__.load({
       // 它现在长在 ② 的卡片里，所以不再自己套一层卡片，也不用模块级标题：
       // 一条分隔线加一个小标签，读起来就是同一张卡里的下一段。
       return h('div', { 'data-anchor': 'background', style: { display: 'flex', flexDirection: 'column', gap: '10px', borderTop: '1px solid var(--gw-line-soft, #eee9e1)', marginTop: '2px', paddingTop: '14px' } }, [
-        h('div', { key: 't', style: { fontSize: '12px', fontWeight: '600' } }, '当前状态'),
+        h('div', { key: 't', style: { fontSize: '13px', fontWeight: '600' } }, '当前状态'),
         h('div', { key: 'why', style: S.meta }, questions.why),
         ...questions.fields.map((field) => h('div', { key: field.key, style: { display: 'flex', flexDirection: 'column', gap: '4px' } }, [
-          h('div', { key: 'label', style: { fontSize: '12px', fontWeight: '600' } },
+          h('div', { key: 'label', style: { fontSize: '13px', fontWeight: '600' } },
             `${field.label}${field.required === true ? '　*必填' : ''}${field.feed === 'skills' ? '' : ''}`),
           field.options === undefined
             ? h('input', {
@@ -861,7 +861,7 @@ window.__ModuleLoader__.load({
       return h('div', { 'data-anchor': 'route', style: { display: 'flex', flexDirection: 'column', gap: '5px' } }, [
         // 与下面四个选择题同构：同一个标题字号字重、同样带（未答）/ ✓ 标记。路线本来
         // 就是这一屏里的第五个选择，之前它自己套了一层卡片、而且没有标题。
-        h('div', { key: 'title', style: { fontSize: '12px', fontWeight: '600' } }, '成长路线' + (profile.route ? ' ✓' : '（未答）')),
+        h('div', { key: 'title', style: { fontSize: '13px', fontWeight: '600' } }, '成长路线' + (profile.route ? ' ✓' : '（未答）')),
         h('div', { key: 'choices', style: S.wrap }, catalog.routes.map((route) => h('button', {
           key: route.name,
           type: 'button',
@@ -926,7 +926,7 @@ window.__ModuleLoader__.load({
                 style: { width: '16px', height: '16px', marginTop: '2px', flex: '0 0 auto', cursor: 'pointer', accentColor: 'var(--gw-coral, #e56b55)' } }),
               // 名称在上、解释在下：名称是扫读用的锚点，和解释同样粗细就白写了。
               h('div', { key: 'copy', style: { display: 'flex', flexDirection: 'column', gap: '3px', minWidth: '0' } }, [
-                h('span', { key: 'name', style: { fontSize: '13px', fontWeight: '600', ...(on ? { color: 'var(--gw-coral-deep, #a64132)' } : {}) } }, item.name),
+                h('span', { key: 'name', style: { fontSize: '14px', fontWeight: '600', ...(on ? { color: 'var(--gw-coral-deep, #a64132)' } : {}) } }, item.name),
                 h('span', { key: 'body', style: S.fine }, item.text),
               ]),
             ]),
@@ -1038,10 +1038,10 @@ window.__ModuleLoader__.load({
       for (const group of role.groups) {
         const items = role.items.filter((item) => item.group === group.key);
         kids.push(h('div', { key: group.key, style: { display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '6px' } }, [
-          h('div', { key: 'title', style: { fontSize: '12px', fontWeight: '600' } }, `${group.key}. ${group.name}（组权重 ${String(group.weight)}%）`),
+          h('div', { key: 'title', style: { fontSize: '13px', fontWeight: '600' } }, `${group.key}. ${group.name}（组权重 ${String(group.weight)}%）`),
           ...items.map((item) => h('div', { key: item.id, style: { ...S.row, flexDirection: 'column', alignItems: 'stretch', gap: '4px' } }, [
             h('div', { key: 'choose', style: { ...S.inline, gap: '8px' } }, [
-              h('span', { key: 'name', style: { fontSize: '13px', minWidth: '150px' } }, `${item.id} ${item.name}`),
+              h('span', { key: 'name', style: { fontSize: '14px', minWidth: '150px' } }, `${item.id} ${item.name}`),
               ...[1, 2, 3, 4, 5].map((value) => h('button', {
                 key: `v${String(value)}`,
                 type: 'button',
@@ -1079,7 +1079,7 @@ window.__ModuleLoader__.load({
       if (state.metrics.priorities.length > 0) {
         kids.push(h('div', { key: 'prio' }, [
           h('div', { key: 'label', style: S.meta }, '补强优先级（差得多、又重要的排前面）：'),
-          ...state.metrics.priorities.slice(0, 6).map((item) => h('div', { key: item.id, style: { fontSize: '12px' } },
+          ...state.metrics.priorities.slice(0, 6).map((item) => h('div', { key: item.id, style: { fontSize: '13px' } },
             `${item.id} ${item.name}：${String(item.score)} 分（缺口 ${String(item.shortfall)}，权重 ${String(item.weight)}）`)),
         ]));
       }
@@ -1184,7 +1184,7 @@ window.__ModuleLoader__.load({
         h(ProfileModule, { key: 'self', label: '能力自评', summary: summary.self, done: done.self, open: open === 'self', onOpen: () => setOpen('self'), onConfirm: () => setOpen(''), confirmLabel: '确认能力自评', children: h(SelfAssessmentForm, { state, post }) }),
         planReady ? h('div', { key: 'handoff', style: { ...S.card, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' } }, [
           h('div', { key: 'copy' }, [
-            h('div', { key: 't', style: { fontSize: '13px', fontWeight: '700' } }, '画像齐了，下一步是 90 天计划'),
+            h('div', { key: 't', style: { fontSize: '14px', fontWeight: '700' } }, '画像齐了，下一步是 90 天计划'),
             h('div', { key: 's', style: { ...S.fine, marginTop: '3px' } }, '按你的方向、可用的时间和路线生成；生成期间页面会自动刷新。'),
           ]),
           h(AskButton, { key: 'go', text: '帮我生成成长计划', label: '让 AI 生成计划', style: S.buttonOn,
@@ -1246,20 +1246,20 @@ window.__ModuleLoader__.load({
       const save = (patch) => post('/checkin', { taskId: task.id, ...patch });
       return h('div', { 'data-task-id': task.id, style: { display: 'flex', flexDirection: 'column', gap: '12px', padding: '15px', borderRadius: '16px', background: done ? '#edf6ef' : '#fffdf9', border: `1px solid ${done ? '#c8dfcc' : '#e5dfd5'}`, boxShadow: '0 8px 18px rgba(54,42,32,.05)' } }, [
         h('div', { key: 'eyebrow', style: { display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center' } }, [
-          h('span', { key: 'ref', style: { fontSize: '11px', fontFamily: 'var(--gw-mono, monospace)', color: 'var(--gw-coral-deep, #a64132)' } }, `${task.id} / ${task.ref}`),
-          h('span', { key: 'done', style: { fontSize: '12px', fontWeight: '700', color: done ? '#3f9b63' : 'var(--gw-muted, #718096)' } }, `${done ? '已完成' : '未完成'} · ${String(task.minutes)} 分钟`),
+          h('span', { key: 'ref', style: { fontSize: '12px', fontFamily: 'var(--gw-mono, monospace)', color: 'var(--gw-coral-deep, #a64132)' } }, `${task.id} / ${task.ref}`),
+          h('span', { key: 'done', style: { fontSize: '13px', fontWeight: '700', color: done ? '#3f9b63' : 'var(--gw-muted, #718096)' } }, `${done ? '已完成' : '未完成'} · ${String(task.minutes)} 分钟`),
         ]),
         h('label', { key: 'title', style: { display: 'flex', gap: '10px', alignItems: 'flex-start', cursor: 'pointer' } }, [
           h('input', { key: 'box', type: 'checkbox', checked: done, style: { accentColor: 'var(--gw-coral, #e56b55)', width: '22px', height: '22px', marginTop: '2px', cursor: 'pointer', accentColor: done ? '#3f9b63' : 'var(--gw-coral, #e56b55)', filter: done ? 'drop-shadow(0 2px 4px rgba(63,155,99,.28))' : 'none' }, 'aria-label': task.action, onChange: (event) => { void save({ done: event.target.checked }); } }),
           h('span', { key: 'text', style: { fontSize: '15px', fontWeight: '700', lineHeight: '1.45', textDecoration: done ? 'line-through' : 'none', opacity: done ? '.6' : '1' } }, task.action),
         ]),
-        h('div', { key: 'minimum', style: { padding: '10px 11px', borderRadius: '10px', background: '#f3efe8', fontSize: '12px', lineHeight: '1.55', color: '#59645f' } }, [
+        h('div', { key: 'minimum', style: { padding: '10px 11px', borderRadius: '10px', background: '#f3efe8', fontSize: '13px', lineHeight: '1.55', color: '#59645f' } }, [
           h('strong', { key: 'label', style: { color: '#253b39' } }, '最低完成版本'),
           ` ${task.minimumVersion}`,
         ]),
         h('div', { key: 'evidence', style: { display: 'flex', flexDirection: 'column', gap: '7px' } }, [
-          h('label', { key: 'label', style: { fontSize: '11px', color: 'var(--gw-muted, #718096)' } }, '做完后留一条证据'),
-          h('input', { key: 'input', style: { ...S.input, width: '100%', boxSizing: 'border-box', fontSize: '12px' }, placeholder: '链接、文件名或一句结果', defaultValue: evidence, 'aria-label': '任务证据', onBlur: (event) => { if (event.target.value !== evidence) void save({ evidence: event.target.value }); } }),
+          h('label', { key: 'label', style: { fontSize: '12px', color: 'var(--gw-muted, #718096)' } }, '做完后留一条证据'),
+          h('input', { key: 'input', style: { ...S.input, width: '100%', boxSizing: 'border-box', fontSize: '13px' }, placeholder: '链接、文件名或一句结果', defaultValue: evidence, 'aria-label': '任务证据', onBlur: (event) => { if (event.target.value !== evidence) void save({ evidence: event.target.value }); } }),
           h('select', { key: 'select', style: { ...S.select, width: '100%' }, value: tier, 'aria-label': '证据档位', onChange: (event) => { void save({ tier: event.target.value || null }); } }, [
             h('option', { key: 'none', value: '' }, '选择证据档位'),
             h('option', { key: 'self', value: '自述' }, '自述：我完成了'),
@@ -1275,13 +1275,13 @@ window.__ModuleLoader__.load({
       const { state, error, post } = useWorkbench();
       const [activity, setActivity] = useState(agentActivity);
       useEffect(() => subscribeActivity(setActivity), []);
-      if (state === null) return h('div', { style: { padding: '16px', fontSize: '13px', color: 'var(--gw-muted, #718096)' } }, error.length > 0 ? error : '正在载入今日…');
+      if (state === null) return h('div', { style: { padding: '16px', fontSize: '14px', color: 'var(--gw-muted, #718096)' } }, error.length > 0 ? error : '正在载入今日…');
       const task = state.focus.tasks[0];
       const done = state.metrics.completion.total > 0 ? Math.round((state.metrics.completion.done / state.metrics.completion.total) * 100) : 0;
       return h('div', { style: { height: '100%', overflowY: 'auto', boxSizing: 'border-box', padding: '16px 14px 22px', display: 'flex', flexDirection: 'column', gap: '14px', background: 'linear-gradient(180deg, #f8f6f1 0%, #f3eee7 100%)', color: 'var(--gw-ink, #1f2933)' } }, [
         h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' } }, [
           h('div', { key: 'copy' }, [
-            h('div', { key: 'eyebrow', style: { fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.14em', color: 'var(--gw-coral-deep, #a64132)' } }, 'Today'),
+            h('div', { key: 'eyebrow', style: { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '.14em', color: 'var(--gw-coral-deep, #a64132)' } }, 'Today'),
             h('div', { key: 'title', style: { fontFamily: 'var(--gw-display, Calistoga, Georgia, serif)', fontSize: '24px', lineHeight: '1.15', marginTop: '5px' } }, state.profile.targetRole ? `向 ${state.profile.targetRole} 走` : '今天，先走一步'),
           ]),
           h('span', { key: 'day', style: { ...S.chip, fontFamily: 'var(--gw-mono, monospace)', whiteSpace: 'nowrap' } }, state.metrics.day === null ? 'DAY --' : `DAY ${String(Math.max(1, state.metrics.day)).padStart(2, '0')}`),
@@ -1290,8 +1290,8 @@ window.__ModuleLoader__.load({
           h('div', { key: 'progress', style: { padding: '11px', borderRadius: '12px', background: '#fffdf9', border: '1px solid #e5dfd5' } }, [h('div', { key: 'label', style: S.fine }, '计划完成'), h('strong', { key: 'value', style: { display: 'block', fontSize: '20px', marginTop: '4px' } }, `${String(done)}%`), h('div', { key: 'bar', style: { height: '4px', background: '#eee9e1', borderRadius: '99px', marginTop: '8px' } }, h('div', { style: { height: '100%', width: `${String(done)}%`, borderRadius: '99px', background: 'var(--gw-coral, #e56b55)' } }))]),
           h('div', { key: 'streak', style: { padding: '11px', borderRadius: '12px', background: '#fffdf9', border: '1px solid #e5dfd5' } }, [h('div', { key: 'label', style: S.fine }, '连续打卡'), h('strong', { key: 'value', style: { display: 'block', fontSize: '20px', marginTop: '4px' } }, `${String(state.metrics.streak)} 天`), h('div', { key: 'phase', style: { ...S.fine, marginTop: '8px' } }, state.metrics.phaseName || '尚未开始')]),
         ]),
-        activity === null ? null : h('div', { key: 'activity', role: 'status', 'aria-live': 'polite', style: { padding: '11px 12px', borderRadius: '12px', fontSize: '12px', lineHeight: '1.5', background: activity.status === 'completed' ? '#edf6ef' : activity.status === 'error' ? '#fff0ed' : '#eef2f0', border: `1px solid ${activity.status === 'completed' ? '#c8dfcc' : activity.status === 'error' ? '#f3c5be' : '#d5e0da'}` } }, activity.status === 'completed' ? 'AI 已返回，今日面板已自动更新。' : activity.status === 'error' ? `AI 处理失败：${activity.error}` : 'AI 正在处理，完成后这里会自动更新。'),
-        task === undefined ? h('div', { key: 'empty', style: { padding: '16px', borderRadius: '16px', background: '#253b39', color: '#fff' } }, [h('div', { key: 'label', style: { fontSize: '10px', textTransform: 'uppercase', letterSpacing: '.12em', opacity: '.65' } }, '下一步'), h('div', { key: 'title', style: { fontSize: '16px', fontWeight: '700', marginTop: '6px' } }, state.nextAction?.label ?? '今天没有待办'), h('div', { key: 'reason', style: { fontSize: '12px', lineHeight: '1.55', opacity: '.78', marginTop: '6px' } }, state.nextAction?.reason ?? '去成长工作台查看完整计划。')]) : h(RightTaskCard, { key: task.id, task, entry: state.progress.tasks?.[task.id], post }),
+        activity === null ? null : h('div', { key: 'activity', role: 'status', 'aria-live': 'polite', style: { padding: '11px 12px', borderRadius: '12px', fontSize: '13px', lineHeight: '1.5', background: activity.status === 'completed' ? '#edf6ef' : activity.status === 'error' ? '#fff0ed' : '#eef2f0', border: `1px solid ${activity.status === 'completed' ? '#c8dfcc' : activity.status === 'error' ? '#f3c5be' : '#d5e0da'}` } }, activity.status === 'completed' ? 'AI 已返回，今日面板已自动更新。' : activity.status === 'error' ? `AI 处理失败：${activity.error}` : 'AI 正在处理，完成后这里会自动更新。'),
+        task === undefined ? h('div', { key: 'empty', style: { padding: '16px', borderRadius: '16px', background: '#253b39', color: '#fff' } }, [h('div', { key: 'label', style: { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '.12em', opacity: '.65' } }, '下一步'), h('div', { key: 'title', style: { fontSize: '16px', fontWeight: '700', marginTop: '6px' } }, state.nextAction?.label ?? '今天没有待办'), h('div', { key: 'reason', style: { fontSize: '13px', lineHeight: '1.55', opacity: '.78', marginTop: '6px' } }, state.nextAction?.reason ?? '去成长工作台查看完整计划。')]) : h(RightTaskCard, { key: task.id, task, entry: state.progress.tasks?.[task.id], post }),
         error.length > 0 ? h('div', { key: 'error', style: S.error }, error) : null,
         h('div', { key: 'foot', style: { ...S.fine, textAlign: 'center', paddingTop: '2px' } }, state.focus.scheduled ? '这是今天排定的最小动作' : '今天没有排定任务，先接着完成这一项'),
       ]);
