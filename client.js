@@ -1055,7 +1055,9 @@ window.__ModuleLoader__.load({
                 type: 'button',
                 'data-item': item.id,
                 'data-value': 'unknown',
-                style: { ...S.button, ...S.small, ...(scores[item.id] === undefined ? S.buttonOn : {}) },
+                // 不按"未答"高亮：选「不知道」会删掉那个键，所以"没答过"与"答了不知道"在数据上
+                // 是同一个状态 —— 把未答画成已选，会让 19 项看起来全都答完了。
+                style: { ...S.button, ...S.small },
                 onClick: () => set(item.id, null),
               }, '不知道'),
             ]),
