@@ -380,6 +380,20 @@ await check('段位：七段等距挂在阶段上，达成的才填色', () => {
   assert.ok((source.match(/h\(RankBadge, \{/g) ?? []).length >= 2, '阶梯与阶段章都要用它')
 })
 
+await check('考核目录：阶段与节点的状态都从已有数据算出来，不另存', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  assert.match(source, /function ExamSyllabus\(\{ state \}\)/)
+  // 节点看「那一周里有没有轮次」，阶段看「那个阶段里有没有全量轮」—— 两者用的是各自的尺子。
+  assert.match(source, /rounds\.find\(\(entry\) => entry\.day >= weekStart && entry\.day <= weekEnd\)/, '节点状态来自落在那一周里的轮次')
+  assert.match(source, /entry\.coverage === '全量' && entry\.day >= phase\.days\[0\]/, '阶段那一行看的是全量轮')
+  for (const word of ['已考', '待完成', '待补考', '未解锁']) {
+    assert.match(source, new RegExp(`${word}`), `四种状态都要有：${word}`)
+  }
+  // 两个概念不许再并排：「能力曲线点」是**能力项**的逐项读数，和四维图不是一回事。
+  assert.match(source, /逐项曲线点/, '曲线点要说明它是逐项读数')
+  assert.match(source, /\*\*能力项\*\*的逐项读数/, '两个概念要分开说')
+})
+
 await check('package name is the bundle identity', () => assert.equal(pkg.name, NAME))
 await check('files[] ships cordis.patch.yml', () => assert.ok(pkg.files.includes('cordis.patch.yml')))
 await check('dsh.bundle.patch points at the patch layer', () => assert.equal(pkg.dsh?.bundle?.patch, './cordis.patch.yml'))

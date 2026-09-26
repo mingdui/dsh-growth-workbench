@@ -1397,6 +1397,60 @@ window.__ModuleLoader__.load({
       ]);
     }
 
+    /**
+     * 考核目录：阶段 → 节点（阶段里的周），每个节点标出它的考核状态。
+     *
+     * 这张表回答的是「什么时候该考核」—— 原先只能从主角区那句话里猜。状态全部由已有数据算出来：
+     *   · 已考   —— 那一周里有过任一轮考核（轮次带 day，落在周的区间里）
+     *   · 待完成 —— 你正走在这一周，还没考
+     *   · 待补考 —— 那一周已经过去，却没留下考核记录
+     *   · 未解锁 —— 还没走到那一段
+     * 阶段自己那一行看的是**全量轮**（阶段大考），节点看的是任意轮（小考）。
+     */
+    function ExamSyllabus({ state }) {
+      const phases = state.plan.phases;
+      if (phases.length === 0) return null;
+      const rounds = (state.history ?? []).filter((entry) => entry.kind === 'review');
+      const currentIndex = state.metrics.phaseIndex;
+      const day = state.metrics.day;
+      const kids = [
+        h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '14px', flexWrap: 'wrap' } }, [
+          h('h3', { key: 't', style: S.h3 }, '考核目录'),
+          h('span', { key: 'n', style: S.meta }, `阶段 ${String(phases.length)} 个 · 节点 ${String(phases.reduce((sum, phase) => sum + ((phase.weeks ?? []).length), 0))} 个 · 已考 ${String(rounds.length)} 轮`),
+        ]),
+      ];
+      phases.forEach((phase, index) => {
+        const locked = currentIndex < 0 || index > currentIndex;
+        const done = index < currentIndex;
+        const bigExam = rounds.some((entry) => entry.coverage === '全量' && entry.day >= phase.days[0] && entry.day <= phase.days[1]);
+        const rows = [];
+        (phase.weeks ?? []).forEach((week) => {
+          // 节点落在哪一周：按计划自己的周编号算，和节点的验收标准是同一把尺子。
+          const weekStart = (week.week - 1) * 7 + 1;
+          const weekEnd = weekStart + 6;
+          const taken = rounds.find((entry) => entry.day >= weekStart && entry.day <= weekEnd);
+          const state$ = taken !== undefined ? 'done' : (locked ? 'locked' : (day !== null && day > weekEnd ? 'missed' : 'open'));
+          rows.push(h('div', { key: `w${String(week.week)}`, style: { display: 'flex', alignItems: 'baseline', gap: '10px', padding: '7px 0 7px 26px', borderTop: '1px solid var(--gw-line-soft, #efeae2)' } }, [
+            h('span', { key: 'k', style: { ...S.chipPlain, flex: '0 0 auto', fontFamily: 'var(--gw-mono, monospace)' } }, `第 ${String(week.week)} 周`),
+            h('span', { key: 'th', style: { flex: '1 1 auto', minWidth: '0', fontSize: '13px', color: state$ === 'locked' ? 'var(--gw-muted-2, #9aa7b1)' : 'inherit' } }, week.theme ?? ''),
+            h('span', { key: 'st', style: { flex: '0 0 auto', fontSize: '12px', fontWeight: '600', color: state$ === 'done' ? 'var(--gw-teal, #2f7d74)' : (state$ === 'missed' ? '#8a5a1f' : 'var(--gw-muted-2, #9aa7b1)'), whiteSpace: 'nowrap' } },
+              state$ === 'done' ? `已考 ${String(taken.date ?? '')}` : (state$ === 'missed' ? '待补考' : (state$ === 'locked' ? '未解锁' : '待完成'))),
+          ]));
+        });
+        kids.push(h('div', { key: phase.name, style: { marginTop: '14px' } }, [
+          h('div', { key: 'p', style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' } }, [
+            h(RankBadge, { key: 'rank', rank: rankOf(index, phases.length), achieved: done, size: 22 }),
+            h('span', { key: 'n', style: { fontSize: '14px', fontWeight: '600', color: locked ? 'var(--gw-muted-2, #9aa7b1)' : 'inherit' } }, `阶段${String(index + 1)} ${phase.name}`),
+            h('span', { key: 'd', style: { fontFamily: 'var(--gw-mono, monospace)', fontSize: '11.5px', color: 'var(--gw-muted-2, #9aa7b1)' } }, `${String(phase.days[0])}–${String(phase.days[1])} 天`),
+            h('span', { key: 'big', style: { marginLeft: 'auto', fontSize: '12px', fontWeight: '600', color: bigExam ? 'var(--gw-teal, #2f7d74)' : (locked ? 'var(--gw-muted-2, #9aa7b1)' : '#8a5a1f'), whiteSpace: 'nowrap' } },
+              bigExam ? '大考已做（全量）' : (locked ? '大考未解锁' : '大考待完成')),
+          ]),
+          rows.length === 0 ? null : h('div', { key: 'weeks' }, rows),
+        ]));
+      });
+      return h('div', { style: S.card }, kids);
+    }
+
     /** The review tab: history and trend from what the agent wrote. The page never scores. */
     function ReviewTabBody({ state }) {
       const history = state.history;
@@ -1449,12 +1503,14 @@ window.__ModuleLoader__.load({
 
       return h('div', { style: S.stack }, [
         h(Paper, { key: 'paper', state }),
+        // 卷子在上面（现在要做的事），目录在下面（整张地图）—— 目录回答的是「还差哪几次」。
+        h(ExamSyllabus, { key: 'syllabus', state }),
         h('div', { key: 'trend', style: S.card }, [
           h('h3', { key: 't', style: S.h3 }, '趋势'),
-          h('div', { key: 'counts', style: S.meta }, `历史 ${String(history.length)} 轮（其中考核 ${String(reviews.length)} 轮）　能力曲线点 ${String(curve.length)} 个`),
+          h('div', { key: 'counts', style: S.meta }, `历史 ${String(history.length)} 轮（其中考核 ${String(reviews.length)} 轮）`),
           h(TrendChart, { key: 'chart', rounds: reviews }),
           reviews.length === 0 ? null : h('div', { key: 'chartNote', style: S.meta }, '四维得分，各 0-25。自评轮读的是缺口，量纲不同，不进这张图。'),
-          h('div', { key: 'note', style: S.meta }, '只测了部分能力项的轮次照样进历史和图表，只是不产生能力曲线点。'),
+          h('div', { key: 'note', style: S.meta }, `逐项曲线点 ${String(curve.length)} 个 —— 那是**能力项**的逐项读数，和上面这张四维图不是一回事；只测了部分能力项的轮次照样进历史与图表，只是不产生曲线点。`),
           ...(history.length === 0
             ? [h('div', { key: 'empty', style: S.empty }, '还没有记录。')]
             : history.slice().reverse().map((entry, index) => entryCard(entry, `${entry.date}-${String(index)}`))),
