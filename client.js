@@ -1104,28 +1104,54 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 把自查题按加权缺口排成一条队伍，考卷每次从这条队伍上取一段。
-     *
-     * 两条规则都从真实数据里长出来：
-     *  1. 顺序按 `metrics.priorities`（加权缺口），差得多的先考；
-     *  2. **没有对应题的项要跳过**。16 道自查题覆盖 A1/A2/A3/A5、B1–B4、C1–C4、D1–D4 ——
-     *     A4、B5、B6 是没有题的。不跳过的话，「缺口第 4 位的 A4」会让考卷静默地少出一道题。
-     * 缺口榜走完之后，剩下的自查题按原顺序接上，所以「换一张」能一直换到全部考过。
+     * 一道题配一个能力项。缺口榜（priorities）里带分、带缺口、带权重；不在榜上的项只有自评分 ——
+     * 那就不编缺口出来，编一个就是假数据。
      */
-    function examPool(state) {
+    function examItem(state, id) {
+      const known = (state.metrics.priorities ?? []).find((entry) => entry.id === id);
+      if (known !== undefined) return known;
       const role = state.catalog.activeRole;
+      const item = role === null || role === undefined ? undefined : role.items.find((entry) => entry.id === id);
+      const score = (state.profile.selfAssessment?.scores ?? {})[id];
+      return {
+        id,
+        name: item === undefined ? '' : item.name,
+        score: score === undefined ? 0 : score,
+        shortfall: null,
+        weight: null,
+      };
+    }
+
+    /**
+     * 考卷的题目池。两档出题只差排序依据：
+     *  - **节点小考**：按加权缺口 —— 差得多的先考；
+     *  - **阶段大考**：按**高权重项** —— 阶段大考评的本来就是完整的高权重项集。
+     * 两档都要**跳过没有对应题的项**：16 道自查题覆盖 A1/A2/A3/A5、B1–B4、C1–C4、D1–D4，
+     * 而 A4、B5、B6 没有题。不跳过的话考卷会静默地少出一道。
+     * 池子末尾接上其余自查题（按原顺序），所以「换一张」能一直换下去。
+     */
+    function examPool(state, tier) {
+      const questions = state.plan.selfCheck ?? [];
       const pool = [];
-      for (const item of state.metrics.priorities ?? []) {
-        const question = (state.plan.selfCheck ?? []).find((entry) => entry.capability === item.id);
-        if (question === undefined) continue;
-        pool.push({ item, question });
-      }
-      for (const question of state.plan.selfCheck ?? []) {
-        if (pool.some((entry) => entry.question.id === question.id)) continue;
-        const item = role === null || role === undefined ? undefined : role.items.find((entry) => entry.id === question.capability);
-        pool.push({ item: item === undefined ? { id: question.capability, name: '', score: 0, shortfall: 0, weight: 0 } : item, question });
-      }
+      const take = (id) => {
+        const question = questions.find((entry) => entry.capability === id);
+        if (question === undefined) return;
+        if (pool.some((entry) => entry.question.id === question.id)) return;
+        pool.push({ item: examItem(state, id), question });
+      };
+      if (tier === 'phase') for (const id of state.catalog.highWeightIds ?? []) take(id);
+      else for (const entry of state.metrics.priorities ?? []) take(entry.id);
+      for (const question of questions) take(question.capability);
       return pool;
+    }
+
+    /**
+     * 这次该考哪一档：页面不自己判 —— 上面那条优先级阶梯（nextActionFor）已经判过了，
+     * 它给出的 id 就是答案。页面再算一遍只会和它分叉。
+     */
+    function examTier(state) {
+      const action = state.nextAction;
+      return action !== null && action !== undefined && action.id === 'review-phase' ? 'phase' : 'node';
     }
 
     /** 一张考卷几道题。用户答得完，AI 也核得过来。 */
@@ -1138,7 +1164,8 @@ window.__ModuleLoader__.load({
      * 而且换回去时草稿还在（每张卷子的窗口各自记自己的答案）。
      */
     function Paper({ state }) {
-      const pool = examPool(state);
+      const [tier, setTier] = useState(() => examTier(state));
+      const pool = examPool(state, tier);
       const windows = Math.max(1, Math.ceil(pool.length / PAPER_SIZE));
       const [offset, setOffset] = useState(0);
       const [answers, setAnswers] = useState({});
@@ -1157,7 +1184,7 @@ window.__ModuleLoader__.load({
           `我的回答：${answers[entry.question.id]}`,
         ].join('\n'));
         try {
-          await askAgent(`我的考核作答（计划第 ${String(day)} 天，${state.metrics.phaseName || '未进入阶段'}）：\n\n${lines.join('\n\n')}\n\n请按 rubric 打四维分，并用 growth_save_assessment 把这一轮写进历史。`);
+          await askAgent(`我的考核作答（计划第 ${String(day)} 天，${state.metrics.phaseName || '未进入阶段'}）—— 本次是${tier === 'phase' ? '阶段大考' : '节点小考'}，coverage 请用「${tier === 'phase' ? '全量' : '定向'}」：\n\n${lines.join('\n\n')}\n\n请按 rubric 打四维分，并用 growth_save_assessment 把这一轮写进历史。`);
         } catch (failure) {
           setPhase('idle');
         }
@@ -1179,7 +1206,22 @@ window.__ModuleLoader__.load({
         h('div', { key: 'strap', className: 'gw-strap' }, [
           h('span', { key: 'role' }, `方向 ${state.plan.role || '—'}`),
           h('span', { key: 'phase' }, `阶段 ${state.metrics.phaseName || '—'}`),
-          h('span', { key: 'by' }, '按加权缺口排序'),
+          // 两档都在这一页上，差别只是出题排序的依据：小考按缺口，大考按高权重项。
+          // 切换时把「第几组」归零 —— 池子换了，原来的窗口号没有意义。
+          h('span', { key: 'tier', style: { display: 'inline-flex', gap: '6px' } }, [
+            h('button', {
+              key: 'node',
+              type: 'button',
+              onClick: () => { setTier('node'); setOffset(0); },
+              style: { ...S.chipPlain, fontFamily: 'inherit', cursor: 'pointer', ...(tier === 'node' ? { color: '#fff', background: 'var(--gw-coral, #e56b55)', borderColor: 'var(--gw-coral, #e56b55)' } : {}) },
+            }, '节点小考'),
+            h('button', {
+              key: 'phase',
+              type: 'button',
+              onClick: () => { setTier('phase'); setOffset(0); },
+              style: { ...S.chipPlain, fontFamily: 'inherit', cursor: 'pointer', ...(tier === 'phase' ? { color: '#fff', background: 'var(--gw-coral, #e56b55)', borderColor: 'var(--gw-coral, #e56b55)' } : {}) },
+            }, '阶段大考'),
+          ]),
           h('span', { key: 'n' }, `共 ${String(take.length)} 题 · 第 ${String(offset + 1)} / ${String(windows)} 组`),
           h('span', { key: 'draft' }, '草稿只在页面上，刷新会丢'),
         ]),
@@ -1190,7 +1232,9 @@ window.__ModuleLoader__.load({
             h('span', { key: 'cap', className: 'cap' }, `${entry.item.id}${entry.item.name === '' ? '' : ` ${entry.item.name}`}`),
           ]),
           h('div', { key: 'why', className: 'why' },
-            `阶段「${entry.question.phase}」的自查题 · 当前自评 ${String(entry.item.score)} 分 · 缺口 ${String(entry.item.shortfall)}（权重 ${String(entry.item.weight)}）`),
+            `阶段「${entry.question.phase}」的自查题 · 当前自评 ${String(entry.item.score)} 分`
+            + (entry.item.shortfall === null ? '' : ` · 缺口 ${String(entry.item.shortfall)}`)
+            + (entry.item.weight === null ? '' : `（权重 ${String(entry.item.weight)}）`)),
           h('textarea', {
             key: 'a',
             placeholder: '在这里作答 —— 用具体判断，不要只写概念',

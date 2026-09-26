@@ -294,6 +294,22 @@ await check('考核有节奏了：节点小考 + 阶段大考，且空计划不�
   assert.match(clientSource, /action === undefined \|\| action === null/, '页面要认「没有下一步」这种状态')
 })
 
+await check('考卷两档：小考按缺口出题，大考按高权重项，且都跳过没有题的项', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  // 两档共用同一个 take()，只差排序依据 —— 拆成两套实现迟早会分叉。
+  assert.match(source, /function examPool\(state, tier\)/)
+  assert.match(source, /if \(tier === 'phase'\) for \(const id of state\.catalog\.highWeightIds/, '大考按高权重项出题')
+  assert.match(source, /else for \(const entry of state\.metrics\.priorities/, '小考按缺口出题')
+  assert.match(source, /if \(question === undefined\) return;/, '没有对应题的项必须跳过（A4/B5/B6 就没有题）')
+  // 档位不自己判：nextActionFor 已经判过了，页面再算一遍只会分叉。
+  assert.match(source, /function examTier\(state\)/)
+  assert.match(source, /action\.id === 'review-phase'/, '档位取自那条阶梯给出的 id')
+  // 交卷时必须把档位交代给模型，否则它会自己猜 coverage —— 猜错会让曲线点该画的不画、不该画的画上。
+  assert.match(source, /coverage 请用「/, '交卷要说明本次用哪个 coverage')
+  const toolsSource = readFileSync(join(ROOT, 'tools.mjs'), 'utf8')
+  assert.match(toolsSource, /coverage 必须跟本次相符/, '两档的约定要写在工具描述里（模型一定看得到的地方）')
+})
+
 await check('package name is the bundle identity', () => assert.equal(pkg.name, NAME))
 await check('files[] ships cordis.patch.yml', () => assert.ok(pkg.files.includes('cordis.patch.yml')))
 await check('dsh.bundle.patch points at the patch layer', () => assert.equal(pkg.dsh?.bundle?.patch, './cordis.patch.yml'))
