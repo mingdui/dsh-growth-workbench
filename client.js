@@ -556,7 +556,7 @@ window.__ModuleLoader__.load({
         const ready = state.profile.targetRole.length > 0 && state.catalog.missingBackground.length === 0 && state.catalog.activeRole !== null;
         return h('div', { 'data-anchor': 'plan-empty', style: S.card }, [
           h('h2', { key: 't', style: S.h2 }, '还没有计划'),
-          h('div', { key: 'a', style: S.meta }, '完成「画像」里的四项，就能让 AI 写计划了。'),
+          h('div', { key: 'a', style: S.meta }, ready ? '画像四项已经齐了 —— 点下面的按钮生成。' : '完成「画像」里的四项，就能让 AI 写计划了。'),
           h('div', { key: 'act', style: S.inline }, [
             h(AskButton, { key: 'btn', text: '帮我生成成长计划', label: '让 AI 生成计划', style: S.buttonOn,
               done: plan.phases.length > 0,
@@ -631,7 +631,7 @@ window.__ModuleLoader__.load({
         kids.push(h('div', { key: 'portfolio', style: S.card }, [
           h('h3', { key: 't', style: S.h3 }, '作品集清单'),
           ...plan.portfolio.map((item, index) => h('div', { key: `p${String(index)}`, style: { fontSize: '14px' } },
-            `${item.phase ?? ''}　${item.item ?? JSON.stringify(item)}`)),
+            `${item.phase ?? ''}　${item.item ?? '（这一项缺说明）'}`)),
         ]));
       }
 
@@ -654,7 +654,9 @@ window.__ModuleLoader__.load({
         ];
         if (entry.scores === null || entry.scores === undefined) {
           head.push(h('span', { key: 'gap', style: { ...S.fine, marginLeft: '8px' } },
-            `gap ${entry.gap === null || entry.gap === undefined ? '—' : Number(entry.gap).toFixed(2)}，已确认 ${String(entry.answered ?? 0)} 项`));
+            entry.gap === null || entry.gap === undefined
+              ? `已评 ${String(entry.answered ?? 0)} 项`
+              : `离达标线还差 ${Number(entry.gap).toFixed(2)} 分 · 已评 ${String(entry.answered ?? 0)} 项`));
         } else {
           head.push(h('span', { key: 'scores', style: { marginLeft: '8px' } },
             Object.entries(entry.scores).map(([dimension, value]) => `${dimension} ${String(value)}`).join(' / ')));
