@@ -203,16 +203,15 @@ await check('考核的收尾契约写在模型一定看得到的地方', () => {
   assert.match(clientSource, /考核在你的对话里一问一答/)
 })
 
-await check('补记考核不会把「没填」当成 0 分写进只追加的历史', () => {
+await check('考核页不再有手工补记入口 —— 打分归 Agent，页面只展示', () => {
   const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
-  // canonicalReview 只做 0-25 的范围检查，拦不住「四个全 0」；而考核历史只追加，页面上
-  // 撤不回来。所以初值必须是空（空的 0 与真的 0 分不是一回事 —— 本仓库的数据原则），
-  // 四项填齐才给点，且成功之后要清空，否则同一轮成绩能被点成两轮。
-  assert.match(source, /EMPTY_SCORES = \{ 完成率: '', 证据质量: '', 作品达标度: '', 知识考核: '' \}/, '初值不能是四个 0')
-  assert.match(source, /const \[draft, setDraft\] = useState\(EMPTY_SCORES\)/)
-  assert.match(source, /disabled: !draftFilled \|\| saving/)
-  assert.match(source, /if \(result\.ok\) setDraft\(EMPTY_SCORES\)/, '记完要清空')
-  assert.doesNotMatch(source, /scores: draft, day: Math\.max/, '不能再把整份草稿（可能是空的）直接当分数提交')
+  // 那张卡原先让人手填四个 0-25：canonicalReview 只做范围检查，拦不住「四个全 0」，
+  // 而考核历史只追加 —— 一次误点就往趋势里钉进一轮「总分 0（需努力）」，页面上撤不回来。
+  // 它唯一正当的用途是「AI 没落盘时补分」，而那个场景已由收尾契约堵上，于是整张卡删掉：
+  // 四维打分是 Agent 的事（growth_save_assessment），页面只读 history 与 curve。
+  assert.doesNotMatch(source, /'补记一次考核'|'手工登记一次考核成绩'/, '补记入口已删除')
+  assert.doesNotMatch(source, /post\('\/assessment'/, '页面不再自己写考核轮')
+  assert.match(source, /function ReviewTabBody\(\{ state \}\)/, '这一页只读 state')
 })
 
 await check('package name is the bundle identity', () => assert.equal(pkg.name, NAME))
