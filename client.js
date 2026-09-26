@@ -708,22 +708,26 @@ window.__ModuleLoader__.load({
         h('div', { key: 'manual', style: S.card }, [
           h('h3', { key: 't', style: S.h3 }, '手工登记一次考核成绩'),
           h('div', { key: 'note', style: S.meta }, '如果 AI 已经把这次考核写进历史，这里不用再登记。'),
-          h('div', { key: 'form', style: S.inline }, [
-            ...['完成率', '证据质量', '作品达标度', '知识考核'].map((dimension) => h('label', {
-              key: dimension,
-              style: { fontSize: '13px', display: 'flex', gap: '4px', alignItems: 'center' },
-            }, [
-              dimension,
-              h('input', {
-                key: 'input',
-                type: 'number',
-                min: 0,
-                max: 25,
-                style: { ...S.input, width: '64px', flex: '0 0 auto', padding: '4px 6px' },
-                value: draft[dimension],
-                onChange: (event) => setDraft({ ...draft, [dimension]: Number(event.target.value) }),
-              }),
-            ])),
+          // 每一维都带上判据：打分时看不到标准，等于让人凭感觉填一个 0-25。
+          h('div', { key: 'form', style: { display: 'flex', flexDirection: 'column', gap: '11px' } },
+            ['完成率', '证据质量', '作品达标度', '知识考核'].map((dimension) => h('div', { key: dimension, style: { display: 'flex', flexDirection: 'column', gap: '3px' } }, [
+              h('label', { key: 'row', style: { display: 'flex', gap: '10px', alignItems: 'center' } }, [
+                h('span', { key: 'n', style: { fontSize: '14px', fontWeight: '600', minWidth: '80px' } }, dimension),
+                h('input', {
+                  key: 'input',
+                  type: 'number',
+                  min: 0,
+                  max: 25,
+                  style: { ...S.input, width: '76px', flex: '0 0 auto' },
+                  value: draft[dimension],
+                  onChange: (event) => setDraft({ ...draft, [dimension]: Number(event.target.value) }),
+                }),
+                h('span', { key: 'range', style: S.fine }, '0-25'),
+              ]),
+              h('div', { key: 'bands', style: S.fine },
+                (state.catalog.rubric?.[dimension] ?? []).map((band) => band.text).join('　|　')),
+            ]))),
+          h('div', { key: 'act', style: S.inline }, [
             h('button', {
               key: 'submit',
               style: S.button,
