@@ -705,6 +705,117 @@ window.__ModuleLoader__.load({
 
     // ---------------------------------------------------------------- 考核
 
+    /**
+     * 四维趋势图。手写 SVG —— 本仓库不依赖任何库（含图表库），而它需要的很少：
+     * 一条网格、四条折线、每轮几个点。
+     *
+     * x 用轮次序号，不用日期：同一天可以有两轮，按日期画会叠在一起。日期标在轴下。
+     * 只画考核轮：自评轮的读数是「缺口」，与这里的「得分」量纲不同，混在一张图里
+     * 会让人以为它们可比。
+     */
+    const TREND_SERIES = [
+      { key: '完成率', color: '#e56b55' },
+      { key: '证据质量', color: '#2f7d74' },
+      { key: '作品达标度', color: '#d59b3f' },
+      { key: '知识考核', color: '#718096' },
+    ];
+
+    function TrendChart({ rounds }) {
+      if (rounds.length === 0) return null;
+      const W = 640
+      const H = 220
+      const LEFT = 34
+      const RIGHT = 14
+      const TOP = 14
+      const BOTTOM = 36
+      const plotW = W - LEFT - RIGHT
+      const plotH = H - TOP - BOTTOM
+      const x = (index) => (rounds.length === 1 ? LEFT + plotW / 2 : LEFT + (plotW * index) / (rounds.length - 1))
+      const y = (score) => TOP + plotH * (1 - score / 25)
+      const kids = []
+
+      for (const tick of [0, 5, 10, 15, 20, 25]) {
+        kids.push(h('line', {
+          key: `grid-${String(tick)}`,
+          x1: LEFT, x2: W - RIGHT, y1: y(tick), y2: y(tick),
+          stroke: tick === 0 ? 'var(--gw-line, #d9d0c4)' : 'var(--gw-line-soft, #eee9e1)',
+          strokeWidth: 1,
+        }))
+        kids.push(h('text', {
+          key: `tick-${String(tick)}`,
+          x: LEFT - 8, y: y(tick) + 4, textAnchor: 'end',
+          style: { fontSize: '11px', fill: 'var(--gw-muted, #718096)' },
+        }, [String(tick)]))
+      }
+
+      // 折线先画，点后画 —— 否则线会盖住点。
+      for (const series of TREND_SERIES) {
+        const points = rounds
+          .map((entry, index) => ({ index, score: Number(entry.scores?.[series.key]) }))
+          .filter((point) => Number.isFinite(point.score))
+        if (points.length > 1) {
+          kids.push(h('polyline', {
+            key: `line-${series.key}`,
+            fill: 'none', stroke: series.color, strokeWidth: 2,
+            strokeLinejoin: 'round', strokeLinecap: 'round',
+            points: points.map((point) => `${String(x(point.index))},${String(y(point.score))}`).join(' '),
+          }))
+        }
+        for (const point of points) {
+          kids.push(h('circle', {
+            key: `dot-${series.key}-${String(point.index)}`,
+            cx: x(point.index), cy: y(point.score), r: 3.5,
+            fill: '#fffdf9', stroke: series.color, strokeWidth: 2,
+          }, [
+            h('title', { key: 'tip' }, [`${series.key}　${rounds[point.index].date}：${String(point.score)} 分`]),
+          ]))
+        }
+      }
+
+      // 日期：轮次多了就隔几个标一个，最后两轮一定标 —— 最近的两个点最该看得清。
+      const stride = Math.max(1, Math.ceil(rounds.length / 7))
+      rounds.forEach((entry, index) => {
+        if (index % stride !== 0 && index < rounds.length - 2) return
+        kids.push(h('text', {
+          key: `date-${String(index)}`,
+          x: x(index), y: H - BOTTOM + 18, textAnchor: 'middle',
+          style: { fontSize: '11px', fill: 'var(--gw-muted, #718096)' },
+        }, [entry.date.slice(5)]))
+      })
+      kids.push(h('text', {
+        key: 'axis-y', x: LEFT - 8, y: TOP - 4, textAnchor: 'end',
+        style: { fontSize: '11px', fill: 'var(--gw-muted, #718096)' },
+      }, ['得分']))
+
+      const legend = TREND_SERIES.map((series) => {
+        const latest = rounds
+          .map((entry) => Number(entry.scores?.[series.key]))
+          .filter((value) => Number.isFinite(value))
+          .pop()
+        return h('span', {
+          key: series.key,
+          style: { display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: 'var(--gw-muted, #718096)' },
+        }, [
+          h('span', { key: 'swatch', style: { width: '10px', height: '10px', borderRadius: '3px', background: series.color, flex: '0 0 auto' } }),
+          h('span', { key: 'name' }, [latest === undefined ? series.key : `${series.key} ${String(latest)}`]),
+        ])
+      })
+
+      return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } }, [
+        h('div', { key: 'plot', style: { overflowX: 'auto' } }, [
+          h('svg', {
+            viewBox: `0 0 ${String(W)} ${String(H)}`,
+            width: '100%',
+            role: 'img',
+            'aria-label': `四维趋势：最近 ${String(rounds.length)} 轮考核的四项得分（各 0-25）`,
+            style: { display: 'block', minWidth: '460px', height: 'auto' },
+          }, kids),
+        ]),
+        h('div', { key: 'legend', style: { display: 'flex', gap: '14px', flexWrap: 'wrap' } }, legend),
+        rounds.length > 1 ? null : h('div', { key: 'one', style: S.fine }, '再有一次考核，这些点才连得成线。'),
+      ])
+    }
+
     /** The review tab: history and trend from what the agent wrote. The page never scores. */
     function ReviewTabBody({ state }) {
       const history = state.history;
@@ -759,7 +870,9 @@ window.__ModuleLoader__.load({
         h('div', { key: 'trend', style: S.card }, [
           h('h3', { key: 't', style: S.h3 }, '趋势'),
           h('div', { key: 'counts', style: S.meta }, `历史 ${String(history.length)} 轮（其中考核 ${String(reviews.length)} 轮）　能力曲线点 ${String(curve.length)} 个`),
-          h('div', { key: 'note', style: S.meta }, '只测了部分能力项的轮次会记进历史，但不画线。'),
+          h(TrendChart, { key: 'chart', rounds: reviews }),
+          reviews.length === 0 ? null : h('div', { key: 'chartNote', style: S.meta }, '四维得分，各 0-25。自评轮读的是缺口，量纲不同，不进这张图。'),
+          h('div', { key: 'note', style: S.meta }, '只测了部分能力项的轮次照样进历史和图表，只是不产生能力曲线点。'),
           ...(history.length === 0
             ? [h('div', { key: 'empty', style: S.empty }, '还没有记录。')]
             : history.slice().reverse().map((entry, index) => entryCard(entry, `${entry.date}-${String(index)}`))),

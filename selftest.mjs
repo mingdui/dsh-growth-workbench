@@ -214,6 +214,20 @@ await check('考核页不再有手工补记入口 —— 打分归 Agent，页�
   assert.match(source, /function ReviewTabBody\(\{ state \}\)/, '这一页只读 state')
 })
 
+await check('趋势图是手写 SVG —— 这个仓库不引图表库', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  // package.json 没有 dependencies（上面另有断言），所以图表库根本加不进来：
+  // 四维趋势只能是手写 SVG。它要有一条网格、四条折线、每轮的点、图例与一句话说明。
+  assert.match(source, /function TrendChart\(\{ rounds \}\)/)
+  assert.match(source, /h\('svg', \{/, '图是 SVG：不是 canvas，也不是第三方组件')
+  assert.match(source, /h\('polyline', \{/)
+  assert.match(source, /h\('circle', \{/)
+  assert.match(source, /'aria-label': `四维趋势/, '图要有一句话说明，读屏与无图环境都能读')
+  assert.match(source, /if \(rounds\.length === 0\) return null/, '没有考核轮时不出图')
+  assert.match(source, /不进这张图/, '自评轮不进图的理由要写在页面上')
+  assert.doesNotMatch(source, /recharts|chart\.js|echarts|\bd3\b/i, '不许引图表库')
+})
+
 await check('package name is the bundle identity', () => assert.equal(pkg.name, NAME))
 await check('files[] ships cordis.patch.yml', () => assert.ok(pkg.files.includes('cordis.patch.yml')))
 await check('dsh.bundle.patch points at the patch layer', () => assert.equal(pkg.dsh?.bundle?.patch, './cordis.patch.yml'))
