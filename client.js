@@ -975,14 +975,11 @@ window.__ModuleLoader__.load({
       .join('　·　')
 
     /** Step ⑤: the self-assessment — every item with its anchors on screen, one click each. */
-    function SelfAssessmentForm({ state, post }) {
+    function SelfAssessmentForm({ state, post, scores, setScores }) {
       const { catalog, profile } = state;
       const role = catalog.activeRole;
       const busy = useAgentBusy();
-      const [scores, setScores] = useState(() => ({ ...(profile.selfAssessment?.scores ?? {}) }));
-      useEffect(() => {
-        setScores({ ...(profile.selfAssessment?.scores ?? {}) });
-      }, [profile.selfAssessment?.date]);
+
 
       // 没有模型就没有逐项锚点 —— 没有锚点的自评是 20 个互不可比的数，所以这里
       // 不退化成一个通用问卷，而是把"去生成一份"这条路指出来。
@@ -1003,7 +1000,7 @@ window.__ModuleLoader__.load({
       const source = catalog.activeRoleSource;
       const sourceNote = catalog.roleStatus[source] ?? null;
 
-      const answered = Object.keys(scores).length;
+
       const gap = state.metrics.gap;
       // 用函数式更新：连续点几下时，闭包里的 `scores` 是同一份旧值，
       // 普通写法会让最后一次点选覆盖掉前面几次。
@@ -1065,17 +1062,9 @@ window.__ModuleLoader__.load({
             h('div', { key: 'anchors', style: S.fine }, anchorText(item)),
           ])),
         ]));
-      }
-
-      kids.push(h('div', { key: 'submit', style: S.inline }, [
-        h('button', {
-          key: 'go',
-          style: { ...S.button, ...S.buttonOn },
-          type: 'button',
-          onClick: () => { void post('/self-assessment', { scores }); },
-        }, `提交自评（已确认 ${String(answered)} / ${String(role.items.length)} 项）`),
-        h('span', { key: 'gap', style: S.meta }, gap === null ? '还没法算' : `离达标线还差 ${gap.toFixed(2)} 分（每项 3 分算达标）`),
-      ]));
+      }      // 提交入口不在这里：④ 的「确认能力自评」负责落盘。这里只留读数 —— 它是上一次
+      // 已提交自评的结果，不是这份草稿的。
+      if (gap !== null) kids.push(h('div', { key: 'gap', style: S.meta }, `离达标线还差 ${gap.toFixed(2)} 分（每项 3 分算达标）`));
 
       if (state.metrics.priorities.length > 0) {
         kids.push(h('div', { key: 'prio' }, [
@@ -1123,6 +1112,10 @@ window.__ModuleLoader__.load({
       // 打完字直接点确认的话，草稿会随折叠被丢掉，而底盘还会拿旧答案去推。
       const [bgDraft, setBgDraft] = useState(() => ({ ...(profile.background ?? {}) }));
       useEffect(() => { setBgDraft({ ...(profile.background ?? {}) }); }, [profile.intake?.q1]);
+      // 自评草稿同样上提：提交它的是 ④ 的「确认能力自评」，两个组件必须共用同一份。
+      // 同步只在 selfAssessment.date 变化时触发 —— 保存失败不会改日期，所以草稿不会被冲掉。
+      const [scoresDraft, setScoresDraft] = useState(() => ({ ...(profile.selfAssessment?.scores ?? {}) }));
+      useEffect(() => { setScoresDraft({ ...(profile.selfAssessment?.scores ?? {}) }); }, [profile.selfAssessment?.date]);
       // 折叠行显示人话，不是 `B` 这种选项代码 —— 代码是题库与存储的东西：用户填进去的是
       // 「在职同方向」，不是「B」。选项代码会随题库调整而变，直接显示它等于把内部标识
       // 漏到界面上。
@@ -1175,6 +1168,21 @@ window.__ModuleLoader__.load({
           confirm('transferable', shouldAsk ? () => { void askAgent('帮我看看我有什么底子'); } : undefined);
         });
       };
+      const savedScores = profile.selfAssessment?.scores ?? {};
+      const scoresDirty = (() => {
+        const keys = new Set([...Object.keys(savedScores), ...Object.keys(scoresDraft)]);
+        for (const key of keys) if (savedScores[key] !== scoresDraft[key]) return true;
+        return false;
+      })();
+      // 先落盘再折叠：与 ① 的自定义岗位名、② 的追问同一套处理。
+      const confirmSelf = () => {
+        if (scoresDirty) void post('/self-assessment', { scores: scoresDraft });
+        setOpen('');
+      };
+      const scoredCount = Object.keys(scoresDraft).length;
+      const selfLabel = state.catalog.activeRole === null
+        ? '确认能力自评'
+        : `确认能力自评（已确认 ${String(scoredCount)} / ${String(state.catalog.activeRole.items.length)} 项）`;
       const startCapabilityModel = () => {
         if (state.catalog.activeRole === null) void askAgent('帮我建这个方向的能力模型');
       };
@@ -1182,7 +1190,7 @@ window.__ModuleLoader__.load({
         h(ProfileModule, { key: 'direction', label: '目标岗位', summary: summary.direction, done: done.direction, open: open === 'direction', onOpen: () => setOpen('direction'), onConfirm: confirmRole, children: h(DirectionForm, { state, post, draft: roleDraft, setDraft: setRoleDraft, commit: saveRole }) }),
         h(ProfileModule, { key: 'intake', label: '你的条件', summary: summary.intake, done: done.intake, open: open === 'intake', onOpen: () => setOpen('intake'), onConfirm: confirmIntake, children: h(IntakeForm, { state, post, bgDraft, setBgDraft }) }),
         h(ProfileModule, { key: 'transferable', label: '可迁移能力', summary: summary.transferable, done: done.transferable, open: open === 'transferable', onOpen: () => setOpen('transferable'), onConfirm: () => confirm('self', startCapabilityModel), children: h(TransferableForm, { state, post }) }),
-        h(ProfileModule, { key: 'self', label: '能力自评', summary: summary.self, done: done.self, open: open === 'self', onOpen: () => setOpen('self'), onConfirm: () => setOpen(''), confirmLabel: '确认能力自评', children: h(SelfAssessmentForm, { state, post }) }),
+        h(ProfileModule, { key: 'self', label: '能力自评', summary: summary.self, done: done.self, open: open === 'self', onOpen: () => setOpen('self'), onConfirm: confirmSelf, confirmLabel: selfLabel, children: h(SelfAssessmentForm, { state, post, scores: scoresDraft, setScores: setScoresDraft }) }),
         planReady ? h('div', { key: 'handoff', style: { ...S.card, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' } }, [
           h('div', { key: 'copy' }, [
             h('div', { key: 't', style: { fontSize: '14px', fontWeight: '700' } }, '画像齐了，下一步是 90 天计划'),
