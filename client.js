@@ -541,13 +541,18 @@ window.__ModuleLoader__.load({
             h('div', {
               key: 'action',
               style: {
-                fontSize: '14px', lineHeight: '1.6', cursor: 'pointer', wordBreak: 'break-word',
+                fontSize: '15px', lineHeight: '1.6', cursor: 'pointer', wordBreak: 'break-word',
                 textDecoration: done ? 'line-through' : 'none', opacity: done ? '0.6' : '1',
               },
               onClick: () => { void save({ done: !done }); },
-            }, `${task.id}（${task.ref}）${task.action}`),
-            h('div', { key: 'meta1', style: { ...S.fine, marginTop: '2px' } },
-              `能力项 ${task.capability}　预计 ${String(task.minutes)} 分钟　最低完成版本：${task.minimumVersion}`),
+            }, [
+              // 标识单独成签、动作独立成句 —— 原先把「T5（2.1）列出这个功能的…」挤在一行，
+              // 读者的第一眼落在编号上而不是要做的事上。
+              h('span', { key: 'id', style: { ...S.chip, marginRight: '8px', verticalAlign: '1px' } }, task.id),
+              task.action,
+            ]),
+            h('div', { key: 'meta1', style: { ...S.fine, marginTop: '4px' } },
+              `引用 ${task.ref}　能力项 ${task.capability}　预计 ${String(task.minutes)} 分钟　最低完成版本：${task.minimumVersion}`),
             h('div', { key: 'meta2', style: { ...S.fine, marginTop: '2px' } },
               `完成标准：${task.doneCriteria}　|　可接受证据：${task.acceptableEvidence}`),
           ]),
@@ -565,21 +570,22 @@ window.__ModuleLoader__.load({
             onChange: (event) => setEvidence(event.target.value),
             onBlur: () => { if (evidence !== (entry?.evidence ?? '')) void save({ evidence }); },
           }),
-          h('select', {
-            key: 'select',
-            style: S.select,
-            value: tier,
+          h('div', {
+            key: 'tier',
+            role: 'group',
             'aria-label': '证据档位',
-            onChange: (event) => {
-              setTier(event.target.value);
-              void save({ tier: event.target.value === '' ? null : event.target.value });
+            style: { display: 'inline-flex', border: '1px solid var(--gw-line, #e5dfd5)', borderRadius: '12px', overflow: 'hidden', background: '#fffdf9', flex: '0 0 auto' },
+          }, [['', '未交'], ['自述', '自述'], ['过程', '过程'], ['成果', '成果']].map(([value, label], index) => h('button', {
+            key: value === '' ? 'none' : value,
+            type: 'button',
+            'aria-pressed': tier === value,
+            // 四格一眼看完，比下拉框少一次点击 —— 而档位是三档里选一个，本来就该看见全部选项。
+            style: { appearance: 'none', font: 'inherit', fontSize: '12.5px', fontWeight: '500', padding: '8px 13px', border: '0', borderLeft: index === 0 ? '0' : '1px solid var(--gw-line, #e5dfd5)', background: tier === value ? 'var(--gw-teal-soft, rgba(47,125,116,.12))' : 'transparent', color: tier === value ? 'var(--gw-teal, #2f7d74)' : 'var(--gw-muted, #6f7c87)', cursor: 'pointer', transition: 'background 140ms ease, color 140ms ease' },
+            onClick: () => {
+              setTier(value);
+              void save({ tier: value === '' ? null : value });
             },
-          }, [
-            h('option', { key: 'none', value: '' }, '档位：未交证据'),
-            h('option', { key: 'self', value: '自述' }, '自述（只有口头说明）'),
-            h('option', { key: 'process', value: '过程' }, '过程（草稿 / 笔记）'),
-            h('option', { key: 'result', value: '成果' }, '成果（链接 / 报告 / 截图）'),
-          ]),
+          }, label))),
         ]),
       ]);
     }
@@ -938,7 +944,16 @@ window.__ModuleLoader__.load({
 
       plan.phases.forEach((phase, index) => {
         const body = [
-          h('h3', { key: 'title', style: S.h3 }, `阶段${String(index + 1)} ${phase.name}（第 ${String(phase.days[0])}-${String(phase.days[1])} 天）`),
+          h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '14px', flexWrap: 'wrap' } }, [
+            h('h3', { key: 'title', style: S.h3 }, `阶段${String(index + 1)} ${phase.name}（第 ${String(phase.days[0])}-${String(phase.days[1])} 天）`),
+            // 阶段状态不另存：phaseIndex 就是当前阶段，比它小的都已经走完。
+            // 计划还没开始时 phaseIndex 是 -1，那时每一段都是「未开始」。
+            index === state.metrics.phaseIndex
+              ? h(Seal, { key: 'st', label: '进行中', stamp: true })
+              : (state.metrics.phaseIndex >= 0 && index < state.metrics.phaseIndex
+                ? h(Seal, { key: 'st', tone: 'teal', label: '已走完' })
+                : h(Seal, { key: 'st', tone: 'slate', label: '未开始' })),
+          ]),
           h('div', { key: 'goal', style: S.meta }, `阶段目标：${phase.goal}`),
           h('div', { key: 'project', style: S.meta }, `实战项目：${phase.project || '—'}`),
           h('div', { key: 'criteria', style: S.meta }, `考核标准：${phase.criteria || '—'}`),
@@ -972,18 +987,35 @@ window.__ModuleLoader__.load({
 
       if (plan.selfCheck.length > 0) {
         kids.push(h('div', { key: 'selfcheck', style: S.card }, [
-          h('h3', { key: 't', style: S.h3 }, '考核自查（只有题目）'),
+          h('h3', { key: 't', style: S.h3 }, `考核自查（${String(plan.selfCheck.length)} 题，只有题目）`),
           h('div', { key: 'note', style: S.meta }, '考核时抽 2-3 题现场作答，答案由你给。'),
-          ...plan.selfCheck.map((item) => h('div', { key: item.id, style: { fontSize: '14px', padding: '3px 0' } },
-            `${item.question}　（${item.id} · ${item.phase} · 能力项 ${item.capability}）`)),
+          // 16 行平铺是一面墙。折叠之后扫一遍标题就知道会被问什么，展开才看到它属于哪个阶段、
+          // 考哪一项能力 —— 这两样正是「为什么问这一题」的答案。
+          ...plan.selfCheck.map((item) => h('details', { key: item.id, style: { borderTop: '1px solid var(--gw-line-soft, #efeae2)', padding: '11px 0' } }, [
+            h('summary', { key: 's', style: { cursor: 'pointer', fontSize: '13.5px', display: 'flex', gap: '10px', alignItems: 'baseline' } }, [
+              h('span', { key: 'id', style: { ...S.chipPlain, flex: '0 0 auto' } }, item.id),
+              h('span', { key: 'q' }, item.question),
+            ]),
+            h('div', { key: 'a', style: { ...S.fine, margin: '9px 0 0 34px' } },
+              `能力项 ${item.capability}　·　阶段「${item.phase}」`),
+          ])),
         ]));
       }
 
       if (plan.portfolio.length > 0) {
         kids.push(h('div', { key: 'portfolio', style: S.card }, [
           h('h3', { key: 't', style: S.h3 }, '作品集清单'),
-          ...plan.portfolio.map((item, index) => h('div', { key: `p${String(index)}`, style: { fontSize: '14px' } },
-            `${item.phase ?? ''}　${item.item ?? '（这一项缺说明）'}`)),
+          h('div', { key: 'note', style: S.meta }, `${String(plan.portfolio.length)} 项，每项都有最低版本 —— 做不完完整版时先交最低版本。`),
+          // 这里原先读的是 item.phase / item.item —— 两个字段在数据里根本不存在，
+          // 于是四项全都渲染成「（这一项缺说明）」。真实字段是 name / description /
+          // minimumVersion / capability。
+          h('div', { key: 'grid', style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '12px' } },
+            plan.portfolio.map((item, index) => h('div', { key: `p${String(index)}`, style: { border: '1px solid var(--gw-line-soft, #efeae2)', borderRadius: '14px', padding: '15px 16px', background: '#fff' } }, [
+              h('div', { key: 'n', style: { fontSize: '13.5px', fontWeight: '600' } }, item.name ?? '（这一项缺名称）'),
+              item.description ? h('div', { key: 'd', style: { ...S.fine, marginTop: '6px' } }, item.description) : null,
+              item.minimumVersion ? h('div', { key: 'm', style: { ...S.fine, marginTop: '8px', color: 'var(--gw-teal, #2f7d74)' } }, `最低版本　${item.minimumVersion}`) : null,
+              item.capability ? h('div', { key: 'c', style: { ...S.fine, marginTop: '6px' } }, `能力项 ${item.capability}`) : null,
+            ]))),
         ]));
       }
 
@@ -1646,6 +1678,17 @@ window.__ModuleLoader__.load({
 
       kids.push(h('div', { key: 'groupHead', style: S.meta },
         `本组 ${String(currentItems.length)} 项，已评 ${String(scoredIn(current))} 项　·　组权重 ${String(current.weight)}%`));
+      // 一组还剩多少，条比数字快 —— 这是原型里那组进度条落地的那一半（另一半在计划页的总目标卡里）。
+      kids.push(h('div', { key: 'groupBar', style: { ...S.bar, maxWidth: '260px', margin: '4px 0 10px' } }, [
+        h('i', {
+          key: 'fill',
+          style: {
+            ...S.barFill,
+            width: `${String(currentItems.length === 0 ? 0 : Math.round((scoredIn(current) / currentItems.length) * 100))}%`,
+            background: scoredIn(current) === currentItems.length && currentItems.length > 0 ? 'var(--gw-teal, #2f7d74)' : 'var(--gw-coral, #e56b55)',
+          },
+        }),
+      ]));
 
       kids.push(h('div', { key: 'items', style: { display: 'flex', flexDirection: 'column' } },
         currentItems.map((item) => h('div', { key: item.id, style: { ...S.row, flexDirection: 'column', alignItems: 'stretch', gap: '8px' } }, [

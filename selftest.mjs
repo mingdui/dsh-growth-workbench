@@ -310,6 +310,19 @@ await check('考卷两档：小考按缺口出题，大考按高权重项，且�
   assert.match(toolsSource, /coverage 必须跟本次相符/, '两档的约定要写在工具描述里（模型一定看得到的地方）')
 })
 
+await check('原型里定下的那些块，实现里也都在', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  // 这一条防的是「设计只落了一半」：下面这些块原型里都有，实现里也必须还在。
+  assert.match(source, /key: 'id', style: \{ \.\.\.S\.chip, marginRight: '8px'/, '任务行的标识是独立的签，不和动作挤一行')
+  assert.match(source, /'aria-pressed': tier === value/, '证据档位是分段控件，不是下拉框')
+  assert.match(source, /h\('details', \{ key: item\.id/, '考核自查是可折叠的题')
+  assert.match(source, /item\.minimumVersion \? h\('div', \{ key: 'm'/, '作品集读的是真实字段')
+  // 这两个字段在数据里根本不存在 —— 读它们的代价是四项全渲染成占位文字。
+  assert.doesNotMatch(source, /item\.phase \?\? ''/, '作品集不许再读不存在的字段')
+  assert.match(source, /label: '已走完'/, '阶段有状态章')
+  assert.match(source, /key: 'groupBar'/, '自评有组内进度条')
+})
+
 await check('package name is the bundle identity', () => assert.equal(pkg.name, NAME))
 await check('files[] ships cordis.patch.yml', () => assert.ok(pkg.files.includes('cordis.patch.yml')))
 await check('dsh.bundle.patch points at the patch layer', () => assert.equal(pkg.dsh?.bundle?.patch, './cordis.patch.yml'))
