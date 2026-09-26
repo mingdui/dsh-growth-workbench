@@ -434,6 +434,22 @@ await check('every host file imports nothing from the Harness', () => {
 
 // ---------------------------------------------------------------- imports
 const model = await import(new URL('./model.mjs', import.meta.url).href)
+
+await check('三个新方向自带能力模型，且状态诚实', () => {
+  // 新方向一进目录就带着模型，所以目录里的状态是 preset 而不是 beta —— beta 的说明是
+  // 「还没有能力模型，可以让 AI 生成一份」，对它们不成立。模型过的是同一个校验器，
+  // 而它自己的 status 是 draft：人写的草稿，不是行业校准过的。
+  for (const slug of ['fde', 'ai-qa', 'ai-delivery']) {
+    const role = model.ROLES[slug]
+    assert.ok(role !== undefined, `${slug} 要有模型`)
+    assert.deepEqual(model.capabilityModelProblems(role), [], `${slug} 的模型要过校验器`)
+    assert.equal(role.status, 'draft', `${slug} 的模型要标成草稿`)
+    const choice = model.ROLE_CHOICES.find((entry) => entry.slug === slug)
+    assert.ok(choice !== undefined, `${slug} 要在目录里`)
+    assert.equal(choice.status, 'preset', `${slug} 在目录里是 preset`)
+    assert.ok(choice.positioning.length > 0, `${slug} 要有定位句`)
+  }
+})
 const store = await import(new URL('./store.mjs', import.meta.url).href)
 const tools = await import(new URL('./tools.mjs', import.meta.url).href)
 const validate = await import(new URL('./validate.mjs', import.meta.url).href)
