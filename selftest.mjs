@@ -332,6 +332,18 @@ await check('画像展开态是一张卡：表单与确认按钮都在里面', (
   assert.doesNotMatch(source, /'data-anchor': '[a-z]+', style: S\.card/, '四个表单的根不再是自己的卡')
 })
 
+await check('today() 取本地日期，不是 UTC', () => {
+  // toISOString() 给的是 UTC 日期：东半球每天前几个小时会被算成昨天，于是凌晨打的卡记到前一天、
+  // 连续打卡跟着错。日期是给人读写的，就该按本地算。
+  // 只读源码：这一条跑在 store 被 import 之前，碰 store 会是暂时性死区。
+  const source = readFileSync(join(ROOT, 'store.mjs'), 'utf8')
+  const at = source.indexOf('export function today()')
+  const body = source.slice(at, at + 400)
+  assert.doesNotMatch(body, /toISOString/, 'today() 不许用 UTC 的 toISOString')
+  assert.match(body, /getFullYear\(\)/, 'today() 要按本地年月日拼出来')
+  assert.match(body, /padStart\(2, '0'\)/, '仍是补零的 ISO 形状')
+})
+
 await check('package name is the bundle identity', () => assert.equal(pkg.name, NAME))
 await check('files[] ships cordis.patch.yml', () => assert.ok(pkg.files.includes('cordis.patch.yml')))
 await check('dsh.bundle.patch points at the patch layer', () => assert.equal(pkg.dsh?.bundle?.patch, './cordis.patch.yml'))

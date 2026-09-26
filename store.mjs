@@ -48,9 +48,22 @@ export function dataPath(kind) {
 /** The four document kinds, in the order a full read returns them. */
 export const KINDS = ['profile', 'plan', 'progress', 'assessments']
 
-/** Today, in the ISO form every date field uses. */
+/**
+ * Today, in the ISO form every date field uses.
+ *
+ * **Local**, not UTC. `toISOString()` returns the UTC date, so for anyone east of
+ * Greenwich the plugin spent the first hours of every day believing it was still
+ * yesterday — a check-in at 00:30 was recorded on the previous day and the streak
+ * followed it. Dates the user reads and writes are local dates; only the wire format
+ * is fixed.
+ */
 export function today() {
-  return new Date().toISOString().slice(0, 10)
+  const now = new Date()
+  return [
+    String(now.getFullYear()),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+  ].join('-')
 }
 
 /**
