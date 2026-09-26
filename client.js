@@ -710,7 +710,27 @@ window.__ModuleLoader__.load({
       const history = state.history;
       const reviews = history.filter((entry) => entry.kind === 'review');
       const curve = state.curve;
-      const [draft, setDraft] = useState({ 完成率: 0, 证据质量: 0, 作品达标度: 0, 知识考核: 0 });
+      // 四维从「空」开始，而不是 0：空的 0 与真的 0 分不是一回事（这是本仓库的数据原则），
+      // 而历史是只追加的 —— 一次没看清楚的点击会往趋势里钉进一轮「总分 0（需努力）」，
+      // 页面上还删不掉。canonicalReview 只做 0-25 的范围检查，拦不住这件事。
+      const MANUAL_DIMENSIONS = ['完成率', '证据质量', '作品达标度', '知识考核'];
+      const EMPTY_SCORES = { 完成率: '', 证据质量: '', 作品达标度: '', 知识考核: '' };
+      const [draft, setDraft] = useState(EMPTY_SCORES);
+      const [saving, setSaving] = useState(false);
+      const draftFilled = MANUAL_DIMENSIONS.every((dimension) => {
+        const value = draft[dimension];
+        return value !== '' && Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 25;
+      });
+      const submitManual = async () => {
+        setSaving(true);
+        const result = await post('/assessment', {
+          scores: Object.fromEntries(MANUAL_DIMENSIONS.map((dimension) => [dimension, Number(draft[dimension])])),
+          day: Math.max(1, state.metrics.day ?? 1),
+        });
+        setSaving(false);
+        // 成功之后清空：历史只追加，同一次成绩不能被点成两轮。
+        if (result.ok) setDraft(EMPTY_SCORES);
+      };
 
       const entryCard = (entry, key) => {
         const head = [
@@ -765,11 +785,13 @@ window.__ModuleLoader__.load({
             : history.slice().reverse().map((entry, index) => entryCard(entry, `${entry.date}-${String(index)}`))),
         ]),
         h('div', { key: 'manual', style: S.card }, [
-          h('h3', { key: 't', style: S.h3 }, '手工登记一次考核成绩'),
-          h('div', { key: 'note', style: S.meta }, '如果 AI 已经把这次考核写进历史，这里不用再登记。'),
+          h('h3', { key: 't', style: S.h3 }, '补记一次考核'),
+          // 说清什么时候用它、给了什么。「手工登记…成绩」是后台用语；「如果 AI 已经写了
+          // 这里就不用登记」是拿实现当理由。它比 AI 那轮弱，这件事也要说在动手之前。
+          h('div', { key: 'note', style: S.meta }, 'AI 在对话里给过分、却没落到这一页时，用它补上。它只有四维分数 —— 逐题记录和接下来 7 天的调整任务来自 AI 那一次。'),
           // 每一维都带上判据：打分时看不到标准，等于让人凭感觉填一个 0-25。
           h('div', { key: 'form', style: { display: 'flex', flexDirection: 'column', gap: '11px' } },
-            ['完成率', '证据质量', '作品达标度', '知识考核'].map((dimension) => h('div', { key: dimension, style: { display: 'flex', flexDirection: 'column', gap: '3px' } }, [
+            MANUAL_DIMENSIONS.map((dimension) => h('div', { key: dimension, style: { display: 'flex', flexDirection: 'column', gap: '3px' } }, [
               h('label', { key: 'row', style: { display: 'flex', gap: '10px', alignItems: 'center' } }, [
                 h('span', { key: 'n', style: { fontSize: '14px', fontWeight: '600', minWidth: '80px' } }, dimension),
                 h('input', {
@@ -779,7 +801,8 @@ window.__ModuleLoader__.load({
                   max: 25,
                   style: { ...S.input, width: '76px', flex: '0 0 auto' },
                   value: draft[dimension],
-                  onChange: (event) => setDraft({ ...draft, [dimension]: Number(event.target.value) }),
+                  // 存字符串而不是数字：空着要一直是空的，别被 Number('') 变成 0。
+                  onChange: (event) => setDraft({ ...draft, [dimension]: event.target.value }),
                 }),
                 h('span', { key: 'range', style: S.fine }, '0-25'),
               ]),
@@ -789,10 +812,14 @@ window.__ModuleLoader__.load({
           h('div', { key: 'act', style: S.inline }, [
             h('button', {
               key: 'submit',
-              style: S.button,
+              // 四项没填齐就不给点：空的 0 与真的 0 分不是一回事，而这一轮一旦落进只追加的
+              // 历史，页面上就撤不回来了。
+              style: { ...S.button, ...(draftFilled && !saving ? S.buttonLight : { color: 'var(--gw-muted, #718096)', background: 'transparent', borderColor: 'transparent', cursor: 'default' }) },
               type: 'button',
-              onClick: () => { void post('/assessment', { scores: draft, day: Math.max(1, state.metrics.day ?? 1) }); },
-            }, '登记'),
+              disabled: !draftFilled || saving,
+              onClick: () => { void submitManual(); },
+            }, saving ? '登记中…' : '记这一次'),
+            draftFilled ? null : h('span', { key: 'need', style: S.fine }, '四维都填上才能记 —— 真的 0 分也要填 0。'),
           ]),
         ]),
       ]);

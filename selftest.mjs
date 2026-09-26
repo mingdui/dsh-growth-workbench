@@ -203,6 +203,18 @@ await check('考核的收尾契约写在模型一定看得到的地方', () => {
   assert.match(clientSource, /考核在你的对话里一问一答/)
 })
 
+await check('补记考核不会把「没填」当成 0 分写进只追加的历史', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  // canonicalReview 只做 0-25 的范围检查，拦不住「四个全 0」；而考核历史只追加，页面上
+  // 撤不回来。所以初值必须是空（空的 0 与真的 0 分不是一回事 —— 本仓库的数据原则），
+  // 四项填齐才给点，且成功之后要清空，否则同一轮成绩能被点成两轮。
+  assert.match(source, /EMPTY_SCORES = \{ 完成率: '', 证据质量: '', 作品达标度: '', 知识考核: '' \}/, '初值不能是四个 0')
+  assert.match(source, /const \[draft, setDraft\] = useState\(EMPTY_SCORES\)/)
+  assert.match(source, /disabled: !draftFilled \|\| saving/)
+  assert.match(source, /if \(result\.ok\) setDraft\(EMPTY_SCORES\)/, '记完要清空')
+  assert.doesNotMatch(source, /scores: draft, day: Math\.max/, '不能再把整份草稿（可能是空的）直接当分数提交')
+})
+
 await check('package name is the bundle identity', () => assert.equal(pkg.name, NAME))
 await check('files[] ships cordis.patch.yml', () => assert.ok(pkg.files.includes('cordis.patch.yml')))
 await check('dsh.bundle.patch points at the patch layer', () => assert.equal(pkg.dsh?.bundle?.patch, './cordis.patch.yml'))
