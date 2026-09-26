@@ -361,6 +361,25 @@ await check('状态文案跟着真实状态：没开始的计划不说「第 1 �
   assert.match(apiSource, /id: 'review-node',[\s\S]{0,400}?scope:/, '节点小考也要')
 })
 
+await check('段位：七段等距挂在阶段上，达成的才填色', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  // 七个段位都有名字与颜色 —— 颜色是有意压过饱和度的，这条断言防的是「顺手加一个高饱和色」。
+  const ranks = source.slice(source.indexOf('const RANKS = ['), source.indexOf('const RANKS = [') + 700)
+  for (const name of ['黄铜', '白银', '黄金', '铂金', '钻石', '超凡大师', '王者']) {
+    assert.match(ranks, new RegExp(`name: '${name}'`), `段位表里要有 ${name}`)
+  }
+  assert.equal((ranks.match(/color: '#/g) ?? []).length, 7, '七个段位各有一个颜色')
+  // 等距：四个阶段要拿到第 1、3、5、7 段（黄铜/黄金/钻石/王者），收在最高一段。
+  assert.match(source, /function rankIndexForPhase\(index, count\)/)
+  assert.match(source, /Math\.round\(\(index \* \(RANKS\.length - 1\)\) \/ \(count - 1\)\)/, '等距取，阶段数变了不用改表')
+  assert.match(source, /function rankReached\(tierIndex, phaseIndex, phaseCount\)/)
+  assert.match(source, /if \(phaseIndex <= 0\) return false;/, '一段都没走完时，七段全是空心的')
+  // 阶段卡前面那枚 + 总目标卡里的整条阶梯：只有两处都用 RankBadge，阶梯才是同一套语言。
+  assert.match(source, /h\(RankBadge, \{ key: 'rank', rank: rankOf\(index, plan\.phases\.length\)/, '阶段卡最前面是段位章')
+  assert.match(source, /key: 'ladder'/, '总目标卡里要有完整阶梯')
+  assert.ok((source.match(/h\(RankBadge, \{/g) ?? []).length >= 2, '阶梯与阶段章都要用它')
+})
+
 await check('package name is the bundle identity', () => assert.equal(pkg.name, NAME))
 await check('files[] ships cordis.patch.yml', () => assert.ok(pkg.files.includes('cordis.patch.yml')))
 await check('dsh.bundle.patch points at the patch layer', () => assert.equal(pkg.dsh?.bundle?.patch, './cordis.patch.yml'))

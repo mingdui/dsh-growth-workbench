@@ -829,6 +829,68 @@ window.__ModuleLoader__.load({
      * 这里只用短标签（长名字在这条带上会折到看不清），完整的名字、天区间与验收标准
      * 在下面那张阶段列表里。
      */
+    /**
+     * 七个段位，从黄铜到王者。颜色是**有意压过饱和度**的：这条阶梯要有七种颜色才分得出，
+     * 但它得落在纸底上，不能炸开。
+     *
+     * 阶段与段位等距对应（见 rankIndexForPhase）：四个阶段就是 黄铜 / 黄金 / 钻石 / 王者 ——
+     * 收在最高一段，阶梯才是向上的。
+     */
+    const RANKS = [
+      { name: '黄铜', color: '#b08d57' },
+      { name: '白银', color: '#94a3ad' },
+      { name: '黄金', color: '#d59b3f' },
+      { name: '铂金', color: '#6fb3ab' },
+      { name: '钻石', color: '#6aa9e0' },
+      { name: '超凡大师', color: '#9b8bd0' },
+      { name: '王者', color: '#c9553a' },
+    ];
+
+    /** 第 N 个阶段对应哪一段：等距取，所以阶段数变了不用改表。 */
+    function rankIndexForPhase(index, count) {
+      if (count <= 1) return RANKS.length - 1;
+      return Math.round((index * (RANKS.length - 1)) / (count - 1));
+    }
+
+    /** 段位名（没有名字时给一个空串，供只有图形的地方用）。 */
+    function rankOf(index, count) {
+      return RANKS[rankIndexForPhase(index, count)];
+    }
+
+    /**
+     * 这条阶梯上走到第几段了：走完的阶段数决定。
+     * 当前阶段**没走完**就不算达成 —— 空心的那一枚正是「还差什么」。
+     */
+    function rankReached(tierIndex, phaseIndex, phaseCount) {
+      if (phaseIndex <= 0) return false;
+      return tierIndex <= rankIndexForPhase(Math.min(phaseIndex - 1, phaseCount - 1), phaseCount);
+    }
+
+    /**
+     * 段位章：一枚手画的盾牌 —— 本仓库没有 dependencies，图标库引不进来，而这形状很简单。
+     * 达成的填色，没达成的只留描边；两者都带名字，所以「黄铜 → 王者」这条梯子看得见。
+     */
+    function RankBadge({ rank, achieved, size, showName }) {
+      const side = size ?? 30;
+      const stroke = achieved === true ? rank.color : 'var(--gw-line, #e5dfd5)';
+      return h('span', { style: { display: 'inline-flex', alignItems: 'center', gap: '7px', flex: '0 0 auto' } }, [
+        h('svg', { key: 'badge', viewBox: '0 0 24 24', width: String(side), height: String(side), 'aria-hidden': 'true' }, [
+          h('path', {
+            key: 'shield',
+            d: 'M12 1.7 3.3 5.1v7.2c0 5 3.7 8.8 8.7 10.4 5-1.6 8.7-5.4 8.7-10.4V5.1L12 1.7z',
+            fill: achieved === true ? rank.color : 'transparent',
+            stroke,
+            strokeWidth: '2',
+            strokeLinejoin: 'round',
+          }),
+        ]),
+        showName === false ? null : h('span', {
+          key: 'n',
+          style: { fontSize: '12.5px', fontWeight: '600', color: achieved === true ? rank.color : 'var(--gw-muted-2, #9aa7b1)', whiteSpace: 'nowrap' },
+        }, rank.name),
+      ]);
+    }
+
     function PathBand({ phases, currentIndex }) {
       if (phases.length === 0) return null;
       return h('div', { className: 'gw-path' }, phases.map((phase, index) => {
@@ -922,6 +984,15 @@ window.__ModuleLoader__.load({
         ]),
         h('div', { key: 'path-head', style: { ...S.subhead, marginTop: '8px' } }, '路径 · 四个阶段'),
         h(PathBand, { key: 'path', phases: plan.phases, currentIndex: state.metrics.phaseIndex }),
+        // 段位阶梯：七段都在这儿，达成的填色、没达成的空心 —— 阶段卡上那一枚是它的局部读数。
+        // 摆成一条是因为「还差几段」比「现在几段」更能推人往前走。
+        h('div', { key: 'ladder', style: { display: 'flex', gap: '14px', flexWrap: 'wrap', alignItems: 'center', marginTop: '14px' } },
+          RANKS.map((rank, index) => h(RankBadge, {
+            key: rank.name,
+            rank,
+            achieved: rankReached(index, state.metrics.phaseIndex, plan.phases.length),
+            size: 22,
+          }))),
         // 目标里说要补齐的东西，量的就是这份模型；没有模型时这一段不出现，而不是显示空壳。
         state.catalog.activeRole === null || state.catalog.activeRole === undefined ? null
           : h('div', { key: 'groups-head', style: { ...S.subhead, marginTop: '8px' } }, '要补的四块能力 · 权重高的先补'),
@@ -964,7 +1035,12 @@ window.__ModuleLoader__.load({
       plan.phases.forEach((phase, index) => {
         const body = [
           h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '14px', flexWrap: 'wrap' } }, [
-            h('h3', { key: 'title', style: S.h3 }, `阶段${String(index + 1)} ${phase.name}（第 ${String(phase.days[0])}-${String(phase.days[1])} 天）`),
+            // 段位章摆在这一步的最前面：一眼看到「做完这个阶段能拿到什么」。
+            // 达成看的是「这个阶段有没有走完」—— 当前这段还没走完，所以它是空心的。
+            h('div', { key: 'left', style: { display: 'flex', alignItems: 'center', gap: '12px', flex: '1 1 auto', minWidth: '0' } }, [
+              h(RankBadge, { key: 'rank', rank: rankOf(index, plan.phases.length), achieved: index < state.metrics.phaseIndex, size: 32 }),
+              h('h3', { key: 'title', style: { ...S.h3, flex: '1 1 auto', minWidth: '0' } }, `阶段${String(index + 1)} ${phase.name}（第 ${String(phase.days[0])}-${String(phase.days[1])} 天）`),
+            ]),
             // 阶段状态不另存：phaseIndex 就是当前阶段，比它小的都已经走完。
             // 计划还没开始时 phaseIndex 是 -1，那时每一段都是「未开始」。
             index === state.metrics.phaseIndex
