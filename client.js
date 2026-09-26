@@ -391,10 +391,10 @@ window.__ModuleLoader__.load({
      * around one short line is mostly empty space, four of them stacked.
      */
     function CollapsedModule({ label, summary, done, onEdit }) {
-      return h('button', { type: 'button', className: 'gw-step', style: { ...S.card, padding: '13px 16px', gap: '5px', flexDirection: 'column', alignItems: 'stretch', textAlign: 'left', cursor: 'pointer', width: '100%' }, onClick: onEdit }, [
+      return h('button', { type: 'button', className: 'gw-step', style: { ...S.card, padding: '13px 16px', gap: '5px', flexDirection: 'column', alignItems: 'stretch', textAlign: 'left', cursor: 'pointer', width: '100%', color: 'var(--gw-ink, #1f2933)' }, onClick: onEdit }, [
         h('div', { key: 'head', style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [
 
-          h('span', { key: 'label', style: { fontWeight: '700', fontSize: '13px', flex: '1 1 auto' } }, label),
+          h('span', { key: 'label', style: { fontWeight: '700', fontSize: '13px', flex: '1 1 auto', color: 'var(--gw-ink, #1f2933)' } }, label),
           h('span', { key: 'edit', className: 'gw-step-edit', style: { color: 'var(--gw-coral-deep, #a64132)', fontSize: '12px', flex: '0 0 auto' } }, '编辑'),
         ]),
         h('div', { key: 'sub', style: { display: 'flex', alignItems: 'flex-start', gap: '7px' } }, [
