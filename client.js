@@ -364,7 +364,7 @@ window.__ModuleLoader__.load({
       button: { padding: '11px 16px', minHeight: '44px', fontSize: '14px', fontWeight: '600', font: 'inherit', cursor: 'pointer', color: 'var(--gw-ink, #1f2933)', background: '#fffdf9', borderRadius: '10px', border: '1px solid var(--gw-line, #d9d0c4)', transition: 'transform 150ms ease, background 150ms ease, border-color 150ms ease' },
       buttonOn: { borderColor: 'var(--gw-coral, #e56b55)', background: 'var(--gw-coral, #e56b55)', color: '#fff' },
       buttonLight: { borderColor: 'var(--gw-coral, #e56b55)', color: 'var(--gw-coral-deep, #a64132)' },
-      small: { padding: '7px 12px', minHeight: '32px', fontSize: '13px' },
+      small: { padding: '9px 13px', minHeight: '44px', fontSize: '13px' },
       select: { padding: '10px 12px', fontSize: '13px', font: 'inherit', color: 'inherit', background: '#fffdf9', borderRadius: '10px', border: '1px solid var(--gw-line, #d9d0c4)' },
       chip: { display: 'inline-block', padding: '4px 9px', fontSize: '12px', borderRadius: '999px', color: 'var(--gw-coral-deep, #a64132)', background: 'rgba(229,107,85,.11)', border: '1px solid rgba(229,107,85,.2)' },
       error: { fontSize: '13px', color: '#b33a2d', background: '#fff0ed', border: '1px solid #f3c5be', borderRadius: '10px', padding: '11px 14px' },
@@ -629,7 +629,7 @@ window.__ModuleLoader__.load({
           h('h3', { key: 't', style: S.h3 }, '考核自查（只有题目）'),
           h('div', { key: 'note', style: S.meta }, '考核时抽 2-3 题现场作答，答案由你给。'),
           ...plan.selfCheck.map((item) => h('div', { key: item.id, style: { fontSize: '14px', padding: '3px 0' } },
-            `[${item.id}]（${item.phase}）${item.question}　→ 能力项 ${item.capability}`)),
+            `${item.question}　（${item.id} · ${item.phase} · 能力项 ${item.capability}）`)),
         ]));
       }
 
