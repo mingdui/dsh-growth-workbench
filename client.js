@@ -2107,15 +2107,28 @@ window.__ModuleLoader__.load({
       const evidence = entry?.evidence ?? '';
       const tier = entry?.tier ?? '';
       const save = (patch) => post('/checkin', { taskId: task.id, ...patch });
-      return h('div', { 'data-task-id': task.id, style: { display: 'flex', flexDirection: 'column', gap: '12px', padding: '15px', borderRadius: '16px', background: done ? '#edf6ef' : '#fffdf9', border: `1px solid ${done ? '#c8dfcc' : '#e5dfd5'}`, boxShadow: '0 8px 18px rgba(54,42,32,.05)' } }, [
+      return h('div', { 'data-task-id': task.id, style: { display: 'flex', flexDirection: 'column', gap: '12px', padding: '15px', borderRadius: '16px', background: done ? 'var(--gw-teal-soft, rgba(47,125,116,.12))' : '#fffdf9', border: `1px solid ${done ? 'rgba(47,125,116,.28)' : '#e5dfd5'}`, boxShadow: '0 8px 18px rgba(54,42,32,.05)' } }, [
         h('div', { key: 'eyebrow', style: { display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center' } }, [
           h('span', { key: 'ref', style: { fontSize: '12px', fontFamily: 'var(--gw-mono, monospace)', color: 'var(--gw-coral-deep, #a64132)' } }, `${task.id} / ${task.ref}`),
-          h('span', { key: 'done', style: { fontSize: '13px', fontWeight: '700', color: done ? '#3f9b63' : 'var(--gw-muted, #718096)' } }, `${done ? '已完成' : '未完成'} · ${String(task.minutes)} 分钟`),
+          h('span', { key: 'done', style: { fontSize: '13px', fontWeight: '700', color: done ? 'var(--gw-teal, #2f7d74)' : 'var(--gw-muted, #718096)' } }, `${done ? '已完成' : '未完成'} · ${String(task.minutes)} 分钟`),
         ]),
-        h('label', { key: 'title', style: { display: 'flex', gap: '10px', alignItems: 'flex-start', cursor: 'pointer' } }, [
-          h('input', { key: 'box', type: 'checkbox', checked: done, style: { accentColor: 'var(--gw-coral, #e56b55)', width: '22px', height: '22px', marginTop: '2px', cursor: 'pointer', accentColor: done ? '#3f9b63' : 'var(--gw-coral, #e56b55)', filter: done ? 'drop-shadow(0 2px 4px rgba(63,155,99,.28))' : 'none' }, 'aria-label': task.action, onChange: (event) => { void save({ done: event.target.checked }); } }),
-          h('span', { key: 'text', style: { fontSize: '15px', fontWeight: '700', lineHeight: '1.45', textDecoration: done ? 'line-through' : 'none', opacity: done ? '.6' : '1' } }, task.action),
+        h('div', { key: 'title', style: { display: 'flex', gap: '11px', alignItems: 'flex-start' } }, [
+          // 和左边同一套完成反馈：可填色的方框 + 白勾，完成时落一枚印章 ——
+          // 原生 checkbox 既不能填色也不能盖章，而这一下正是最要紧的反馈。
+          h('button', {
+            key: 'box',
+            type: 'button',
+            role: 'checkbox',
+            'aria-checked': done,
+            'aria-label': task.action,
+            style: { marginTop: '1px', flex: '0 0 auto', width: '24px', height: '24px', padding: '0', display: 'grid', placeItems: 'center', borderRadius: '8px', cursor: 'pointer', transition: 'background 160ms ease, border-color 160ms ease', border: `2px solid ${done ? 'var(--gw-teal, #2f7d74)' : 'var(--gw-line, #e5dfd5)'}`, background: done ? 'var(--gw-teal, #2f7d74)' : '#fff' },
+            onClick: () => { void save({ done: !done }); },
+          }, [
+            done ? h('span', { key: 'tick', style: { width: '10px', height: '6px', borderLeft: '2px solid #fff', borderBottom: '2px solid #fff', transform: 'rotate(-45deg) translate(1px, -1px)' } }) : null,
+          ]),
+          h('span', { key: 'text', style: { fontSize: '15px', fontWeight: '600', lineHeight: '1.45', textDecoration: done ? 'line-through' : 'none', opacity: done ? '.6' : '1', cursor: 'pointer' }, onClick: () => { void save({ done: !done }); } }, task.action),
         ]),
+        done ? h(Seal, { key: 'mark', tone: 'teal', label: '已完成', stamp: true }) : null,
         h('div', { key: 'minimum', style: { padding: '10px 11px', borderRadius: '10px', background: '#f3efe8', fontSize: '13px', lineHeight: '1.55', color: '#59645f' } }, [
           h('strong', { key: 'label', style: { color: '#253b39' } }, '最低完成版本'),
           ` ${task.minimumVersion}`,
@@ -2149,11 +2162,16 @@ window.__ModuleLoader__.load({
           ]),
           h('span', { key: 'day', style: { ...S.chip, fontFamily: 'var(--gw-mono, monospace)', whiteSpace: 'nowrap' } }, dayInfo(state.metrics.day).chip),
         ]),
-        h('div', { key: 'metrics', style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' } }, [
-          h('div', { key: 'progress', style: { padding: '11px', borderRadius: '12px', background: '#fffdf9', border: '1px solid #e5dfd5' } }, [h('div', { key: 'label', style: S.fine }, '计划完成'), h('strong', { key: 'value', style: { display: 'block', fontSize: '20px', marginTop: '4px' } }, `${String(done)}%`), h('div', { key: 'bar', style: { height: '4px', background: '#eee9e1', borderRadius: '99px', marginTop: '8px' } }, h('div', { style: { height: '100%', width: `${String(done)}%`, borderRadius: '99px', background: 'var(--gw-coral, #e56b55)' } }))]),
-          h('div', { key: 'streak', style: { padding: '11px', borderRadius: '12px', background: '#fffdf9', border: '1px solid #e5dfd5' } }, [h('div', { key: 'label', style: S.fine }, '连续打卡'), h('strong', { key: 'value', style: { display: 'block', fontSize: '20px', marginTop: '4px' } }, `${String(state.metrics.streak)} 天`), h('div', { key: 'phase', style: { ...S.fine, marginTop: '8px' } }, state.metrics.phaseName || '尚未开始')]),
+        // 和左边用同一套读数语言：等宽大数字 + 大写间距标签 + 印章，不是两个自己画的方盒子。
+        h('div', { key: 'metrics', style: { ...S.card, padding: '14px 16px', gap: '10px' } }, [
+          h('div', { key: 'row', style: { display: 'flex', gap: '20px', flexWrap: 'wrap', alignItems: 'flex-end' } }, [
+            h(Readout, { key: 'done', first: true, value: String(done), unit: '%', cap: '完成' }),
+            h(Readout, { key: 'streak', value: String(state.metrics.streak), cap: '连续打卡' }),
+          ]),
+          state.metrics.streak > 0 ? h(Seal, { key: 'seal', tone: 'teal', label: `连续 ${String(state.metrics.streak)} 天`, sub: '不间断' }) : null,
+          h('div', { key: 'phase', style: S.fine }, state.metrics.phaseName || '尚未开始'),
         ]),
-        activity === null ? null : h('div', { key: 'activity', role: 'status', 'aria-live': 'polite', style: { padding: '11px 12px', borderRadius: '12px', fontSize: '13px', lineHeight: '1.5', background: activity.status === 'completed' ? '#edf6ef' : activity.status === 'error' ? '#fff0ed' : '#eef2f0', border: `1px solid ${activity.status === 'completed' ? '#c8dfcc' : activity.status === 'error' ? '#f3c5be' : '#d5e0da'}` } }, activity.status === 'completed' ? 'AI 已返回，今日面板已自动更新。' : activity.status === 'error' ? `AI 处理失败：${activity.error}` : 'AI 正在处理，完成后这里会自动更新。'),
+        activity === null ? null : h('div', { key: 'activity', role: 'status', 'aria-live': 'polite', style: { padding: '11px 12px', borderRadius: '12px', fontSize: '13px', lineHeight: '1.5', background: activity.status === 'completed' ? 'var(--gw-teal-soft, rgba(47,125,116,.12))' : activity.status === 'error' ? '#fff0ed' : '#eef2f0', border: `1px solid ${activity.status === 'completed' ? 'rgba(47,125,116,.28)' : activity.status === 'error' ? '#f3c5be' : '#d5e0da'}` } }, activity.status === 'completed' ? 'AI 已返回，今日面板已自动更新。' : activity.status === 'error' ? `AI 处理失败：${activity.error}` : 'AI 正在处理，完成后这里会自动更新。'),
         task === undefined ? h('div', { key: 'empty', style: { padding: '16px', borderRadius: '16px', background: '#253b39', color: '#fff' } }, [h('div', { key: 'label', style: { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '.12em', opacity: '.65' } }, '下一步'), h('div', { key: 'title', style: { fontSize: '16px', fontWeight: '700', marginTop: '6px' } }, state.nextAction?.label ?? '今天没有待办'), h('div', { key: 'reason', style: { fontSize: '13px', lineHeight: '1.55', opacity: '.78', marginTop: '6px' } }, state.nextAction?.reason ?? '去成长工作台查看完整计划。')]) : h(RightTaskCard, { key: task.id, task, entry: state.progress.tasks?.[task.id], post }),
         error.length > 0 ? h('div', { key: 'error', style: S.error }, error) : null,
         h('div', { key: 'foot', style: { ...S.fine, textAlign: 'center', paddingTop: '2px' } }, state.focus.scheduled ? '这是今天排定的最小动作' : '今天没有排定任务，先接着完成这一项'),

@@ -394,6 +394,20 @@ await check('考核目录：阶段与节点的状态都从已有数据算出来�
   assert.match(source, /\*\*能力项\*\*的逐项读数/, '两个概念要分开说')
 })
 
+await check('右侧「今日」与左侧同一套语言：读数、印章、完成反馈', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  // 右侧本来是另一套：自己画的两个小方盒、自己的字号、自己的绿色、原生 checkbox。
+  // 不猜窗口长度 —— 从头切到文件尾（这两个组件就在文件尾部），否则一条魔数会悄悄把断言变成空转。
+  const right = source.slice(source.indexOf('function RightTaskCard('))
+  assert.match(right, /h\(Readout, \{ key: 'done'/, '右侧用同一套读数（等宽大数字 + 小标签）')
+  assert.match(right, /h\(Seal, \{ key: 'seal'/, '连续打卡也落一枚章')
+  assert.match(right, /role: 'checkbox'/, '勾选框和左侧一样是能填色的按钮')
+  // 这两条区分范围：另配的绿色全文件都不该再有；原生 checkbox 只针对这两个组件
+  //（④ 可迁移能力里那个是「选做过哪些」，不是完成反馈，属于另一处界面）。
+  assert.doesNotMatch(right, /type: 'checkbox'/, '原生 checkbox 不许留在右侧')
+  assert.doesNotMatch(source, /#3f9b63|#edf6ef|#c8dfcc/, '不再自己配一套绿色，用全站的青绿')
+})
+
 await check('package name is the bundle identity', () => assert.equal(pkg.name, NAME))
 await check('files[] ships cordis.patch.yml', () => assert.ok(pkg.files.includes('cordis.patch.yml')))
 await check('dsh.bundle.patch points at the patch layer', () => assert.equal(pkg.dsh?.bundle?.patch, './cordis.patch.yml'))
