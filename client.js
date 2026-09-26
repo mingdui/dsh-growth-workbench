@@ -370,9 +370,6 @@ window.__ModuleLoader__.load({
       error: { fontSize: '13px', color: '#b33a2d', background: '#fff0ed', border: '1px solid #f3c5be', borderRadius: '10px', padding: '11px 14px' },
       warn: { fontSize: '13px', color: '#8a5a1f', background: '#fdf7e8', border: '1px solid #ecd9a8', borderRadius: '10px', padding: '11px 14px' },
       empty: { fontSize: '14px', color: 'var(--gw-muted, #718096)', padding: '14px 0' },
-      table: { width: '100%', borderCollapse: 'collapse', fontSize: '13px', display: 'block', overflowX: 'auto' },
-      th: { textAlign: 'left', padding: '9px 8px', borderBottom: '1px solid var(--gw-line, #e5dfd5)', fontWeight: '700', whiteSpace: 'nowrap', color: 'var(--gw-muted, #718096)' },
-      td: { padding: '9px 8px', borderBottom: '1px solid var(--gw-line-soft, #eee9e1)', verticalAlign: 'top', minWidth: '90px' },
       pre: { margin: '0', padding: '12px 14px', fontSize: '13px', lineHeight: '1.6', whiteSpace: 'pre-wrap', wordBreak: 'break-word', background: '#f3efe8', borderRadius: '10px' },
       inline: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' },
       wrap: { display: 'flex', gap: '7px', flexWrap: 'wrap' },
@@ -611,15 +608,25 @@ window.__ModuleLoader__.load({
           const weeks = (phase.weeks ?? []).map((week) => `第${String(week.week ?? '?')}周：${week.theme ?? ''}`).join('；');
           body.push(h('div', { key: 'weeks', style: S.empty }, `只排到周，尚未细化到天。${weeks}`));
         } else {
-          const columns = ['标识', '引用', '天', '一句话动作', '能力项', '预计', '最低完成版本', '完成标准', '可接受证据', '依赖'];
-          const cells = (task) => [
-            task.id, task.ref, task.day === null ? '—' : String(task.day), task.action, task.capability,
-            String(task.minutes), task.minimumVersion, task.doneCriteria, task.acceptableEvidence, task.dependsOn,
-          ].map((text, column) => h('td', { key: columns[column], style: S.td }, text));
-          body.push(h('table', { key: 'table', style: S.table }, [
-            h('thead', { key: 'head' }, h('tr', null, columns.map((label) => h('th', { key: label, style: S.th }, label)))),
-            h('tbody', { key: 'body' }, phase.tasks.map((task) => h('tr', { key: task.id }, cells(task)))),
-          ]));
+          // 十个字列排下来每列只剩一百来像素，而「一句话动作 / 完成标准 / 可接受证据」装的是整句话。
+          // 改成每个任务四行：动作在前，元数据与两条标准各一行小字 —— 横向滚的表格读不了句子。
+          body.push(h('div', { key: 'tasks', style: { display: 'flex', flexDirection: 'column' } },
+            phase.tasks.map((task) => h('div', { key: task.id, style: { ...S.row, flexDirection: 'column', alignItems: 'stretch', gap: '4px' } }, [
+              h('div', { key: 'head', style: { display: 'flex', gap: '9px', alignItems: 'baseline' } }, [
+                h('span', { key: 'id', style: { ...S.chip, flex: '0 0 auto' } }, task.id),
+                h('span', { key: 'action', style: { fontSize: '14px', fontWeight: '600' } }, task.action),
+              ]),
+              h('div', { key: 'meta', style: S.fine }, [
+                task.ref ? `引用 ${task.ref}` : '',
+                Number.isInteger(task.day) ? `第 ${String(task.day)} 天` : '',
+                `能力项 ${task.capability}`,
+                `预计 ${String(task.minutes)} 分钟`,
+                `最低版本：${task.minimumVersion}`,
+                task.dependsOn && task.dependsOn !== '无' ? `依赖 ${task.dependsOn}` : '',
+              ].filter(Boolean).join('　·　')),
+              h('div', { key: 'criteria', style: S.fine }, `完成标准：${task.doneCriteria}`),
+              h('div', { key: 'evidence', style: S.fine }, `可接受证据：${task.acceptableEvidence}`),
+            ]))));
         }
         kids.push(h('div', { key: `phase-${String(index)}`, style: S.card }, body));
       });
