@@ -198,9 +198,12 @@ await check('考核的收尾契约写在模型一定看得到的地方', () => {
   assert.match(toolsSource, /\*\*考核的收尾动作\*\*/)
   assert.match(toolsSource, /拿到用户回答之后必须调用本工具落盘/)
   assert.match(toolsSource, /考完必须调用 growth_save_assessment 收尾/)
-  // 页面这边也要说清：考核在对话里进行，答完才写回 —— 否则用户会以为点了就该立刻出现。
+  // 页面这边也要说清：答案写在哪里、交卷之后会发生什么 —— 否则用户会以为点完就该立刻出分。
+  // （这一条原先守的是 AskButton 的「一问一答」提示；考卷搬到页面上之后换了说法，约束不变。）
   const clientSource = readFileSync(join(ROOT, 'client.js'), 'utf8')
-  assert.match(clientSource, /考核在你的对话里一问一答/)
+  assert.match(clientSource, /交卷 · 交给 AI 打分/, '按钮要说清这一下是交给 AI 打分')
+  assert.match(clientSource, /答完交卷，AI 按 rubric 打四维分/, '页面要说清交卷后会发生什么')
+  assert.match(clientSource, /growth_save_assessment 把这一轮写进历史/, '交卷时要把收尾动作一并交代给模型')
 })
 
 await check('考核页不再有手工补记入口 —— 打分归 Agent，页面只展示', () => {

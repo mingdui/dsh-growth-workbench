@@ -124,6 +124,24 @@ window.__ModuleLoader__.load({
         + '.gw-path span{display:block;font-family:var(--gw-mono,monospace);font-size:10.5px;color:var(--gw-muted-2,#9aa7b1);margin-top:4px}'
         + '.gw-gchip{flex:0 0 24px;width:24px;height:24px;border-radius:8px;background:#f4f1ea;color:var(--gw-ink-2,#3d4a54);display:grid;place-items:center;font-family:var(--gw-mono,monospace);font-size:12px;font-weight:600}'
         + '.gw-gchip.now{background:var(--gw-coral,#e56b55);color:#fff}'
+        // The exam paper. Its masthead rule is what makes it read as a paper rather than
+        // as one more card: a heavy rule, then a light one, then the questions.
+        + '.gw-masthead{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;padding-bottom:11px;border-bottom:3px solid var(--gw-ink,#1f2933)}'
+        + '.gw-masthead .t{font-family:var(--gw-display,Georgia,serif);font-size:28px;letter-spacing:-.012em;line-height:1.1}'
+        + '.gw-masthead .d{font-family:var(--gw-mono,monospace);font-size:12px;color:var(--gw-muted,#6f7c87);white-space:nowrap}'
+        + '.gw-masthead .swap{appearance:none;background:none;border:0;font:inherit;font-size:12.5px;color:var(--gw-coral-deep,#a64132);cursor:pointer;padding:2px 0;border-bottom:1px solid rgba(166,65,50,.35);transition:border-color 160ms ease}'
+        + '.gw-masthead .swap:hover{border-bottom-color:var(--gw-coral-deep,#a64132)}'
+        + '.gw-strap{display:flex;gap:16px;flex-wrap:wrap;align-items:baseline;border-top:1px solid var(--gw-line,#e5dfd5);padding-top:11px;font-size:12.5px;color:var(--gw-muted,#6f7c87)}'
+        + '.gw-eq{padding:22px 0;border-top:1px solid var(--gw-line-soft,#efeae2)}'
+        + '.gw-eq:first-of-type{border-top:0;padding-top:20px}'
+        + '.gw-eq .head{display:flex;align-items:baseline;gap:12px}'
+        + '.gw-eq .no{font-family:var(--gw-display,Georgia,serif);font-size:22px;color:var(--gw-coral,#e56b55);flex:0 0 auto;min-width:26px}'
+        + '.gw-eq .text{font-size:15.5px;line-height:1.68;flex:1 1 auto}'
+        + '.gw-eq .cap{font-family:var(--gw-mono,monospace);font-size:11.5px;color:var(--gw-coral-deep,#a64132);background:var(--gw-coral-soft,rgba(229,107,85,.10));border:1px solid rgba(229,107,85,.2);border-radius:999px;padding:3px 9px;flex:0 0 auto;white-space:nowrap}'
+        + '.gw-eq .why{font-size:12.5px;color:var(--gw-muted,#6f7c87);margin:8px 0 0 38px}'
+        + '.gw-eq textarea{display:block;width:calc(100% - 38px);margin:13px 0 0 38px;box-sizing:border-box;font:inherit;font-size:13.5px;line-height:1.7;color:inherit;background:#fffdf9;border:1px dashed var(--gw-line,#e5dfd5);border-radius:14px;padding:14px 16px;min-height:100px;resize:vertical;transition:border-color 160ms ease,box-shadow 160ms ease}'
+        + '.gw-eq textarea::placeholder{color:var(--gw-muted-2,#9aa7b1)}'
+        + '.gw-paper .foot{display:flex;align-items:center;gap:16px;flex-wrap:wrap;border-top:3px solid var(--gw-ink,#1f2933);padding-top:16px;margin-top:6px}'
         + '@media (prefers-reduced-motion:reduce){.gw-step,.gw-step .gw-step-edit,.gw-tf,.gw-tf .gw-tf-no,.gw-root button,.gw-root input,.gw-root select,.gw-root textarea{transition:none}.gw-stamp-in{animation:none}.gw-step:active,.gw-root button:not(:disabled):active{transform:none}}';
       document.head.appendChild(style);
     }
@@ -1085,6 +1103,118 @@ window.__ModuleLoader__.load({
       ])
     }
 
+    /**
+     * 把自查题按加权缺口排成一条队伍，考卷每次从这条队伍上取一段。
+     *
+     * 两条规则都从真实数据里长出来：
+     *  1. 顺序按 `metrics.priorities`（加权缺口），差得多的先考；
+     *  2. **没有对应题的项要跳过**。16 道自查题覆盖 A1/A2/A3/A5、B1–B4、C1–C4、D1–D4 ——
+     *     A4、B5、B6 是没有题的。不跳过的话，「缺口第 4 位的 A4」会让考卷静默地少出一道题。
+     * 缺口榜走完之后，剩下的自查题按原顺序接上，所以「换一张」能一直换到全部考过。
+     */
+    function examPool(state) {
+      const role = state.catalog.activeRole;
+      const pool = [];
+      for (const item of state.metrics.priorities ?? []) {
+        const question = (state.plan.selfCheck ?? []).find((entry) => entry.capability === item.id);
+        if (question === undefined) continue;
+        pool.push({ item, question });
+      }
+      for (const question of state.plan.selfCheck ?? []) {
+        if (pool.some((entry) => entry.question.id === question.id)) continue;
+        const item = role === null || role === undefined ? undefined : role.items.find((entry) => entry.id === question.capability);
+        pool.push({ item: item === undefined ? { id: question.capability, name: '', score: 0, shortfall: 0, weight: 0 } : item, question });
+      }
+      return pool;
+    }
+
+    /** 一张考卷几道题。用户答得完，AI 也核得过来。 */
+    const PAPER_SIZE = 3;
+
+    /**
+     * 杂志版考卷：点进来就有卷子，当场作答，交卷把答案送进当前对话由 AI 打分。
+     *
+     * 「换一张」是顺次换窗（缺口第 1–3 位 → 第 4–6 位 → 换回），不是随机抽 —— 确定、可解释，
+     * 而且换回去时草稿还在（每张卷子的窗口各自记自己的答案）。
+     */
+    function Paper({ state }) {
+      const pool = examPool(state);
+      const windows = Math.max(1, Math.ceil(pool.length / PAPER_SIZE));
+      const [offset, setOffset] = useState(0);
+      const [answers, setAnswers] = useState({});
+      const [phase, setPhase] = useState('idle');
+      const take = pool.slice(offset * PAPER_SIZE, offset * PAPER_SIZE + PAPER_SIZE);
+      const filled = take.filter((entry) => (answers[entry.question.id] ?? '').trim().length > 0).length;
+      const ready = take.length > 0 && filled === take.length;
+      const day = Math.max(1, state.metrics.day ?? 1);
+
+      const send = async () => {
+        if (!ready || phase === 'sent') return;
+        setPhase('sent');
+        const lines = take.map((entry, index) => [
+          `${String(index + 1)}）能力项 ${entry.item.id}${entry.item.name === '' ? '' : ` ${entry.item.name}`}（自评 ${String(entry.item.score)} 分，缺口 ${String(entry.item.shortfall)}）`,
+          `题目：${entry.question.question}`,
+          `我的回答：${answers[entry.question.id]}`,
+        ].join('\n'));
+        try {
+          await askAgent(`我的考核作答（计划第 ${String(day)} 天，${state.metrics.phaseName || '未进入阶段'}）：\n\n${lines.join('\n\n')}\n\n请按 rubric 打四维分，并用 growth_save_assessment 把这一轮写进历史。`);
+        } catch (failure) {
+          setPhase('idle');
+        }
+      };
+
+      return h('div', { className: 'gw-paper', style: { ...S.card, padding: '30px 34px 26px' } }, [
+        h('div', { key: 'mast', className: 'gw-masthead' }, [
+          h('div', { key: 't', className: 't' }, `考核 · 第 ${String(day)} 天`),
+          h('div', { key: 'right', style: { display: 'flex', alignItems: 'baseline', gap: '16px' } }, [
+            h('div', { key: 'd', className: 'd' }, state.today),
+            h('button', {
+              key: 'swap',
+              className: 'swap',
+              type: 'button',
+              onClick: () => { setOffset((value) => (value + 1) % windows); },
+            }, '换一张考卷'),
+          ]),
+        ]),
+        h('div', { key: 'strap', className: 'gw-strap' }, [
+          h('span', { key: 'role' }, `方向 ${state.plan.role || '—'}`),
+          h('span', { key: 'phase' }, `阶段 ${state.metrics.phaseName || '—'}`),
+          h('span', { key: 'by' }, '按加权缺口排序'),
+          h('span', { key: 'n' }, `共 ${String(take.length)} 题 · 第 ${String(offset + 1)} / ${String(windows)} 组`),
+          h('span', { key: 'draft' }, '草稿只在页面上，刷新会丢'),
+        ]),
+        ...take.map((entry, index) => h('div', { key: entry.question.id, className: 'gw-eq' }, [
+          h('div', { key: 'head', className: 'head' }, [
+            h('span', { key: 'no', className: 'no' }, String(index + 1)),
+            h('span', { key: 'text', className: 'text' }, entry.question.question),
+            h('span', { key: 'cap', className: 'cap' }, `${entry.item.id}${entry.item.name === '' ? '' : ` ${entry.item.name}`}`),
+          ]),
+          h('div', { key: 'why', className: 'why' },
+            `阶段「${entry.question.phase}」的自查题 · 当前自评 ${String(entry.item.score)} 分 · 缺口 ${String(entry.item.shortfall)}（权重 ${String(entry.item.weight)}）`),
+          h('textarea', {
+            key: 'a',
+            placeholder: '在这里作答 —— 用具体判断，不要只写概念',
+            value: answers[entry.question.id] ?? '',
+            onChange: (event) => setAnswers({ ...answers, [entry.question.id]: event.target.value }),
+          }),
+        ])),
+        h('div', { key: 'foot', className: 'foot' }, [
+          h('button', {
+            key: 'send',
+            type: 'button',
+            disabled: !ready || phase === 'sent',
+            style: { ...S.button, ...S.buttonOn, ...(ready && phase !== 'sent' ? {} : { opacity: '.45', cursor: 'default' }) },
+            onClick: () => { void send(); },
+          }, phase === 'sent' ? '已交卷 · 等 AI 打分' : '交卷 · 交给 AI 打分'),
+          h('span', { key: 'note', style: S.meta }, phase === 'sent'
+            ? '已交卷 —— AI 正在你当前的对话里打分，结果会自动写回这一页。'
+            : ready
+              ? `${String(take.length)} 题都答完了。交卷后 AI 会在你当前的对话里打分 —— 你写的每一个字它都看得见。`
+              : `还差 ${String(take.length - filled)} 题没答。答完交卷，AI 按 rubric 打四维分，并把结果与接下来 7 天的调整版任务写回这一页。`),
+        ]),
+      ]);
+    }
+
     /** The review tab: history and trend from what the agent wrote. The page never scores. */
     function ReviewTabBody({ state }) {
       const history = state.history;
@@ -1109,6 +1239,12 @@ window.__ModuleLoader__.load({
         if (entry.total !== undefined && entry.total !== null) {
           head.push(h('span', { key: 'total', style: { marginLeft: '8px', fontWeight: '600' } }, `总分 ${String(entry.total)}（${entry.grade}）`));
         }
+        // 等级章只给打过分的轮次（自评轮没有等级，硬盖一个就成了装饰）。颜色按等级分：
+        // 优/良 青绿、及格 琥珀、需努力 用印章默认的珊瑚。
+        const tone = entry.grade === '优' || entry.grade === '良' ? 'teal' : (entry.grade === '及格' ? 'amber' : undefined);
+        const seal = entry.total === undefined || entry.total === null
+          ? null
+          : h(Seal, { key: 'grade', tone, round: true, label: entry.grade, sub: `${String(entry.total)} 分` });
         const lines = [h('div', { key: 'head', style: { fontSize: '14px' } }, head)];
         if ((entry.unsubmitted ?? []).length > 0) {
           lines.push(h('div', { key: 'unsub', style: S.meta }, `未提交（按 0 计）：${entry.unsubmitted.join('、')}　补上对应数据可重评这几维`));
@@ -1123,19 +1259,14 @@ window.__ModuleLoader__.load({
               `${item['任务标识'] ?? item.id ?? '—'}　${item['一句话动作'] ?? item.action ?? ''}　→ ${item['改了什么'] ?? item.why ?? ''}`)),
           ]));
         }
-        return h('div', { key, style: { ...S.row, flexDirection: 'column', alignItems: 'stretch' } }, lines);
+        return h('div', { key, style: { ...S.row, gap: '18px', alignItems: 'flex-start' } }, [
+          h('div', { key: 'body', style: { flex: '1 1 auto', minWidth: '0' } }, lines),
+          seal,
+        ]);
       };
 
       return h('div', { style: S.stack }, [
-        h('div', { key: 'intro', style: S.card }, [
-          h('h2', { key: 't', style: S.h2 }, '考核'),
-          h('div', { key: 'note', style: S.meta }, '四维各 25 分：完成率 / 证据质量 / 作品达标度 / 知识考核。'),
-          h('div', { key: 'act', style: S.inline }, [
-            // 反复发生的动作 → 不带 `done`：点完冷却一会儿就重新可用。
-            h(AskButton, { key: 'ask', text: '考核我', label: '让 AI 现在考核', style: S.buttonOn,
-              hint: '考核在你的对话里一问一答；答完写回这一页，并给接下来 7 天的调整版任务。' }),
-          ]),
-        ]),
+        h(Paper, { key: 'paper', state }),
         h('div', { key: 'trend', style: S.card }, [
           h('h3', { key: 't', style: S.h3 }, '趋势'),
           h('div', { key: 'counts', style: S.meta }, `历史 ${String(history.length)} 轮（其中考核 ${String(reviews.length)} 轮）　能力曲线点 ${String(curve.length)} 个`),
