@@ -1098,7 +1098,11 @@ window.__ModuleLoader__.load({
       }
       if (state.metrics.unansweredGroups.length > 0) {
         kids.push(h('div', { key: 'unanswered', style: S.meta },
-          `本读数不含 ${state.metrics.unansweredGroups.join('、')} 组，和上一轮比时留意口径不同。`));
+          `缺口只按已打分的组算：${state.metrics.unansweredGroups.join('、')} 组还没打分。`));
+        // 只有真的有过上一轮，比较才是一句可执行的话。
+        if ((state.history ?? []).length > 1) {
+          kids.push(h('div', { key: 'basis', style: S.meta }, '所以它和上一轮的数字不好直接比 —— 两轮覆盖的组不一样。'));
+        }
       }
 
       return h('div', { 'data-anchor': 'self', style: S.card }, kids);
