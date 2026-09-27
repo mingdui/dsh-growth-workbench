@@ -479,17 +479,22 @@ await check('考核目录：阶段与节点的状态都从已有数据算出来�
   assert.doesNotMatch(source, /\*\*能力项\*\*/, '不要往界面文案里写 Markdown 加粗')
 })
 
-await check('右侧「今日」与左侧同一套语言：读数、印章、完成反馈', () => {
+await check('右侧「今日」与左侧共用同一套件，不再各写一遍', () => {
   const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
-  // 右侧本来是另一套：自己画的两个小方盒、自己的字号、自己的绿色、原生 checkbox。
-  // 不猜窗口长度 —— 从头切到文件尾（这两个组件就在文件尾部），否则一条魔数会悄悄把断言变成空转。
+  // 右侧本来是另一套：自己画的两个小方盒、自己的字号、自己的绿色、原生 checkbox，
+  // 后来连证据区也自己写了一份（一行 input + 原生 select + 自己一套档位措辞）——
+  // 于是它落后了左页整整一版：只有走右栏的人拿不到写作弹窗和图片。
   const right = source.slice(source.indexOf('function RightTaskCard('))
   assert.match(right, /h\(Readout, \{ key: 'done'/, '右侧用同一套读数（等宽大数字 + 小标签）')
   assert.match(right, /h\(Seal, \{ key: 'seal'/, '连续打卡也落一枚章')
-  assert.match(right, /role: 'checkbox'/, '勾选框和左侧一样是能填色的按钮')
-  // 这两条区分范围：另配的绿色全文件都不该再有；原生 checkbox 只针对这两个组件
-  //（④ 可迁移能力里那个是「选做过哪些」，不是完成反馈，属于另一处界面）。
-  assert.doesNotMatch(right, /type: 'checkbox'/, '原生 checkbox 不许留在右侧')
+  // **交互件不许在这两个组件里各写一遍** —— 勾选与证据都来自共用组件。
+  assert.match(right, /h\(TaskCheck, \{ key: 'box'/, '右栏的勾选来自共用组件')
+  assert.match(right, /h\(TaskEvidenceLine, \{/, '右栏的证据与弹窗来自共用组件')
+  const row = source.slice(source.indexOf('function TaskRow('), source.indexOf('function RightTaskCard('))
+  assert.match(row, /h\(TaskCheck, \{ key: 'box'/, '左页的勾选也来自同一个组件')
+  assert.match(row, /h\(TaskEvidenceLine, \{/, '左页的证据也一样')
+  // 右栏不该再有自己的那套证据输入。
+  assert.doesNotMatch(right, /选择证据档位|type: 'checkbox'|placeholder: '链接、文件名或一句结果'/)
   assert.doesNotMatch(source, /#3f9b63|#edf6ef|#c8dfcc/, '不再自己配一套绿色，用全站的青绿')
 })
 

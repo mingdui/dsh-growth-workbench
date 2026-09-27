@@ -901,73 +901,108 @@ window.__ModuleLoader__.load({
       }, [h('div', { key: 'card', className: 'gw-modal-card' }, run)]);
     }
 
+    /**
+     * 勾选框：可填色的方框 + 白勾。
+     *
+     * **左页与右栏共用这一个** —— 它们原先各写了一遍一模一样的样式代码，而"完成的那一下
+     * 反馈"是最不该漂的地方（旁边那枚印章同理，也来自同一个 `Seal`）。
+     */
+    function TaskCheck({ task, done, onToggle }) {
+      return h('button', {
+        type: 'button',
+        role: 'checkbox',
+        'aria-checked': done,
+        'aria-label': task.action,
+        style: { marginTop: '1px', flex: '0 0 auto', width: '24px', height: '24px', padding: '0', display: 'grid', placeItems: 'center', borderRadius: '8px', cursor: 'pointer', transition: 'background 160ms ease, border-color 160ms ease, transform 120ms ease', border: `2px solid ${done ? 'var(--gw-teal, #2f7d74)' : 'var(--gw-line, #e5dfd5)'}`, background: done ? 'var(--gw-teal, #2f7d74)' : '#fff' },
+        onClick: onToggle,
+      }, [
+        done ? h('span', { key: 'tick', style: { width: '10px', height: '6px', borderLeft: '2px solid #fff', borderBottom: '2px solid #fff', transform: 'rotate(-45deg) translate(1px, -1px)' } }) : null,
+      ]);
+    }
+
+    /**
+     * 证据的阅读态 + 写作弹窗。
+     *
+     * **左页与右栏共用这一个**，所以两边的证据是同一套：同一排缩略图、同一个写作弹窗、
+     * 同一组档位解释。右栏原先自己写了一份（一行 input + 原生 select + 自己一套档位措辞），
+     * 于是它落后了左页整整一版 —— 只有走右栏的人拿不到弹窗和图片。
+     *
+     * 外层的缩进由调用方给（左页要让开勾选框那一列），这里只管内容。
+     */
+    function TaskEvidenceLine({ task, entry, post, reload, tiers }) {
+      const [editing, setEditing] = useState(false);
+      const evidenceText = String(entry?.evidence ?? '');
+      const images = entry?.images ?? [];
+      return h(React.Fragment, null, [
+        h('div', { key: 'line', className: 'gw-evidence', style: { display: 'flex', flexDirection: 'column', gap: '8px' } }, [
+          h('button', {
+            key: 'open',
+            type: 'button',
+            className: 'gw-evidence-open',
+            title: evidenceText.length > 0 ? '点开改一改，或再加点东西' : '写点什么',
+            style: {
+              fontSize: '14px', lineHeight: '1.8', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+              padding: '7px 10px', margin: '0 -10px 0 -10px', textAlign: 'left',
+              color: evidenceText.length > 0 ? 'var(--gw-ink, #1f2933)' : 'var(--gw-muted-2, #9aa7b1)',
+            },
+            onClick: () => setEditing(true),
+          }, evidenceText.length > 0
+            ? evidenceText
+            : '写下今天留下的东西 —— 一段笔记、一个链接、一张图、或者做出来的那个东西'),
+          h('div', { key: 'meta', style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' } }, [
+            h('span', { key: 'tier', style: entry?.tier ? S.chipPlain : { ...S.chipPlain, color: 'var(--gw-muted-2, #9aa7b1)' } },
+              entry?.tier ? `证据 · ${entry.tier}` : '证据 · 未交'),
+            ...images.map((image) => h('a', {
+              key: image.file,
+              className: 'gw-shot',
+              href: shotUrl(image.file),
+              target: '_blank',
+              rel: 'noreferrer',
+              title: `${String(Math.max(1, Math.round(image.bytes / 1024)))} KB　点开看原图`,
+              style: { display: 'block', lineHeight: '0' },
+            }, [h('img', {
+              key: 'img',
+              src: shotUrl(image.file),
+              alt: '证据图片',
+              style: { width: '40px', height: '40px', objectFit: 'cover', borderRadius: '8px', border: '1px solid var(--gw-line, #e5dfd5)', background: '#fff' },
+            })])),
+            h('button', { key: 'edit', type: 'button', className: 'gw-quiet', style: { ...S.fine, ...S.quiet }, onClick: () => setEditing(true) },
+              evidenceText.length > 0 ? '改写 / 加图' : '写证据'),
+          ]),
+        ]),
+        editing ? h(EvidenceEditor, { key: 'editor', task, entry, post, reload, tiers, onClose: () => setEditing(false) }) : null,
+      ]);
+    }
+
+    /**
+     * 「下一步」那张深色卡 —— 页头与右栏共用同一份文案与骨架。
+     *
+     * 两边不一样的是"接下来那一下"：左页给「现在去做 →」（把你送到那一页），右栏给一句指路
+     * （它本来就在今日这一侧，送不了）。**文案来自同一个 `state.nextAction`**，所以不会出现
+     * 一处说东、一处说西。
+     */
+    function NextActionCard({ action, style, note, aside }) {
+      return h('div', { style: { display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap', background: 'linear-gradient(100deg, #253b39, #36534d)', color: '#fff', ...style } }, [
+        h('div', { key: 'copy', style: { flex: '1 1 220px' } }, [
+          h('div', { key: 'label', style: { fontSize: '12px', opacity: '.7', textTransform: 'uppercase', letterSpacing: '.12em' } }, '下一步'),
+          h('div', { key: 'title', style: { fontSize: '17px', fontWeight: '700', marginTop: '4px' } }, action?.label ?? '今天没有待办'),
+          h('div', { key: 'reason', style: { fontSize: '13px', opacity: '.78', marginTop: '4px', lineHeight: '1.5' } }, action?.reason ?? '去成长工作台查看完整计划。'),
+          note ?? null,
+        ]),
+        aside ?? null,
+      ]);
+    }
+
     /** One task row: check it off, then say what evidence came out of it. */
     function TaskRow({ task, entry, post, reload, tiers }) {
-      // 证据是**写**出来的东西，一行输入框装不下它 —— 所以编辑放在弹窗里（`EvidenceEditor`），
-      // 这一行只显示结果：写了什么、算哪一档、有没有图。打卡入口因此也只有一处。
-      const [editing, setEditing] = useState(false);
+      // 交互件全部来自**共用组件**（`TaskCheck` 勾选 / `TaskEvidenceLine` 证据与弹窗）——
+      // 这一行自己只管版式与元信息，所以不会再出现"改了左边、忘了右边"。
       const done = entry?.done === true;
       const days = (entry?.checkInDates ?? []).length;
       const save = (patch) => post('/checkin', { taskId: task.id, ...patch });
-      const evidenceText = String(entry?.evidence ?? '');
-      const images = entry?.images ?? [];
-
-      /**
-       * 传一张（或几张）图。
-       *
-       * 走的是**裸字节**：把 `File` 直接当 body 交给 `/evidence-image` —— 不走 JSON，也不走
-       * multipart（这个仓库没有 dependencies，而 multipart 解析器就是一个依赖）。文件名由
-       * 宿主生成，这里只负责把字节送到。
-       */
-      const upload = async (files) => {
-        if (files.length === 0) return;
-        setBusyShot(true);
-        setNote('');
-        try {
-          for (const file of files) {
-            if (!file.type.startsWith('image/')) throw new Error(`「${file.name}」不是图片`);
-            if (file.size > MAX_SHOT_BYTES) throw new Error(`「${file.name}」超过 8 MB —— 截图一般几百 KB，先压一下`);
-            const response = await fetch(`${API}/evidence-image?task=${encodeURIComponent(task.id)}`, {
-              method: 'POST',
-              headers: { 'content-type': file.type },
-              body: file,
-            });
-            const text = await response.text();
-            let parsed;
-            try { parsed = text.length > 0 ? JSON.parse(text) : {}; } catch { parsed = {}; }
-            if (parsed.ok !== true) throw new Error(parsed.error ?? `上传失败（${String(response.status)}）`);
-          }
-          if (typeof reload === 'function') await reload();
-        } catch (failure) {
-          setNote(messageOf(failure));
-        } finally {
-          setBusyShot(false);
-        }
-      };
-
-      /** 删掉一张图。**这是唯一会删图片文件的入口** —— 见 store 里那条注释。 */
-      const dropShot = async (file) => {
-        setNote('');
-        const reply = await post('/evidence-image-remove', { taskId: task.id, file });
-        if (reply.ok !== true) setNote(reply.error ?? '删不掉');
-      };
-
       return h('div', { 'data-task-id': task.id, style: { ...S.row, flexDirection: 'column', alignItems: 'stretch', gap: '6px' } }, [
         h('div', { key: 'head', style: { display: 'flex', alignItems: 'flex-start', gap: '8px' } }, [
-          // A native checkbox can be neither filled nor stamped, and this one has to hold
-          // the 完成 moment. Same contract as before: clicking toggles, aria-checked
-          // carries the state, and the row is still the real touch target.
-          h('button', {
-            key: 'box',
-            type: 'button',
-            role: 'checkbox',
-            'aria-checked': done,
-            'aria-label': task.action,
-            style: { marginTop: '1px', flex: '0 0 auto', width: '24px', height: '24px', padding: '0', display: 'grid', placeItems: 'center', borderRadius: '8px', cursor: 'pointer', transition: 'background 160ms ease, border-color 160ms ease, transform 120ms ease', border: `2px solid ${done ? 'var(--gw-teal, #2f7d74)' : 'var(--gw-line, #e5dfd5)'}`, background: done ? 'var(--gw-teal, #2f7d74)' : '#fff' },
-            onClick: () => { void save({ done: !done }); },
-          }, [
-            done ? h('span', { key: 'tick', style: { width: '10px', height: '6px', borderLeft: '2px solid #fff', borderBottom: '2px solid #fff', transform: 'rotate(-45deg) translate(1px, -1px)' } }) : null,
-          ]),
+          h(TaskCheck, { key: 'box', task, done, onToggle: () => { void save({ done: !done }); } }),
           h('div', { key: 'text', style: { flex: '1 1 auto', minWidth: '0' } }, [
             h('div', {
               key: 'action',
@@ -1032,45 +1067,11 @@ window.__ModuleLoader__.load({
                 h(AskButton, { key: 'again', text: `给 ${task.id} 重新找一遍学习资料`, label: '重新找', hint: '链接会过期 —— 重新找一遍就是重新检索。' }),
               ]),
             ]),
-        // 证据区是**阅读态**：写了什么、算哪一档、有没有图 —— 一眼看完。
-        // 编辑在弹窗里（点这一块，或点「改写 / 加图」）：那里有整张纸可以写。
-        h('div', { key: 'evidence', className: 'gw-evidence', style: { display: 'flex', flexDirection: 'column', gap: '8px', paddingLeft: '22px' } }, [
-          h('button', {
-            key: 'open',
-            type: 'button',
-            className: 'gw-evidence-open',
-            title: evidenceText.length > 0 ? '点开改一改，或再加点东西' : '写点什么',
-            style: {
-              fontSize: '14px', lineHeight: '1.8', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-              padding: '7px 10px', margin: '0 -10px 0 -10px', textAlign: 'left',
-              color: evidenceText.length > 0 ? 'var(--gw-ink, #1f2933)' : 'var(--gw-muted-2, #9aa7b1)',
-            },
-            onClick: () => setEditing(true),
-          }, evidenceText.length > 0
-            ? evidenceText
-            : '写下今天留下的东西 —— 一段笔记、一个链接、一张图、或者做出来的那个东西'),
-          h('div', { key: 'meta', style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' } }, [
-            h('span', { key: 'tier', style: entry?.tier ? S.chipPlain : { ...S.chipPlain, color: 'var(--gw-muted-2, #9aa7b1)' } },
-              entry?.tier ? `证据 · ${entry.tier}` : '证据 · 未交'),
-            ...images.map((image) => h('a', {
-              key: image.file,
-              className: 'gw-shot',
-              href: shotUrl(image.file),
-              target: '_blank',
-              rel: 'noreferrer',
-              title: `${String(Math.max(1, Math.round(image.bytes / 1024)))} KB　点开看原图`,
-              style: { display: 'block', lineHeight: '0' },
-            }, [h('img', {
-              key: 'img',
-              src: shotUrl(image.file),
-              alt: '证据图片',
-              style: { width: '40px', height: '40px', objectFit: 'cover', borderRadius: '8px', border: '1px solid var(--gw-line, #e5dfd5)', background: '#fff' },
-            })])),
-            h('button', { key: 'edit', type: 'button', className: 'gw-quiet', style: { ...S.fine, ...S.quiet }, onClick: () => setEditing(true) },
-              evidenceText.length > 0 ? '改写 / 加图' : '写证据'),
-          ]),
+        // 证据：**阅读态 + 写作弹窗**，两边共用（`TaskEvidenceLine`）。左页这里只负责把缩进
+        // 让给勾选框那一列 —— 版式在这一层，交互件在共用组件里。
+        h('div', { key: 'evidence', style: { paddingLeft: '22px' } }, [
+          h(TaskEvidenceLine, { task, entry, post, reload, tiers }),
         ]),
-        editing ? h(EvidenceEditor, { key: 'editor', task, entry, post, reload, tiers, onClose: () => setEditing(false) }) : null,
       ]);
     }
 
@@ -1237,14 +1238,12 @@ window.__ModuleLoader__.load({
           ]),
           h('div', { key: 'day', style: { ...S.chip, fontFamily: 'var(--gw-mono, monospace)' } }, day.value === '—' ? 'DAY --' : (day.started ? `DAY ${String(day.value).padStart(2, '0')}` : `${day.value} 天后开始`)),
         ]),
-        action === undefined || action === null || hideNext === true ? null : h('div', { key: 'next', style: { display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap', padding: '16px 18px', borderRadius: '15px', background: 'linear-gradient(100deg, #253b39, #36534d)', color: '#fff', boxShadow: '0 14px 28px rgba(37,59,57,.16)' } }, [
-          h('div', { key: 'copy', style: { flex: '1 1 260px' } }, [
-            h('div', { key: 'label', style: { fontSize: '12px', opacity: '.7', textTransform: 'uppercase', letterSpacing: '.12em' } }, '下一步'),
-            h('div', { key: 'title', style: { fontSize: '17px', fontWeight: '700', marginTop: '4px' } }, action.label),
-            h('div', { key: 'reason', style: { fontSize: '13px', opacity: '.78', marginTop: '4px', lineHeight: '1.5' } }, action.reason),
-          ]),
-          onThisTab ? null : h('button', { key: 'go', type: 'button', style: { ...S.button, background: '#f3c26b', borderColor: '#f3c26b', color: '#253b39' }, onClick: () => onNavigate(action.targetTab, action.targetAnchor) }, '现在去做 →'),
-        ]),
+        action === undefined || action === null || hideNext === true ? null : h(NextActionCard, {
+          key: 'next',
+          action,
+          style: { padding: '16px 18px', borderRadius: '15px', boxShadow: '0 14px 28px rgba(37,59,57,.16)' },
+          aside: onThisTab ? null : h('button', { key: 'go', type: 'button', style: { ...S.button, background: '#f3c26b', borderColor: '#f3c26b', color: '#253b39' }, onClick: () => onNavigate(action.targetTab, action.targetAnchor) }, '现在去做 →'),
+        }),
         // 节奏比日历快的时候，页头如实说两边 —— 四个页签都在，因为「我在做第 8 天、按日历
         // 才第 5 天」这件事一旦不说清，用户读到的每个数字都会错位。这里只放**撤销**那一个
         // 动作：「继续下一天」长在今日页任务做完的地方（需求出现在那儿），不在这儿重复一次。
@@ -2744,10 +2743,15 @@ window.__ModuleLoader__.load({
     }
 
     /** Compact execution card for the narrow right sidebar. */
-    function RightTaskCard({ task, entry, post }) {
+    /**
+     * 右栏那一张任务卡 —— **只负责版式**：窄栏里的顺序与密度。
+     *
+     * 交互件（勾选、证据阅读态、写作弹窗、图片、完成印章）全部来自共用组件，所以这一版和
+     * 左页不会再有"右边落后一版"的问题。它自己也不再另写证据输入 —— 那正是它上一次漂掉的地方
+     * （一行 input + 原生 select + 自己一套档位措辞，于是只有走右栏的人拿不到弹窗和图片）。
+     */
+    function RightTaskCard({ task, entry, post, reload, tiers }) {
       const done = entry?.done === true;
-      const evidence = entry?.evidence ?? '';
-      const tier = entry?.tier ?? '';
       const save = (patch) => post('/checkin', { taskId: task.id, ...patch });
       return h('div', { 'data-task-id': task.id, style: { display: 'flex', flexDirection: 'column', gap: '12px', padding: '15px', borderRadius: '16px', background: done ? 'var(--gw-teal-soft, rgba(47,125,116,.12))' : '#fffdf9', border: `1px solid ${done ? 'rgba(47,125,116,.28)' : '#e5dfd5'}`, boxShadow: '0 8px 18px rgba(54,42,32,.05)' } }, [
         h('div', { key: 'eyebrow', style: { display: 'flex', justifyContent: 'space-between', gap: '8px', alignItems: 'center' } }, [
@@ -2755,19 +2759,7 @@ window.__ModuleLoader__.load({
           h('span', { key: 'done', style: { fontSize: '13px', fontWeight: '700', color: done ? 'var(--gw-teal, #2f7d74)' : 'var(--gw-muted, #718096)' } }, `${done ? '已完成' : '未完成'} · ${String(task.minutes)} 分钟`),
         ]),
         h('div', { key: 'title', style: { display: 'flex', gap: '11px', alignItems: 'flex-start' } }, [
-          // 和左边同一套完成反馈：可填色的方框 + 白勾，完成时落一枚印章 ——
-          // 原生 checkbox 既不能填色也不能盖章，而这一下正是最要紧的反馈。
-          h('button', {
-            key: 'box',
-            type: 'button',
-            role: 'checkbox',
-            'aria-checked': done,
-            'aria-label': task.action,
-            style: { marginTop: '1px', flex: '0 0 auto', width: '24px', height: '24px', padding: '0', display: 'grid', placeItems: 'center', borderRadius: '8px', cursor: 'pointer', transition: 'background 160ms ease, border-color 160ms ease', border: `2px solid ${done ? 'var(--gw-teal, #2f7d74)' : 'var(--gw-line, #e5dfd5)'}`, background: done ? 'var(--gw-teal, #2f7d74)' : '#fff' },
-            onClick: () => { void save({ done: !done }); },
-          }, [
-            done ? h('span', { key: 'tick', style: { width: '10px', height: '6px', borderLeft: '2px solid #fff', borderBottom: '2px solid #fff', transform: 'rotate(-45deg) translate(1px, -1px)' } }) : null,
-          ]),
+          h(TaskCheck, { key: 'box', task, done, onToggle: () => { void save({ done: !done }); } }),
           h('span', { key: 'text', style: { fontSize: '15px', fontWeight: '600', lineHeight: '1.45', textDecoration: done ? 'line-through' : 'none', opacity: done ? '.6' : '1', cursor: 'pointer' }, onClick: () => { void save({ done: !done }); } }, task.action),
         ]),
         // 印章放在一行里 —— 直接挂在列容器下会被拉伸成通栏大框（窄栏里尤其明显）。
@@ -2776,22 +2768,13 @@ window.__ModuleLoader__.load({
           h('strong', { key: 'label', style: { color: '#253b39' } }, '最低完成版本'),
           ` ${task.minimumVersion}`,
         ]),
-        h('div', { key: 'evidence', style: { display: 'flex', flexDirection: 'column', gap: '7px' } }, [
-          h('label', { key: 'label', style: { fontSize: '12px', color: 'var(--gw-muted, #718096)' } }, '做完后留一条证据'),
-          h('input', { key: 'input', style: { ...S.input, width: '100%', boxSizing: 'border-box', fontSize: '13px' }, placeholder: '链接、文件名或一句结果', defaultValue: evidence, 'aria-label': '任务证据', onBlur: (event) => { if (event.target.value !== evidence) void save({ evidence: event.target.value }); } }),
-          h('select', { key: 'select', style: { ...S.select, width: '100%' }, value: tier, 'aria-label': '证据档位', onChange: (event) => { void save({ tier: event.target.value || null }); } }, [
-            h('option', { key: 'none', value: '' }, '选择证据档位'),
-            h('option', { key: 'self', value: '自述' }, '自述：我完成了'),
-            h('option', { key: 'process', value: '过程' }, '过程：草稿 / 笔记'),
-            h('option', { key: 'result', value: '成果' }, '成果：链接 / 报告 / 截图'),
-          ]),
-        ]),
+        h(TaskEvidenceLine, { key: 'evidence', task, entry, post, reload, tiers }),
       ]);
     }
 
     /** The right sidebar is a glanceable execution surface, not a shrunken main page. */
     function TodayTab() {
-      const { state, error, post } = useWorkbench();
+      const { state, error, post, reload } = useWorkbench();
       const [activity, setActivity] = useState(agentActivity);
       useEffect(() => subscribeActivity(setActivity), []);
       if (state === null) return h('div', { style: { padding: '16px', fontSize: '14px', color: 'var(--gw-muted, #718096)' } }, error.length > 0 ? error : '正在载入今日…');
@@ -2817,13 +2800,16 @@ window.__ModuleLoader__.load({
         activity === null ? null : h('div', { key: 'activity', role: 'status', 'aria-live': 'polite', style: { padding: '11px 12px', borderRadius: '12px', fontSize: '13px', lineHeight: '1.5', background: activity.status === 'completed' ? 'var(--gw-teal-soft, rgba(47,125,116,.12))' : activity.status === 'error' ? '#fff0ed' : '#eef2f0', border: `1px solid ${activity.status === 'completed' ? 'rgba(47,125,116,.28)' : activity.status === 'error' ? '#f3c5be' : '#d5e0da'}` } }, activity.status === 'completed'
           ? (activity.wrote === true ? 'AI 已返回，今日面板已自动更新。' : 'AI 跑完了，这次没有改动数据。')
           : activity.status === 'error' ? `AI 处理失败：${activity.error}` : 'AI 正在处理，完成后这里会自动更新。'),
-        task === undefined ? h('div', { key: 'empty', style: { padding: '16px', borderRadius: '16px', background: '#253b39', color: '#fff' } }, [h('div', { key: 'label', style: { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '.12em', opacity: '.65' } }, '下一步'), h('div', { key: 'title', style: { fontSize: '16px', fontWeight: '700', marginTop: '6px' } }, state.nextAction?.label ?? '今天没有待办'), h('div', { key: 'reason', style: { fontSize: '13px', lineHeight: '1.55', opacity: '.78', marginTop: '6px' } }, state.nextAction?.reason ?? '去成长工作台查看完整计划。'),
-            // 只在真有下一步时指路 —— 没有动作时那句会回退成「去…「今日」页」，
-            // 而这张卡本身就在今日这一侧，等于让人去他已经站着的地方。
-            state.nextAction === null || state.nextAction === undefined ? null
-              : h('div', { key: 'where', style: { fontSize: '12.5px', opacity: '.72', marginTop: '7px' } },
-                `去左侧「成长工作台」的「${(TABS.find((entry) => entry.id === state.nextAction?.targetTab) ?? {}).label ?? '今日'}」页`),
-          ]) : h(RightTaskCard, { key: task.id, task, entry: state.progress.tasks?.[task.id], post }),
+        task === undefined ? h(NextActionCard, {
+          key: 'empty',
+          action: state.nextAction,
+          style: { padding: '16px', borderRadius: '16px' },
+          // 只在真有下一步时指路 —— 没有动作时那句会回退成「去…「今日」页」，
+          // 而这张卡本身就在今日这一侧，等于让人去他已经站着的地方。
+          note: state.nextAction === null || state.nextAction === undefined ? null
+            : h('div', { key: 'where', style: { fontSize: '12.5px', opacity: '.72', marginTop: '7px' } },
+              `去左侧「成长工作台」的「${(TABS.find((entry) => entry.id === state.nextAction?.targetTab) ?? {}).label ?? '今日'}」页`),
+        }) : h(RightTaskCard, { key: task.id, task, entry: state.progress.tasks?.[task.id], post, reload, tiers: state.catalog.tiers }),
         error.length > 0 ? h('div', { key: 'error', style: S.error }, error) : null,
         // 三档，不是两档：没有排定任务分两种 ——「有接下来要做的」和「压根还没有排到天的任务」。
         // 原先的 else 一律说「先接着完成这一项」，而后者上面一项都没有，那句话就是假的。
