@@ -2190,9 +2190,20 @@ window.__ModuleLoader__.load({
           h('div', { key: 'phase', style: S.fine }, state.metrics.phaseName || '尚未开始'),
         ]),
         activity === null ? null : h('div', { key: 'activity', role: 'status', 'aria-live': 'polite', style: { padding: '11px 12px', borderRadius: '12px', fontSize: '13px', lineHeight: '1.5', background: activity.status === 'completed' ? 'var(--gw-teal-soft, rgba(47,125,116,.12))' : activity.status === 'error' ? '#fff0ed' : '#eef2f0', border: `1px solid ${activity.status === 'completed' ? 'rgba(47,125,116,.28)' : activity.status === 'error' ? '#f3c5be' : '#d5e0da'}` } }, activity.status === 'completed' ? 'AI 已返回，今日面板已自动更新。' : activity.status === 'error' ? `AI 处理失败：${activity.error}` : 'AI 正在处理，完成后这里会自动更新。'),
-        task === undefined ? h('div', { key: 'empty', style: { padding: '16px', borderRadius: '16px', background: '#253b39', color: '#fff' } }, [h('div', { key: 'label', style: { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '.12em', opacity: '.65' } }, '下一步'), h('div', { key: 'title', style: { fontSize: '16px', fontWeight: '700', marginTop: '6px' } }, state.nextAction?.label ?? '今天没有待办'), h('div', { key: 'reason', style: { fontSize: '13px', lineHeight: '1.55', opacity: '.78', marginTop: '6px' } }, state.nextAction?.reason ?? '去成长工作台查看完整计划。')]) : h(RightTaskCard, { key: task.id, task, entry: state.progress.tasks?.[task.id], post }),
+        task === undefined ? h('div', { key: 'empty', style: { padding: '16px', borderRadius: '16px', background: '#253b39', color: '#fff' } }, [h('div', { key: 'label', style: { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '.12em', opacity: '.65' } }, '下一步'), h('div', { key: 'title', style: { fontSize: '16px', fontWeight: '700', marginTop: '6px' } }, state.nextAction?.label ?? '今天没有待办'), h('div', { key: 'reason', style: { fontSize: '13px', lineHeight: '1.55', opacity: '.78', marginTop: '6px' } }, state.nextAction?.reason ?? '去成长工作台查看完整计划。'),
+            // 只在真有下一步时指路 —— 没有动作时那句会回退成「去…「今日」页」，
+            // 而这张卡本身就在今日这一侧，等于让人去他已经站着的地方。
+            state.nextAction === null || state.nextAction === undefined ? null
+              : h('div', { key: 'where', style: { fontSize: '12.5px', opacity: '.72', marginTop: '7px' } },
+                `去左侧「成长工作台」的「${(TABS.find((entry) => entry.id === state.nextAction?.targetTab) ?? {}).label ?? '今日'}」页`),
+          ]) : h(RightTaskCard, { key: task.id, task, entry: state.progress.tasks?.[task.id], post }),
         error.length > 0 ? h('div', { key: 'error', style: S.error }, error) : null,
-        h('div', { key: 'foot', style: { ...S.fine, textAlign: 'center', paddingTop: '2px' } }, state.focus.scheduled ? '这是今天排定的最小动作' : '今天没有排定任务，先接着完成这一项'),
+        // 三档，不是两档：没有排定任务分两种 ——「有接下来要做的」和「压根还没有排到天的任务」。
+        // 原先的 else 一律说「先接着完成这一项」，而后者上面一项都没有，那句话就是假的。
+        h('div', { key: 'foot', style: { ...S.fine, textAlign: 'center', paddingTop: '2px' } },
+          state.focus.scheduled ? '这是今天排定的最小动作'
+            : task === undefined ? '计划还只排到周 —— 去左侧「计划」页让 AI 细化到天'
+              : '今天没有排定任务，先接着完成这一项'),
       ]);
     }
 
