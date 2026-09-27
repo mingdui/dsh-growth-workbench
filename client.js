@@ -290,14 +290,25 @@ window.__ModuleLoader__.load({
     async function createAgentSession(sessions, cwd, workspaceId) {
       // **归属优先走工作区 id，其次才是 cwd**：侧栏分组读的是工作区注册表，只给 cwd 的会话
       // 会挂在「未分组」下（用户撞上过）。两者不能同时传 —— 宿主的 `session.create` 会直接拒。
+      const hasCwd = typeof cwd === 'string' && cwd.length > 0;
       const where = typeof workspaceId === 'string' && workspaceId.length > 0
         ? { workspaceId }
-        : (typeof cwd === 'string' && cwd.length > 0 ? { cwd } : {});
+        : (hasCwd ? { cwd } : {});
       let id;
       try {
         id = await sessions.create(where);
       } catch (failure) {
-        throw new Error(`没法新建专用对话：${messageOf(failure)}`);
+        // 工作区 id 可能已经失效（用户把那个工作区从侧栏删了）—— 退回 cwd 再试一次。
+        // 分组是次要的，**建不出会话**才是真的挡住用户。
+        if (where.workspaceId !== undefined && hasCwd) {
+          try {
+            id = await sessions.create({ cwd });
+          } catch (retry) {
+            throw new Error(`没法新建专用对话：${messageOf(retry)}`);
+          }
+        } else {
+          throw new Error(`没法新建专用对话：${messageOf(failure)}`);
+        }
       }
       // 先把会话打开：`rename` 要的是一个**活着**的会话（标题服务会核对它是否在会话表里）。
       // 刚建好就改名，第一次常常落空 —— 而它失败时**不抛**，只回 `{ ok: false }`。

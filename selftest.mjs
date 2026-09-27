@@ -2068,6 +2068,9 @@ await check('专属会话的工作区：宿主侧的**空**目录，不是数据
   assert.match(source, /const where = typeof workspaceId === 'string' && workspaceId\.length > 0\s*\n\s*\? \{ workspaceId \}/)
   assert.match(source, /id = await sessions\.create\(where\);/)
   assert.doesNotMatch(source, /\{ cwd, workspaceId \}|\{ workspaceId, cwd \}/, '两个一起传会被宿主拒掉')
+  // 工作区 id 失效（用户把那个工作区删了）时退回 cwd —— 建不出会话才是真的挡住用户。
+  assert.match(source, /if \(where\.workspaceId !== undefined && hasCwd\)/, '失效要退回 cwd 再试一次')
+  assert.match(source, /id = await sessions\.create\(\{ cwd \}\);/, '退回的那次带的是 cwd')
   // **改名的返回值要检查**：`rename` 失败时返回 `{ ok: false }` 而**不抛** —— 只 try/catch
   // 会把失败静默吃掉（用户建出来的对话就叫「新会话」，而页面说"运行都在「成长工作台」里"）。
   assert.match(source, /const renamed = await binding\?\.session\?\.rename\?\.\(AGENT_SESSION_TITLE\)/)
