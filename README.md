@@ -29,71 +29,63 @@
 
 前六步在「画像」页签一次做完；计划落到「计划」页签；每天的事在「今日」页签（或右侧的「今日」窄栏）；到点考核在「考核」页签。
 
-## 亮点
-
-**今天只有一件事。** 「今日」页一次只给你一道动作，带着它的最低完成版本、完成标准和可接受证据。做到了就勾掉，页面自动给下一天。
-
-**每道题都告诉你怎么学。** 任务卡上有「怎么上手」一句话、「AI 汇总」（这道题要掌握的要点和常见的坑）和几条来源链接。缺资料时点「让 AI 汇总资料」，它会去查、去读，再把结果写回来 —— 查不到就如实说查不到，不会编一条打不开的链接。
-
-**AI 生成，你判断。** 底盘候选、能力模型、90 天计划都由 AI 生成；但**打分、确认、判断全在你手上**：哪些能力你确实有（逐条勾）、每项自评几分（1/3/5 锚点常驻屏幕）、什么算证据。AI 替你打分的话，这一整套数字就一文不值。
-
-**证据像写笔记。** 一段文字、一张图（截图 / 白板照 / 运行结果）、或者一个文件（csv / json / txt / md / zip / pdf，单个 ≤8MB）都能挂到这道题上。点证据那一行会打开一张写作纸：整张纸、无边框、行高放宽。⌘/Ctrl + Enter 保存，**关掉也先存**，中途走开不丢。
-
-**考核有节奏。** 每周一次**节点小考**（只重测这一周相关的几项）、每个阶段走完一次**阶段大考**；考卷在页面上答，交卷交给对话里的 AI 按 rubric 打四维分，分数、归因、报告和接下来 7 天的调整版任务一起写回页面。答到一半可以关掉，草稿存着，回来接着答。
-
-**节奏可以比日历快。** 今天有空多做一天、或者某道题你本来就会 —— 「继续做下一天」直接把进度推到下一天：它只改「我在做第几天」，「回到日历节奏」随时撤回。
-
-**数据在你本机。** 全部在 `$DSH_HOME/growth-workbench/` 下，四份 JSON 加一个 `evidence/` 目录，随时能一次导出成一份文件带走。没有账号、没有云。
-
-**十一个方向都自带能力模型。** 数据运营 / 产品运营 / 用户运营 / Agent 应用开发 / AI产品经理 / 数据分析·商业分析 / 互联网运营·增长 / 全栈工程师 / FDE工程师 / AI测试 / AI交付工程师 —— 选中即可逐项自评，不必等 AI 生成。
-
 ## 安装
 
 需要 Node.js ≥ 22.19、`dsh` CLI 在 `PATH` 上，以及一个支持 bundle 插件的 DSH profile（比如 `web`）。
 
+**从 GitHub 安装（推荐）**
+
 ```bash
-# 从 GitHub 安装（推荐）
 dsh plugin --profile web add github:mingdui/dsh-growth-workbench
 ```
 
-装完**重启 DSH 进程**。看不到效果先重启 —— 插件清单不热更新。
+**从 npm 安装**
 
-确认装上了：
+```bash
+dsh plugin --profile web add dsh-growth-workbench
+```
+
+**从本地目录安装**（改代码时用）
+
+```bash
+git clone https://github.com/mingdui/dsh-growth-workbench.git
+dsh plugin --profile web add ./dsh-growth-workbench
+```
+
+**从 tarball 安装**
+
+```bash
+npm pack     # 产出 dsh-growth-workbench-<版本>.tgz
+dsh plugin --profile web add ./dsh-growth-workbench-<版本>.tgz
+```
+
+**装完都要重启 DSH 进程**（插件清单与包元数据不热更新）。看不到效果先重启。
+
+### 确认装上了
 
 ```bash
 dsh --profile web --dump-config | grep growth-workbench
 # 期望看到：- id: dsh-growth-workbench
 ```
 
-<details>
-<summary>其它安装方式（npm / tarball / 本地目录）与升级</summary>
-
-```bash
-# npm
-dsh plugin --profile web add dsh-growth-workbench
-
-# tarball
-npm pack
-dsh plugin --profile web add ./dsh-growth-workbench-<版本>.tgz
-
-# 本地目录（改代码时用）
-git clone https://github.com/mingdui/dsh-growth-workbench.git
-dsh plugin --profile web add ./dsh-growth-workbench
-```
-
-升级：
+### 升级
 
 | 安装形态 | 升级命令 |
 |---|---|
-| git / npm | `dsh plugin --profile web update dsh-growth-workbench` |
-| tarball | `dsh plugin --profile web add ./dsh-growth-workbench-<新版本>.tgz` |
+| git（`github:mingdui/...`） | `dsh plugin --profile web update dsh-growth-workbench` |
+| npm | `dsh plugin --profile web update dsh-growth-workbench` |
 | 本地目录 | `node scripts/update.mjs` |
+| tarball | `dsh plugin --profile web add ./dsh-growth-workbench-<新版本>.tgz` |
 
-git 形态跟的是 `main` 分支，锁文件里 pin 的是提交 SHA —— 你不主动 `update`，插件不会自己变。升级同样要重启 DSH，**升级不会动你的数据**。
+git 形态跟的是 `main` 分支，锁文件里 pin 的是提交 SHA —— 你不主动 `update`，插件不会自己变。npm 与 tarball 形态只在版本号变化时才算升级。**升级后同样要重启 DSH，升级不会动你的数据。**
 
-卸载：`dsh plugin --profile web remove dsh-growth-workbench`（只注销插件，`$DSH_HOME/growth-workbench/` 里的数据不动）。
+### 卸载
 
-</details>
+```bash
+dsh plugin --profile web remove dsh-growth-workbench
+```
+
+只注销插件。`$DSH_HOME/growth-workbench/` 里的数据不会被删 —— 想留底就先把数据导出一份。
 
 ## 使用
 
@@ -105,7 +97,7 @@ git 形态跟的是 `main` 分支，锁文件里 pin 的是提交 SHA —— 你
 4. **逐项自评**。每项 1/3/5 锚点都在屏幕上，点一下就是一分。这一步之后，你的差距和补强顺序就有了。
 5. **生成计划**。点「让 AI 生成计划」，90 天落到「计划」页签。
 
-之后每天只做一件事：打开「今日」，做那道题，勾掉，写一句证据（可以配图或文件）。
+之后每天只做一件事：打开「今日」，做那道题（卡上写着「怎么上手」「AI 汇总」和几条来源），勾掉，写一句证据 —— 可以配图，也可以加一个文件。
 
 到点会提示考核：**节点小考**每周一次、**阶段大考**每个阶段走完一次。在「考核」页签点「打开考卷」，答完交卷，AI 在你那个专属对话里打分，结果写回页面。
 
@@ -117,7 +109,7 @@ git 形态跟的是 `main` 分支，锁文件里 pin 的是提交 SHA —— 你
 
 ## 已知边界
 
-- **能力模型是草稿。** 十一个方向的锚点都随版本发布，但都**未经行业校准** —— 页面如实这么标。它足够用来给自己定位，不该当成行业标准。
+- **能力模型不是严格的行业标准。** 十一个方向的锚点都随版本发布，但只是草稿，页面如实这么标 —— 够用来给自己定位，别拿它当标准。
 - **AI 打分没有自动化验收。** 工具本身是拿固定输入验过的；「AI 读完简报能不能打出合理分数」要靠真实对话。
 - **没有提醒。** 考核节奏写在计划里，还没有接到定时器。
 - **接口没有独立鉴权。** DSH web server 默认只绑 `127.0.0.1`；一旦绑到 `0.0.0.0`，需要自己加一层校验。
