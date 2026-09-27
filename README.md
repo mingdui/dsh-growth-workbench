@@ -10,6 +10,10 @@
 
 它是 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（CLI 名 `dsh`）的插件。装好之后，左侧菜单里多一个「成长工作台」。
 
+![成长工作台](docs/images/right-today.png)
+
+*左：DSH 侧栏里它自己的工作区与专属对话　中：**老师**住在这个对话里（所有 AI 运行都发进它）　右：「今日」窄栏 —— 今天只做一件事，做完写一句证据*
+
 ## 它解决什么
 
 想转行、想补一块能力的人，通常卡在三件事上：

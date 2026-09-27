@@ -10,6 +10,10 @@
 
 A plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (CLI name `dsh`). Once installed, a **成长工作台** entry appears in the left menu.
 
+![The growth workbench](docs/images/right-today.png)
+
+*Left: its own workspace and dedicated conversation in the DSH sidebar · Middle: the **teacher** lives in that conversation (every AI run goes there) · Right: the 今日 pane — one thing a day, then one line of evidence*
+
 ## The problem it solves
 
 People who want to switch fields or patch a skill gap get stuck on three things:
