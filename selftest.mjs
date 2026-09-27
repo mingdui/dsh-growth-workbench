@@ -122,7 +122,7 @@ await check('「让 AI 来做」按钮是替你把这句说了，不是让你自
   const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
   // 发消息这条路必须真的在：拿到会话服务 → 定出**固定的那个**对话 → 以用户回合的身份送出去。
   assert.match(source, /rootCtx\.get\('sessions'\)/)
-  assert.match(source, /const target = await resolveAgentSession\(sessions\)/, '目标对话由固定关系决定，不是"此刻打开的那个"')
+  assert.match(source, /target = await resolveAgentSession\(sessions\)/, '目标对话由固定关系决定，不是"此刻打开的那个"')
   assert.doesNotMatch(source, /sessions\.binding\(current\)/, '不再拿"当前对话"当发送目标')
   assert.match(source, /sessions\.open\(target\.id\)/, '固定的对话不是当前对话时先切过去 —— 不做看不见的运行')
   assert.match(source, /await session\.open\?\.\(\)/, '窗口没装好就 prompt，等于把消息发进一个还没有事件流的会话')
@@ -162,6 +162,24 @@ await check('固定对话：丢了就明说，新建先落盘，页头给得出�
   // 文字链不能吃通用 hover 那套（上浮 + 投影）—— 落在没有边框底色的纯文字上就是一团脏影子。
   assert.match(source, /\.gw-root \.gw-quiet:not\(:disabled\):hover\{/, '文字链的 hover 要自己一条、且作用域化')
   assert.match(source, /h\(AgentSessionLine, \{ key: 'agent-session', state, post \}\)/, '这一行要真的挂在页头上')
+})
+
+await check('「已返回结果」要等会话真的不跑了才说', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  // 判定只有一处：两个视图的 load 都走它。
+  assert.match(source, /function settleAgentActivity\(next\)/)
+  // 先问会话还在不在跑 —— 那才是"做完没做完"。
+  assert.match(source, /const running = sessionStillRunning\(activity\.sessionId\)/)
+  assert.match(source, /if \(running === true\) \{/, '它还在跑就什么都不说')
+  assert.doesNotMatch(source, /previous\.revision !== next\.revision && agentActivity\?\.status === 'queued'/,
+    '「数据变过一次」不许再当"跑完了"的判据 —— 一轮里常常写好几次')
+  // 快得没被轮询看到的运行也要能收尾：见过它在跑，或已经等了足够久。
+  assert.match(source, /activity\.sawRunning === true \|\| Date\.now\(\) - \(activity\.startedAt \?\? 0\) > 3000/)
+  // 「跑完了」与「写了东西」是两件事：只在真写了的时候才敢说"页面已自动更新"。
+  assert.match(source, /activity\.wrote === true/)
+  assert.match(source, /这次没有改动页面数据/)
+  // 会话 id 与起始版本要一路带进状态，否则判不了。
+  assert.match(source, /sessionId: target\.id, startedRevision: target\.revision/)
 })
 
 await check('画像每一步都能点回收起，标题行就是那个开关', () => {

@@ -298,6 +298,9 @@ window.__ModuleLoader__.load({
       const state = await call('/state');
       const pinned = state?.profile?.agentSession ?? null;
       const pinnedId = typeof pinned?.id === 'string' ? pinned.id : '';
+      // revision 一起带出去：这是这一轮**开始之前**页面数据的版本。「跑完了到底有没有改动
+      // 数据」靠它对比 —— 只看"revision 变过"会提前报喜（见 useWorkbench 里的完成判定）。
+      const revision = typeof state?.revision === 'string' ? state.revision : '';
 
       if (pinnedId.length > 0) {
         const binding = await waitForBinding(sessions, pinnedId);
@@ -305,7 +308,7 @@ window.__ModuleLoader__.load({
           const label = typeof pinned.title === 'string' && pinned.title.length > 0 ? `「${pinned.title}」` : '';
           throw new Error(`固定的对话${label}不在了 —— 在页头点「重建」或「改绑到当前对话」，不要让它悄悄发去别处`);
         }
-        return { id: pinnedId, binding, created: false };
+        return { id: pinnedId, binding, created: false, revision };
       }
 
       const id = await createAgentSession(sessions);
@@ -313,7 +316,56 @@ window.__ModuleLoader__.load({
       await call('/agent-session', { sessionId: id, title: AGENT_SESSION_TITLE });
       const binding = await waitForBinding(sessions, id);
       if (binding === undefined) throw new Error('专用对话刚建好却寻址不到 —— 稍后再试一次');
-      return { id, binding, created: true };
+      return { id, binding, created: true, revision };
+    }
+
+    /**
+     * 固定的那个对话现在还在跑吗？
+     *
+     * 一轮运行常常要写好几次页面数据（先写画像、再写计划），所以**不能**拿"数据变了一次"
+     * 当"跑完了" —— 那会在它还在干活的时候就说「已返回结果」（用户就是这么撞上的：结果还在
+     * 执行中，绿色那行已经报喜）。会话自己知道答案：`running` 为假且队列为空，才是真跑完。
+     *
+     * @returns `true` / `false`，或 `undefined` = 问不到（没有会话服务、或那个对话没了）。
+     */
+    function sessionStillRunning(sessionId) {
+      if (typeof sessionId !== 'string' || sessionId.length === 0) return undefined;
+      const sessions = typeof rootCtx?.get === 'function' ? rootCtx.get('sessions') : undefined;
+      if (sessions === undefined || sessions === null) return undefined;
+      const snapshot = sessions.binding(sessionId)?.session?.getSnapshot?.();
+      if (snapshot === undefined || snapshot === null) return undefined;
+      return snapshot.running === true || (snapshot.queue ?? []).length > 0;
+    }
+
+    /**
+     * 这一轮跑完了没有 —— 判定只有这一处（两个视图的 load 都走它）。
+     *
+     * 曾经的判定是「页面数据变了一次 = 跑完了」，而一轮里常常要写好几次（先写画像、再写
+     * 计划），于是它还在干活的时候，页头已经报「AI 已返回结果，页面已自动更新」——用户就是
+     * 这么撞上的，而且那一行还会把按钮重新点亮，点一下就是**第二次运行**。
+     * 现在分两步：先问**会话还在不在跑**（那才是"做完没做完"），跑完了再看数据变没变
+     * （那才决定说哪句话）。
+     */
+    function settleAgentActivity(next) {
+      const activity = agentActivity;
+      if (activity === null || activity === undefined || activity.status !== 'queued') return;
+      const running = sessionStillRunning(activity.sessionId);
+      const changed = typeof next?.revision === 'string' && next.revision.length > 0 && next.revision !== activity.startedRevision;
+      if (running === true) {
+        // 见过它在跑。记一笔 ——「它不跑了」才敢下结论：刚发出去那一瞬间 running 还没翻上来，
+        // 那时说"跑完了"就是同一种谎。
+        if (activity.sawRunning !== true) setAgentActivity({ ...activity, sawRunning: true });
+        return;
+      }
+      if (changed) {
+        setAgentActivity({ ...activity, status: 'completed', wrote: true, finishedAt: Date.now(), resultRevision: next.revision });
+        return;
+      }
+      // 数据没变：要么它真的只说了话没写盘，要么 running 还没翻上来。要求"见过它在跑"，
+      // 或者已经等了足够久（快得没被轮询看到的运行）。
+      if (activity.sawRunning === true || Date.now() - (activity.startedAt ?? 0) > 3000) {
+        setAgentActivity({ ...activity, status: 'completed', wrote: false, finishedAt: Date.now(), resultRevision: next?.revision ?? '' });
+      }
     }
 
 
@@ -351,13 +403,13 @@ window.__ModuleLoader__.load({
       setAgentActivity({ status: 'running', text, startedAt: Date.now() });
       // 用 ctx.get 而不是 inject：inject 里写一个不存在的服务会让整个插件静默不挂载，
       // 而这里只需要"拿不到就说清楚"。
-      let session, before, handle;
+      let target, session, before, handle;
       try {
         const sessions = typeof rootCtx.get === 'function' ? rootCtx.get('sessions') : undefined;
         if (sessions === undefined || sessions === null) throw new Error('当前环境没有会话服务，无法替你发消息 —— 请手动复制指令发到对话里');
 
         // 发进**固定的那个**对话（第一次用时新建并固定），不是"此刻打开的那个"。
-        const target = await resolveAgentSession(sessions);
+        target = await resolveAgentSession(sessions);
         // 固定的对话不是当前对话时，先把它变成当前对话再发 —— 工作台不做看不见的运行：
         // 这条指令会像你自己发的一样出现在那个对话里，你能看着它跑、能打断。
         if (sessions.list?.getSnapshot?.()?.current !== target.id) sessions.open(target.id);
@@ -386,7 +438,9 @@ window.__ModuleLoader__.load({
         setAgentActivity({ status: 'error', text, finishedAt: Date.now(), error });
         throw new Error(`发送失败：${error}`);
       }
-      setAgentActivity({ status: 'queued', text, queued: before.running === true || (before.queue ?? []).length > 0, startedAt: Date.now() });
+      // 那个会话的 id 与"开始前"的数据版本一起记下来：页头判"跑完了没有"要用这两样 ——
+      // 问它还在不在跑，以及这一轮到底改没改数据。
+      setAgentActivity({ status: 'queued', text, sessionId: target.id, startedRevision: target.revision, sawRunning: false, queued: before.running === true || (before.queue ?? []).length > 0, startedAt: Date.now() });
       return { queued: before.running === true || (before.queue ?? []).length > 0 };
     }
 
@@ -468,9 +522,7 @@ window.__ModuleLoader__.load({
          try {
            const next = await call('/state');
            setState((previous) => {
-             if (previous?.revision && next.revision && previous.revision !== next.revision && agentActivity?.status === 'queued') {
-               setAgentActivity({ ...agentActivity, status: 'completed', finishedAt: Date.now(), resultRevision: next.revision });
-             }
+             settleAgentActivity(next);
              return next;
            });
            setError('');
@@ -828,7 +880,13 @@ window.__ModuleLoader__.load({
           ]),
           onThisTab ? null : h('button', { key: 'go', type: 'button', style: { ...S.button, background: '#f3c26b', borderColor: '#f3c26b', color: '#253b39' }, onClick: () => onNavigate(action.targetTab, action.targetAnchor) }, '现在去做 →'),
         ]),
-        activity === null ? null : h('div', { key: 'activity', role: 'status', 'aria-live': 'polite', style: { ...S.meta, padding: '9px 12px', borderRadius: '10px', background: activity.status === 'error' ? '#fff0ed' : activity.status === 'completed' ? '#edf7ef' : '#f3efe8' } }, activity.status === 'completed' ? 'AI 已返回结果，页面已自动更新。' : activity.status === 'error' ? `AI 处理失败：${activity.error}` : activity.status === 'queued' ? 'AI 已接手，页面会自动刷新结果，不需要守着对话。' : `正在把请求送进「${agentTitle}」对话…`),
+        activity === null ? null : h('div', { key: 'activity', role: 'status', 'aria-live': 'polite', style: { ...S.meta, padding: '9px 12px', borderRadius: '10px', background: activity.status === 'error' ? '#fff0ed' : activity.status === 'completed' ? '#edf7ef' : '#f3efe8' } }, activity.status === 'completed'
+          ? (activity.wrote === true
+            ? 'AI 已返回结果，页面已自动更新。'
+            // 「跑完了」和「写了东西」是两件事：它可能只在对话里回了一段话。那种时候说
+            // 「页面已自动更新」就是空欢喜，得说清去哪儿看它说了什么。
+            : `AI 跑完了，这次没有改动页面数据 —— 它说了什么在「${agentTitle}」那个对话里。`)
+          : activity.status === 'error' ? `AI 处理失败：${activity.error}` : activity.status === 'queued' ? 'AI 已接手，页面会自动刷新结果，不需要守着对话。' : `正在把请求送进「${agentTitle}」对话…`),
         h(AgentSessionLine, { key: 'agent-session', state, post }),
       ]);
     }
@@ -2366,7 +2424,9 @@ window.__ModuleLoader__.load({
           state.metrics.streak > 0 ? h('div', { key: 'sealRow', style: { display: 'flex' } }, [h(Seal, { key: 'seal', tone: 'teal', label: `连续 ${String(state.metrics.streak)} 天`, sub: '不间断' })]) : null,
           h('div', { key: 'phase', style: S.fine }, state.metrics.phaseName || '尚未开始'),
         ]),
-        activity === null ? null : h('div', { key: 'activity', role: 'status', 'aria-live': 'polite', style: { padding: '11px 12px', borderRadius: '12px', fontSize: '13px', lineHeight: '1.5', background: activity.status === 'completed' ? 'var(--gw-teal-soft, rgba(47,125,116,.12))' : activity.status === 'error' ? '#fff0ed' : '#eef2f0', border: `1px solid ${activity.status === 'completed' ? 'rgba(47,125,116,.28)' : activity.status === 'error' ? '#f3c5be' : '#d5e0da'}` } }, activity.status === 'completed' ? 'AI 已返回，今日面板已自动更新。' : activity.status === 'error' ? `AI 处理失败：${activity.error}` : 'AI 正在处理，完成后这里会自动更新。'),
+        activity === null ? null : h('div', { key: 'activity', role: 'status', 'aria-live': 'polite', style: { padding: '11px 12px', borderRadius: '12px', fontSize: '13px', lineHeight: '1.5', background: activity.status === 'completed' ? 'var(--gw-teal-soft, rgba(47,125,116,.12))' : activity.status === 'error' ? '#fff0ed' : '#eef2f0', border: `1px solid ${activity.status === 'completed' ? 'rgba(47,125,116,.28)' : activity.status === 'error' ? '#f3c5be' : '#d5e0da'}` } }, activity.status === 'completed'
+          ? (activity.wrote === true ? 'AI 已返回，今日面板已自动更新。' : 'AI 跑完了，这次没有改动数据。')
+          : activity.status === 'error' ? `AI 处理失败：${activity.error}` : 'AI 正在处理，完成后这里会自动更新。'),
         task === undefined ? h('div', { key: 'empty', style: { padding: '16px', borderRadius: '16px', background: '#253b39', color: '#fff' } }, [h('div', { key: 'label', style: { fontSize: '11px', textTransform: 'uppercase', letterSpacing: '.12em', opacity: '.65' } }, '下一步'), h('div', { key: 'title', style: { fontSize: '16px', fontWeight: '700', marginTop: '6px' } }, state.nextAction?.label ?? '今天没有待办'), h('div', { key: 'reason', style: { fontSize: '13px', lineHeight: '1.55', opacity: '.78', marginTop: '6px' } }, state.nextAction?.reason ?? '去成长工作台查看完整计划。'),
             // 只在真有下一步时指路 —— 没有动作时那句会回退成「去…「今日」页」，
             // 而这张卡本身就在今日这一侧，等于让人去他已经站着的地方。
