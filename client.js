@@ -1481,7 +1481,7 @@ window.__ModuleLoader__.load({
           head.push(h('span', { key: 'gap', style: { ...S.fine, marginLeft: '8px' } },
             entry.gap === null || entry.gap === undefined
               ? `已评 ${String(entry.answered ?? 0)} 项`
-              : `离达标线还差 ${Number(entry.gap).toFixed(2)} 分 · 已评 ${String(entry.answered ?? 0)} 项`));
+              : `距达标线 ${String(Math.round(Number(entry.gap) * 100))}% · 已评 ${String(entry.answered ?? 0)} 项`));
         } else {
           head.push(h('span', { key: 'scores', style: { marginLeft: '8px' } },
             Object.entries(entry.scores).map(([dimension, value]) => `${dimension} ${String(value)}`).join(' / ')));
@@ -1524,7 +1524,7 @@ window.__ModuleLoader__.load({
           h('div', { key: 'counts', style: S.meta }, `历史 ${String(history.length)} 轮（其中考核 ${String(reviews.length)} 轮）`),
           h(TrendChart, { key: 'chart', rounds: reviews }),
           reviews.length === 0 ? null : h('div', { key: 'chartNote', style: S.meta }, '四维得分，各 0-25。自评轮读的是缺口，量纲不同，不进这张图。'),
-          h('div', { key: 'note', style: S.meta }, `逐项曲线点 ${String(curve.length)} 个 —— 那是**能力项**的逐项读数，和上面这张四维图不是一回事；只测了部分能力项的轮次照样进历史与图表，只是不产生曲线点。`),
+          h('div', { key: 'note', style: S.meta }, `逐项曲线点 ${String(curve.length)} 个：能力项各自的自评读数，和上面那张四维图不是一回事。`),
           ...(history.length === 0
             ? [h('div', { key: 'empty', style: S.empty }, '还没有记录。')]
             : history.slice().reverse().map((entry, index) => entryCard(entry, `${entry.date}-${String(index)}`))),

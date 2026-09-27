@@ -398,8 +398,10 @@ await check('考核目录：阶段与节点的状态都从已有数据算出来�
     assert.match(source, new RegExp(`${word}`), `四种状态都要有：${word}`)
   }
   // 两个概念不许再并排：「能力曲线点」是**能力项**的逐项读数，和四维图不是一回事。
+  // 而且这句里不许出现 `**` —— 它是 React 的纯文本节点，不解析 Markdown，星号会原样显示给用户。
   assert.match(source, /逐项曲线点/, '曲线点要说明它是逐项读数')
-  assert.match(source, /\*\*能力项\*\*的逐项读数/, '两个概念要分开说')
+  assert.match(source, /能力项各自的自评读数/, '两个概念要分开说')
+  assert.doesNotMatch(source, /\*\*能力项\*\*/, '不要往界面文案里写 Markdown 加粗')
 })
 
 await check('右侧「今日」与左侧同一套语言：读数、印章、完成反馈', () => {
