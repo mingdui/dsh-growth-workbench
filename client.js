@@ -1271,15 +1271,15 @@ window.__ModuleLoader__.load({
             : '计划里的任务都做完了 —— 该做一次考核，把成果沉淀下来。')]
         : state.focus.tasks.slice(0, 1).map((task) => h(TaskRow, { key: task.id, task, entry: state.progress.tasks?.[task.id], post, reload, tiers: state.catalog.tiers }));
       kids.push(h('div', { key: 'card', style: S.card }, [
-        h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '14px', flexWrap: 'wrap' } }, [
+        // 卡头只留标题。原先这里还会在"今天全部做完"时落一枚「已全部完成」的章 —— 撤了：
+        // 一屏上已经有「连续 N 天」和任务自己那枚「已完成」，再来一枚就是三枚章抢注意力
+        // （用户的原话：「过多眼花」）。**完成的正反馈没有少**：勾上就有那一下盖章，
+        // 而且每个任务各自那枚才是真的（它说的是这道题，不是这一屏）。
+        h('div', { key: 'head', style: { display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' } }, [
           h('h3', { key: 'title', style: S.h3 }, state.focus.scheduled
             // 提前模式下"今天"不是字面意义的今天 —— 那就是"你在第 N 天要做"。
             ? (aheadDays > 0 && pointer !== null ? `你在第 ${String(pointer)} 天要做` : '今天要做')
             : '接下来要做'),
-          // 全部做完才落这枚章 —— 它得是真的，否则就成了那种"永远在表扬你"的装饰。
-          state.focus.tasks.length > 0 && state.focus.tasks.every((task) => state.progress.tasks?.[task.id]?.done === true)
-            ? h(Seal, { key: 'all', tone: 'teal', label: '已全部完成', sub: `共 ${String(state.focus.tasks.length)} 件`, stamp: true })
-            : null,
         ]),
         ...rows,
       ]));

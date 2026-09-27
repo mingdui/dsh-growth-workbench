@@ -356,7 +356,10 @@ await check('完成的反馈是真的，且 gap 不再被当成分数印', () =>
   assert.match(source, /role: 'checkbox'/, '勾选框要承载完成态')
   assert.match(source, /'aria-checked': done/, '勾选状态走 aria-checked')
   assert.match(source, /done \? h\(Seal, \{ key: 'mark'/, '完成才落印章 —— 不做永远在表扬你的装饰')
-  assert.match(source, /state\.focus\.tasks\.every\(/, '「已全部完成」必须真的全部完成')
+  // 卡头那枚「已全部完成」撤了（用户：「过多眼花」）—— 一屏上别再摆第三枚章。
+  assert.doesNotMatch(source, /'已全部完成'/, '卡头不再落整卡完成的章；完成的正反馈靠任务自己那枚')
+  // 但它撤掉的是**装饰**，不是**判据**：每个任务各自那枚章仍然只在真 done 时挂载。
+  assert.match(source, /done \? h\(Seal, \{ key: 'mark', tone: 'teal', label: '已完成'/)
   assert.match(source, /function Seal\(\{ label, sub, tone, round, stamp \}\)/)
   assert.match(source, /function Readout\(\{ value, unit, cap, first \}\)/)
   // gap 是加权缺口的比例（模型里断言的就是 180/1300 这种值）。印成「X 分」是单位错误。
