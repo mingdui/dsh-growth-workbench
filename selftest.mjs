@@ -456,15 +456,25 @@ await check('完成的反馈是真的，且 gap 不再被当成分数印', () =>
 await check('读数条说得出「走到哪一段了」，也说得清达标线是什么', () => {
   const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
   const metrics = sliceOfComponent(source, 'Metrics')
-  // 用户问：「这个显示第几阶段」——这一屏原先只有「第几天」，读到的是时间，读不到进度落在哪一段。
-  assert.match(metrics, /阶段 \$\{String\(phase\.index \+ 1\)\}\/\$\{String\(phase\.total\)\}/, '要印「阶段 N/总数」')
-  assert.match(metrics, /phase\.name/, '要印阶段名')
-  assert.match(metrics, /第 \$\{String\(phase\.days\[0\]\)\}–\$\{String\(phase\.days\[1\]\)\} 天/, '要印那一段的天区间')
-  // 没有当前阶段（还没开始 / 已经走完）时这一行不出现 —— 那时候没有"第几阶段"可报。
+  // 用户先问「这个显示第几阶段」，后又说「做到上面指标 在完成指标前面 1/4 阶段」——
+  // 所以它现在是一格**读数**，位置在「完成」之前，印的是「N/总数」+ 阶段名。
+  assert.match(metrics, /h\(Readout, \{ key: 'phase', value: `\$\{String\(phase\.index \+ 1\)\}\/\$\{String\(phase\.total\)\}`, cap: phase\.name \}\)/)
+  const strip = metrics.slice(metrics.indexOf("key: 'strip'"), metrics.indexOf("key: 'gap'"))
+  assert.ok(strip.indexOf("key: 'phase'") < strip.indexOf("key: 'done'"), '阶段要排在「完成」前面')
+  // 没有当前阶段（还没开始 / 已经走完）时这一格不出现。
   assert.match(metrics, /phaseIndex >= 0 && metrics\.phaseName\.length > 0/)
-  // 「0.62 分」不说明白就只是个数字：达标线是什么，写在用到它的那一屏。
-  assert.match(metrics, /达标线 = 每项 3 分/, '读数条要说清达标线是什么')
+  assert.match(metrics, /phase === null \? null : h\(Readout, \{ key: 'phase'/)
+  // 「0.62 分」不说明白就只是个数字 —— 但那句话不该天天占一行：收进 `?`，**默认收起**，
+  // 点开在原位出现（用户：「加个?图标提示，这里太占位置」）。
+  assert.match(metrics, /const \[showGapNote, setShowGapNote\] = useState\(false\)/, '默认收起')
+  assert.match(metrics, /gap === null \|\| !showGapNote \? null : h\('div', \{ key: 'gap-note'/)
+  assert.match(metrics, /setShowGapNote\(!showGapNote\)/, '点 `?` 要能展开')
+  assert.match(metrics, /'aria-expanded': showGapNote \? 'true' : 'false'/, '展开状态要对辅助技术可见')
+  assert.match(metrics, /达标线 = 每项 3 分/, '那句解释还在（只是折叠了）')
   assert.match(metrics, /gap === null \? '还没自评' : gap\.cap/, '没自评时别说成"正好在线上"')
+  // 证据档位从这一屏挪走了：它不是每天要看的数（用户：「这个看看放哪里合适」）。
+  assert.doesNotMatch(metrics, /证据档位：/, '读数条上不再摆证据档位')
+  assert.match(sliceOfComponent(source, 'PlanTabBody'), /证据档位：成果/, '挪到计划页「执行趋势」那张卡里')
 })
 
 await check('图表的左槽放得下最宽的那个刻度，页脚有署名', async () => {

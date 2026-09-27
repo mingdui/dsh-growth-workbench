@@ -1429,38 +1429,48 @@ window.__ModuleLoader__.load({
 
     function Metrics({ state }) {
       const { metrics } = state;
+      // 「达标线是什么」那句的展开状态 —— 默认收起（它天天占一行就是版面噪音，见下面那个 `?`）。
+      const [showGapNote, setShowGapNote] = useState(false);
       const day = dayInfo(metrics.day);
       const week = metrics.weekRate === null ? undefined : String(Math.round(metrics.weekRate * 100));
       // 「本周」在提前模式下不是字面意义的本周 —— 它一直是**计划里的第 N 周**。所以按计划叫它。
       const weekNo = metrics.day === null || metrics.day < 1 ? null : Math.floor((metrics.day - 1) / 7) + 1;
       // gap 的单位是**分**（见 `gapLabel`）—— 这里原先印成百分比，是把分值当成了比例。
       const gap = gapLabel(metrics.gap);
-      // 「走到哪一段了」：阶段名 + 第几段 + 那一段的天区间。没有当前阶段（计划还没开始 /
-      // 已经走完）时这一行不出现 —— 那时候没有"第几阶段"可报。
+      // 「走到哪一段了」：第几段 + 阶段名，**并进上面那一排指标**，排在「完成」前面（用户：
+      // 「做到上面指标 在完成指标前面 1/4 阶段」）—— 它本来就属于那一排，那一排说的都是
+      // "我在哪、做到哪了"。没有当前阶段（还没开始 / 已经走完）时这一格不出现。
       const phaseIndex = metrics.phaseIndex;
       const phase = typeof phaseIndex === 'number' && phaseIndex >= 0 && metrics.phaseName.length > 0
-        ? { index: phaseIndex, total: state.plan.phases.length, name: metrics.phaseName, days: metrics.phaseDays }
-        : undefined;
+        ? { index: phaseIndex, total: state.plan.phases.length, name: metrics.phaseName }
+        : null;
       const kids = [
         h('div', { key: 'numbers', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '16px', flexWrap: 'wrap' } }, [
           h('div', { key: 'strip', style: { display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', flex: '1 1 auto' } }, [
             h(Readout, { key: 'day', first: true, value: day.value, cap: day.cap }),
+            phase === null ? null : h(Readout, { key: 'phase', value: `${String(phase.index + 1)}/${String(phase.total)}`, cap: phase.name }),
             h(Readout, { key: 'done', value: `${String(metrics.completion.done)}/${String(metrics.completion.total)}`, cap: '完成' }),
             h(Readout, { key: 'week', value: week === undefined ? '—' : week, unit: week === undefined ? undefined : '%', cap: weekNo === null ? '本周完成率' : `第 ${String(weekNo)} 周` }),
             // 没有自评时不是「距达标线 0.00」—— 那会读成"正好在线上"。说清楚是**还没有**。
             h(Readout, { key: 'gap', value: gap === null ? '—' : gap.value, unit: gap === null ? undefined : gap.unit, cap: gap === null ? '还没自评' : gap.cap }),
+            // 「达标线是什么」收进这个 `?`（用户：「加个?图标提示，这里太占位置」）—— 那一句
+            // 解释是真需要的（「0.62 分」不说明白就只是个数字），但不该天天占一行版面。
+            // 不删、只是折叠：点开就在下面那一行原位出现。
+            gap === null ? null : h('button', {
+              key: 'gap-help',
+              type: 'button',
+              className: 'gw-quiet',
+              title: '达标线是什么',
+              'aria-label': '达标线是什么',
+              'aria-expanded': showGapNote ? 'true' : 'false',
+              style: { ...S.fine, ...S.quiet, flex: '0 0 auto', width: '20px', height: '20px', padding: '0', marginBottom: '2px', borderRadius: '50%', border: '1px solid var(--gw-line, #d9d0c4)', textAlign: 'center', lineHeight: '18px', textDecoration: 'none', cursor: 'pointer' },
+              onClick: () => { setShowGapNote(!showGapNote); },
+            }, '?'),
           ]),
           metrics.streak > 0 ? h(Seal, { key: 'streak', tone: 'teal', label: `连续 ${String(metrics.streak)} 天`, sub: '不间断' }) : null,
         ]),
-        // 阶段：这一屏原先只有「第几天」，读到的是时间，读不到**走到哪一段了**（用户问
-        // 「这个显示第几阶段」）。阶段名与天数区间都在 `/state` 里，一直没摆上来。
-        phase === undefined ? null : h('div', { key: 'phase', style: S.meta },
-          `阶段 ${String(phase.index + 1)}/${String(phase.total)}　${phase.name}（第 ${String(phase.days[0])}–${String(phase.days[1])} 天）`),
-        // 达标线是什么，就写在用到它的地方 —— 「0.62 分」不说明白就只是个数字。
-        gap === null ? null : h('div', { key: 'gap-note', style: S.meta },
+        gap === null || !showGapNote ? null : h('div', { key: 'gap-note', style: S.meta },
           `达标线 = 每项 3 分（照现成规范能独立做出合格产出）；这一栏是「达标线 − 我的分」按权重平均出来的差。`),
-        h('div', { key: 'evidence', style: S.meta },
-          `证据档位：成果 ${String(metrics.evidence.成果)} · 过程 ${String(metrics.evidence.过程)} · 自述 ${String(metrics.evidence.自述)} · 无 ${String(metrics.evidence.无证据)}　（过程与成果都算数，自述只作辅证）`),
       ];
       if (state.plan.planStart === '') {
         kids.push(h('div', { key: 'warn', style: S.warn },
@@ -2103,6 +2113,11 @@ window.__ModuleLoader__.load({
             : '每周完成率，到本周为止。'),
           h(WeekTrendChart, { key: 'chart', rates: weekRates }),
           h('div', { key: 'note', style: S.fine }, '完成率 = 那一周排到天的任务里完成了多少；那一周没排到天的任务时不画柱子。'),
+          // 证据档位原先是「今日」读数条上的一行 —— 它其实不是每天要看的数（今天只关心今天那
+          // 一件），而是"这一段做得实不实"的一次反馈，所以挪来这里与完成率作伴（用户：
+          // 「这个看看放哪里合适」）。读法跟着数字一起留在这儿。
+          h('div', { key: 'evidence', style: S.fine },
+            `证据档位：成果 ${String(state.metrics.evidence.成果)} · 过程 ${String(state.metrics.evidence.过程)} · 自述 ${String(state.metrics.evidence.自述)} · 无 ${String(state.metrics.evidence.无证据)}　（过程与成果都算数，自述只作辅证）`),
         ]));
       }
 
