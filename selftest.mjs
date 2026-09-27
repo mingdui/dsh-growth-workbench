@@ -291,6 +291,22 @@ await check('任务卡分三块：这一步的要求 / 怎么学 / 我的痕迹'
   assert.doesNotMatch(source, /const days = \(entry\?\.checkInDates \?\? \[\]\)\.length/, '它连变量一起撤掉')
 })
 
+await check('三行「说明 + 动作」是同一个样子，弹窗只认关闭按钮', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  // 用户点名的三处：今日页的下一天 / 页脚的节奏 / 页脚的 Agent 会话 —— 同一类东西三种样子，
+  // 现在都走 `NoteLine`（动作的样式也由它统一给，调用方只交 label / onClick）。
+  assert.match(source, /function NoteLine\(\{ text, actions \}\)/)
+  assert.match(sliceOfComponent(source, 'TodayBody'), /h\(NoteLine, \{[\s\S]{0,220}?继续做下一天 →/, '今日页那一行走它')
+  assert.match(sliceOfComponent(source, 'WorkbenchFoot'), /h\(NoteLine, \{[\s\S]{0,600}?回到日历节奏/, '页脚节奏那一行走它')
+  assert.match(sliceOfComponent(source, 'AgentSessionLine'), /h\(NoteLine, \{/, 'Agent 会话那一行也走它')
+  assert.match(source, /actions: \[\{ label: '回到日历节奏', onClick/, '动作只交 label 与 onClick，样式不各写一份')
+  assert.doesNotMatch(source, /#fdf3e4/, '那圈沙色底撤了（同一类东西不该有三种样子）')
+  // 弹窗：**点遮罩不关**（用户：「点击弹窗外面的位置不要弹窗消失，我们弹窗只认关闭按钮」）。
+  const modal = sliceOfComponent(source, 'Modal')
+  assert.doesNotMatch(modal, /onMouseDown/, '遮罩不再接点击')
+  assert.match(modal, /if \(event\.key === 'Escape'\)/, 'Esc 留着（明确的键盘动作，且关掉也先存）')
+})
+
 await check('画像每一步都能点回收起，标题行就是那个开关', () => {
   const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
   // 展开态原先只有表单和确认按钮，没有任何可点的标题 —— 撑开以后就收不回去。
@@ -1775,20 +1791,24 @@ await check('提前的入口长在需求出现的地方：今日页做完之后�
   // 这一条原来钉的是页头 —— 后来用户说「这块放下面就行，顶部留给核心内容」，于是它挪进
   // `WorkbenchFoot`；断言也跟着改成钉**位置**（在页脚里、不在页头里），而不只是钉文案还在。
   const foot = sliceOfComponent(source, 'WorkbenchFoot')
-  assert.match(foot, /ahead > 0 \? h\('div', \{ key: 'ahead'/, '提前提示在页脚')
+  // 这两行**各归各页**：日历节奏只在计划页、Agent 会话只在画像页（用户：「这两个不需要所有页面
+  // 都有：日历节奏这个放计划页面下面，Agent 运行只放在画像下面」）。
+  assert.match(foot, /if \(tab === 'plan' && ahead > 0\) \{/, '日历节奏只在计划页')
+  assert.match(foot, /if \(tab === 'profile' && hasAgentLine\) \{/, 'Agent 会话只在画像页')
   assert.match(foot, /你已经在做第 \$\{String\(state\.metrics\.day\)\} 天（按日历今天是第 \$\{String\(state\.metrics\.day - ahead\)\} 天）/)
-  assert.match(foot, /post\('\/ahead', \{ days: 0 \}\)/, '回到日历节奏要一键可达')
+  assert.match(foot, /actions: \[\{ label: '回到日历节奏'/, '回到日历节奏要一键可达')
+  assert.match(source, /h\(WorkbenchFoot, \{ key: 'foot', state, post, tab \}\)/, '把当前页签交给它，才分得清归属')
   const header = sliceOfComponent(source, 'WorkbenchHeader')
   assert.doesNotMatch(header, /key: 'ahead'/, '页头不再挂那条提前提示')
   assert.doesNotMatch(header, /h\(AgentSessionLine/, '页头不再挂「Agent 运行在哪」——它也归页脚')
   assert.match(foot, /h\(AgentSessionLine, \{ key: 'agent-session'/, 'Agent 会话那一行在页脚')
-  assert.match(source, /h\(WorkbenchFoot, \{ key: 'foot', state, post \}\)/, '页脚真的挂在页面底部（在页签正文之后）')
+  assert.match(source, /h\(WorkbenchFoot, \{ key: 'foot', state, post, tab \}\)/, '页脚真的挂在页面底部（在页签正文之后）')
   // 「继续做下一天」长在今日页 —— 今天排的做完了、后面还有任务时，才出现。
   // 断言写「kids.push」而不是只写文案：我第一版把它写成了一个被丢掉的三元表达式 ——
   // 文案在、元素也造出来了，就是没进那棵树（渲染出来什么都没有）。
-  assert.match(source, /kids\.push\(h\('div', \{ key: 'ahead', className: 'gw-nextday'/)
+  assert.match(source, /kids\.push\(h\(NoteLine, \{[\s\S]{0,300}?继续做下一天 →/, '入口真的挂在今日页那棵树上')
   assert.match(source, /今天排的做完了 —— 接下来是第 \$\{String\(nextDay\)\} 天。/)
-  assert.match(source, /}, '继续做下一天 →'\)/, '按钮说"下一天"，不点具体天号 —— 用户关心的是"再来一道"')
+  assert.match(source, /\{ label: '继续做下一天 →'/, '按钮说"下一天"，不点具体天号 —— 用户关心的是"再来一道"')
   // 推到"下一道真实存在的任务"那一天，而不是无脑 +1（第 3 天之后可能第 5 天才排任务）。
   assert.match(source, /post\('\/ahead', \{ days: nextDay - pointer \+ aheadDays \}\)/)
   // 计划页那条设置撤掉了：入口只有一处。计划页的任务签只是状态 —— 不带 onClick。

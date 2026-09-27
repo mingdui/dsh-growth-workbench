@@ -925,8 +925,9 @@ window.__ModuleLoader__.load({
         role: 'dialog',
         'aria-modal': 'true',
         'aria-label': label,
-        // 点遮罩关（按在卡片内部拖出去不算 —— 所以比的是事件源本身）。
-        onMouseDown: (event) => { if (event.target === event.currentTarget) onClose(); },
+        // **点遮罩不关**（用户：「点击弹窗外面的位置不要弹窗消失，我们弹窗只认关闭按钮」）：
+        // 这两个弹窗里装的是用户敲进去的东西 —— 手一滑点到旁边就没了，比少一个快捷操作糟得多。
+        // Esc 还留着（它是明确的键盘动作，而且两个弹窗都"关掉也先存"，丢不了）。
       }, [h('div', { key: 'card', className: `gw-modal-card${className === undefined ? '' : ` ${className}`}` }, children)]);
     }
 
@@ -1331,17 +1332,12 @@ window.__ModuleLoader__.load({
       // 所以入口长在这儿，而不是计划页的设置卡里（那里是"日历"，不是"我今天的状态"）。
       // 按钮把指针推到**下一道真实存在的任务**那一天（中间可能有没排任务的空档）。
       if (pointer !== null && todayLeft.length === 0 && nextDay !== null) {
-        kids.push(h('div', { key: 'ahead', className: 'gw-nextday', style: { ...S.meta, display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', paddingLeft: '2px' } }, [
-          h('span', { key: 'what' }, `今天排的做完了 —— 接下来是第 ${String(nextDay)} 天。`),
-          h('button', {
-            key: 'go',
-            type: 'button',
-            className: 'gw-quiet',
-            style: { ...S.fine, ...S.quiet },
-            // 推到"那一天"，而不是无脑 +1：第 3 天之后可能第 5 天才排了任务。
-            onClick: () => { void post('/ahead', { days: nextDay - pointer + aheadDays }); },
-          }, '继续做下一天 →'),
-        ]));
+        kids.push(h(NoteLine, {
+          key: 'ahead',
+          text: `今天排的做完了 —— 接下来是第 ${String(nextDay)} 天。`,
+          // 推到"那一天"，而不是无脑 +1：第 3 天之后可能第 5 天才排了任务。
+          actions: [{ label: '继续做下一天 →', onClick: () => { void post('/ahead', { days: nextDay - pointer + aheadDays }); } }],
+        }));
       }
       return h('div', { style: { display: 'flex', flexDirection: 'column', gap: compact ? '8px' : '18px' } }, kids);
     }
@@ -1384,6 +1380,30 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * 「一行说明 + 一两个动作」的那种行 —— **三处共用同一个样子**。
+     *
+     * 用户点名的三处：今日页的「今天排的做完了… 继续做下一天 →」、页脚的「你已经在做第 N 天…
+     * 回到日历节奏」、页脚的「Agent 运行都在… 改绑 / 重建」。原先一处带沙色底、另两处不带，
+     * 字号还分 meta / fine 两种 —— 同一类东西三种样子。
+     *
+     * 动作由这一层统一样式（`gw-quiet`：无边框无底色、只靠下划线与颜色），调用方只给
+     * `{ label, onClick, disabled }`，这样"统一"不是靠自觉。
+     */
+    function NoteLine({ text, actions }) {
+      return h('div', { className: 'gw-noteline', style: { ...S.meta, display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' } }, [
+        h('span', { key: 'text', style: { minWidth: '0' } }, text),
+        ...(actions ?? []).filter(Boolean).map((action) => h('button', {
+          key: action.label,
+          type: 'button',
+          className: 'gw-quiet',
+          disabled: action.disabled === true,
+          style: { ...S.meta, ...S.quiet, cursor: action.disabled === true ? 'default' : 'pointer' },
+          onClick: action.onClick,
+        }, action.label)),
+      ]);
+    }
+
+    /**
      * 页脚：**状态与设置**，不是核心内容。
      *
      * 这两行原先在页头 —— 夹在「下一步」和指标卡之间。于是每次打开这一页，第一眼读到的是
@@ -1391,20 +1411,28 @@ window.__ModuleLoader__.load({
      * 核心内容留在上面，这些挪到下面（用户：「这块放下面就行，顶部留给核心内容」）。
      * 顶部的 DAY 徽标仍然说着"第几天"，所以挪下去没丢信息。
      */
-    function WorkbenchFoot({ state, post }) {
+    function WorkbenchFoot({ state, post, tab }) {
       const ahead = state.metrics.aheadDays ?? 0;
       const pinned = state.profile.agentSession ?? null;
       const hasAgentLine = (typeof pinned?.id === 'string' && pinned.id.length > 0) || typeof rootCtx?.get === 'function';
-      if (ahead === 0 && !hasAgentLine) return null;
-      return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '4px' } }, [
-        ahead > 0 ? h('div', { key: 'ahead', className: 'gw-ahead', style: { ...S.meta, display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', padding: '9px 12px', borderRadius: '10px', background: '#fdf3e4', border: '1px solid #f0dcb4' } }, [
-          h('span', { key: 'what' }, state.metrics.day === null
+      const kids = [];
+      // **这两行各有归属，不必每个页签都摆**（用户：「这两个不需要所有页面都有：日历节奏这个放
+      // 计划页面下面，Agent 运行只放在画像下面」）—— 「日历节奏」是计划的时间设置，
+      // 「Agent 运行在哪个对话」是画像那一摊的设置。别的页签读到它们只是噪音。
+      if (tab === 'plan' && ahead > 0) {
+        kids.push(h(NoteLine, {
+          key: 'ahead',
+          text: state.metrics.day === null
             ? '你的节奏比日历快 —— 计划还没开始，所以还没有"第几天"'
-            : `你已经在做第 ${String(state.metrics.day)} 天（按日历今天是第 ${String(state.metrics.day - ahead)} 天）`),
-          h('button', { key: 'off', type: 'button', className: 'gw-quiet', style: { ...S.fine, ...S.quiet }, onClick: () => { void post('/ahead', { days: 0 }); } }, '回到日历节奏'),
-        ]) : null,
-        h(AgentSessionLine, { key: 'agent-session', state, post }),
-      ]);
+            : `你已经在做第 ${String(state.metrics.day)} 天（按日历今天是第 ${String(state.metrics.day - ahead)} 天）`,
+          actions: [{ label: '回到日历节奏', onClick: () => { void post('/ahead', { days: 0 }); } }],
+        }));
+      }
+      if (tab === 'profile' && hasAgentLine) {
+        kids.push(h(AgentSessionLine, { key: 'agent-session', state, post }));
+      }
+      if (kids.length === 0) return null;
+      return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '4px' } }, kids);
     }
 
     /**
@@ -1435,14 +1463,11 @@ window.__ModuleLoader__.load({
           setBusy(false);
         }
       };
-      const act = (label, work) => h('button', {
-        key: label,
-        type: 'button',
-        className: 'gw-quiet',
+      const act = (label, work) => ({
+        label,
         disabled: busy,
-        style: { ...S.fine, ...S.quiet, cursor: busy ? 'default' : 'pointer' },
         onClick: () => { void run(work); },
-      }, label);
+      });
       const currentId = () => sessions?.list?.getSnapshot?.()?.current ?? '';
       const currentTitle = () => sessions?.list?.getSnapshot?.()?.byId?.[currentId()]?.title ?? '';
       const bindCurrent = act(pinnedId.length > 0 ? '改绑到当前对话' : '固定到当前对话', async () => {
@@ -1459,13 +1484,14 @@ window.__ModuleLoader__.load({
 
       // 没有会话服务（预览里就是这样，别的宿主也可能）：这一行只剩说明 —— 两个动作都要
       // 靠它才做得了，摆一个按不动的按钮比不摆更糟。
-      const actions = sessions === undefined ? [] : [bindCurrent, pinnedId.length === 0 ? null : rebuild];
-
-      return h('div', { className: 'gw-agent-line', style: { ...S.fine, display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' } }, [
-        h('span', { key: 'what' }, pinnedId.length > 0
-          ? `Agent 运行都在「${title}」这个对话里`
-          : 'Agent 运行会发进一个专用对话（第一次用时自动新建）'),
-        ...actions,
+      return h('div', { className: 'gw-agent-line' }, [
+        h(NoteLine, {
+          key: 'line',
+          text: pinnedId.length > 0
+            ? `Agent 运行都在「${title}」这个对话里`
+            : 'Agent 运行会发进一个专用对话（第一次用时自动新建）',
+          actions: sessions === undefined ? [] : [bindCurrent, pinnedId.length === 0 ? null : rebuild],
+        }),
         note.length === 0 ? null : h('span', { key: 'note', style: S.error }, note),
       ]);
     }
@@ -3055,8 +3081,8 @@ window.__ModuleLoader__.load({
            error.length > 0 ? h('div', { key: 'error', style: S.error }, error) : null,
            h(WorkbenchHeader, { key: 'header', state, post, onNavigate: navigate, hideNext: tab === 'profile' || tab === 'review', currentTab: tab }),
            bodies[tab](),
-           // 状态与设置放最下面 —— 顶部留给"我现在要做什么"。
-           h(WorkbenchFoot, { key: 'foot', state, post }),
+           // 状态与设置放最下面，而且**各归各页**（见 `WorkbenchFoot`）—— 顶部留给"我现在要做什么"。
+           h(WorkbenchFoot, { key: 'foot', state, post, tab }),
          ])),
       ]);
     }
