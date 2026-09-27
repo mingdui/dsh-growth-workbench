@@ -94,6 +94,16 @@ export function canonicalPlan(input, existing = undefined, role = undefined) {
     if (phase.tasks !== undefined && !Array.isArray(phase.tasks)) problems.push(`${label}: tasks 必须是数组（只排到周的阶段可以是空数组）`)
   })
 
+  // ---- 第一段必须排到天 ----
+  // 「两段式」的近期那一段是要真排到天的。少了这条，一份四段全是周粒度的计划也能通过 ——
+  // 而它一写进去，「今日」就没有任何可执行的动作：用户看到的是「计划目前只排到周」，然后
+  // 页面上没有任何地方可以点。计划的第一段是**唯一能马上执行的一段**，所以它必须细到天；
+  // 后面几段离得远，排到周是诚实的，不该被这条拦。
+  const firstPhaseTasks = Array.isArray(phases[0]?.tasks) ? phases[0].tasks : []
+  if (phases.length > 0 && firstPhaseTasks.length === 0) {
+    problems.push('阶段1（第一段）必须排到天：把第 1 天起的每个动作逐条写进 tasks。只排到周的计划写进去之后，「今日」页一条能执行的任务都没有（后续阶段可以只排到周）')
+  }
+
   // ---- 能力项归属 ----
   const validCapabilities = role === undefined || role === null ? null : new Set(role.items.map((item) => item.id))
   // 没有模型时不能只跳过校验：那样计划可以挂任意编号，而面板与考核都按编号落点。

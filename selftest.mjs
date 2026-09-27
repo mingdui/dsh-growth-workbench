@@ -784,6 +784,26 @@ await check('缺 planStart 被拒（否则「第几天」只能拿首次打开�
   assert.throws(() => validate.canonicalPlan({ goal: 'x', phases: [goodPhase('a', [1, 10], [])] }, undefined, ROLE), /planStart/)
 })
 
+await check('一段都没排到天的计划被拒（否则「今日」页天生是空的）', () => {
+  // 用户报过：计划生成完，「今日」页写着「计划目前只排到周」，而那句话指的地方没有入口。
+  // 根因在门禁：只要 phases 非空就放行，于是四段全是周粒度的计划也能写进去 —— 一写进去，
+  // 这个产品的主线（今日执行）当场就断了。第一段是唯一能马上执行的一段，所以它必须细到天。
+  assert.throws(
+    () => validate.canonicalPlan({
+      planStart: '2026-09-25', goal: 'x',
+      phases: [goodPhase('基础', [1, 30], []), goodPhase('实战', [31, 60], [])],
+    }, undefined, ROLE),
+    /第一段）必须排到天/,
+  )
+  // 后续阶段只排到周是**允许**的 —— 这条规则不能顺手把它们也拦掉。
+  const plan = validate.canonicalPlan({
+    planStart: '2026-09-25', goal: 'x',
+    phases: [goodPhase('基础', [1, 30], [goodTask({ day: 1 })]), goodPhase('实战', [31, 60], [])],
+  }, undefined, ROLE)
+  assert.equal(plan.phases[0].tasks.length, 1)
+  assert.equal(plan.phases[1].tasks.length, 0, '第二段只排到周要照样通过')
+})
+
 // 没有模型时不能只是"跳过校验" —— 那样计划可以挂任意编号，而面板与考核都按编号落点。
 await check('方向没有能力模型时，计划写入被拒而不是跳过校验', () => {
   assert.throws(

@@ -144,7 +144,10 @@ function planBlock(state) {
     lines.push(`- 实战项目：${phase.project || '—'}`)
     lines.push(`- 考核标准：${phase.criteria || '—'}`)
     if (phase.tasks.length === 0) {
-      lines.push(`- 任务：只排到周（尚未细化到天）`)
+      // 第一段没有天级任务不是「以后再说」：这份计划在「今日」页是空的，Agent 读到这句就该先补它。
+      lines.push(index === 0
+        ? '- 任务：⚠️ 第一段必须排到天，现在只排到周 —— 这份计划在「今日」页一条能执行的动作都没有，先把它细化到天'
+        : '- 任务：只排到周（尚未细化到天）')
       for (const week of phase.weeks ?? []) lines.push(`  - 第 ${String(week.week ?? '?')} 周：${week.theme ?? ''}（验收：${week.acceptance ?? ''}）`)
     } else {
       lines.push('', '| 标识 | 引用 | 天 | 一句话动作 | 能力项 | 理由 | 预计分钟 | 最低完成版本 | 完成标准 | 可接受证据 | 前置依赖 |')
@@ -405,7 +408,7 @@ export const growthContext = {
  */
 export const growthSavePlan = {
   name: 'growth_save_plan',
-  description: '写入 90 天成长计划。每个任务必须给全 8 个字段：action 一句话动作 / capability 能力项（必须是能力模型里的编号，评估类任务写全角 —）/ reason 任务理由 / minutes 预计分钟（15-60）/ minimumVersion 最低完成版本 / doneCriteria 完成标准 / acceptableEvidence 可接受证据 / dependsOn 前置依赖（任务引用如 2.3 或「无」）。阶段必须给 days:[起,止] 天区间且不重叠不留缝；planStart 必填。任务标识由系统分配或沿用（永不变、删除的编号不复用）。selfCheck 每题必须挂 1 个能力项编号且不得含答案。',
+  description: '写入 90 天成长计划。每个任务必须给全 8 个字段：action 一句话动作 / capability 能力项（必须是能力模型里的编号，评估类任务写全角 —）/ reason 任务理由 / minutes 预计分钟（15-60）/ minimumVersion 最低完成版本 / doneCriteria 完成标准 / acceptableEvidence 可接受证据 / dependsOn 前置依赖（任务引用如 2.3 或「无」）。**阶段1（第一段）必须排到天** —— 它的 tasks 不能是空数组，否则「今日」页一条能执行的任务都没有；后面的阶段可以只排到周（用 weeks 写主题与验收标准）。阶段必须给 days:[起,止] 天区间且不重叠不留缝；planStart 必填。任务标识由系统分配或沿用（永不变、删除的编号不复用）。selfCheck 每题必须挂 1 个能力项编号且不得含答案。',
   parameters: {
     type: 'object',
     properties: {
