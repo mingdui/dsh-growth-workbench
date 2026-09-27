@@ -210,7 +210,14 @@ window.__ModuleLoader__.load({
       return parsed;
     }
 
-    const messageOf = (failure) => (failure instanceof Error ? failure.message : String(failure));
+    // 远端回的失败**不是** Error：它是 `{ code, message }` 那种普通对象，`String()` 会印成
+    // 「[object Object]」。所以这里要单独认一下带 `message` 的对象 —— 否则"为什么失败"这句
+    // 话在最需要它的时候正好是一串废话。
+    const messageOf = (failure) => {
+      if (failure instanceof Error) return failure.message;
+      if (failure !== null && typeof failure === 'object' && typeof failure.message === 'string') return failure.message;
+      return String(failure);
+    };
 
     /** Every mounted view's reloader, so a write in one reaches the other. */
     const reloaders = new Set();
@@ -280,25 +287,40 @@ window.__ModuleLoader__.load({
      * 落盘由调用方决定用哪条路：`askAgent` 用 `call`（它不需要页面重渲染，跑完的轮询会带上），
      * 页头那两个动作走 `post`（写完要让这一行自己更新）。
      */
-    async function createAgentSession(sessions, cwd) {
+    async function createAgentSession(sessions, cwd, workspaceId) {
+      // **归属优先走工作区 id，其次才是 cwd**：侧栏分组读的是工作区注册表，只给 cwd 的会话
+      // 会挂在「未分组」下（用户撞上过）。两者不能同时传 —— 宿主的 `session.create` 会直接拒。
+      const where = typeof workspaceId === 'string' && workspaceId.length > 0
+        ? { workspaceId }
+        : (typeof cwd === 'string' && cwd.length > 0 ? { cwd } : {});
       let id;
       try {
-        id = await sessions.create(typeof cwd === 'string' && cwd.length > 0 ? { cwd } : {});
+        id = await sessions.create(where);
       } catch (failure) {
         throw new Error(`没法新建专用对话：${messageOf(failure)}`);
       }
-      // **`rename` 的返回值必须看**：它是 `{ ok, error }`，失败时**不抛**。
-      // 我原来只 try/catch 了"抛出的错"，于是改名失败被静默吃掉 —— 用户看到的是一行
-      // 「新会话」（DSH 的默认名），而页面说"运行都在「成长工作台」里"。
-      // 改名失败不挡住功能（id 才是身份），但**必须让人知道**。
-      let named = false;
+      // 先把会话打开：`rename` 要的是一个**活着**的会话（标题服务会核对它是否在会话表里）。
+      // 刚建好就改名，第一次常常落空 —— 而它失败时**不抛**，只回 `{ ok: false }`。
       try {
-        const renamed = await sessions.binding(id)?.session?.rename?.(AGENT_SESSION_TITLE);
-        named = renamed?.ok === true;
-      } catch {
-        named = false;
+        sessions.open(id);
+      } catch { /* 打不开也不挡住后面；改名那步会把话说清楚 */ }
+      let named = false;
+      let reason = '';
+      for (let attempt = 0; attempt < 2 && !named; attempt += 1) {
+        if (attempt > 0) await new Promise((resolve) => { setTimeout(resolve, 400); });
+        try {
+          const binding = sessions.binding(id) ?? await waitForBinding(sessions, id);
+          const renamed = await binding?.session?.rename?.(AGENT_SESSION_TITLE);
+          named = renamed?.ok === true;
+          // **失败的原因要带回去**：我原来只留了个 true/false，于是"为什么没改成名"这件事
+          // 被我自己丢掉了 —— 用户报了两次，我两次都只能猜。
+          if (!named) reason = messageOf(renamed?.error) || 'DSH 没有接受这个标题';
+          if (renamed === undefined) reason = '这个对话还没准备好接受改名';
+        } catch (failure) {
+          reason = messageOf(failure);
+        }
       }
-      return { id, named };
+      return { id, named, reason };
     }
 
     /**
@@ -345,14 +367,14 @@ window.__ModuleLoader__.load({
         return { id: pinnedId, binding, created: false, revision };
       }
 
-      const created = await createAgentSession(sessions, state?.agentWorkspace);
+      const created = await createAgentSession(sessions, state?.agentWorkspace, state?.agentWorkspaceId);
       // **先落盘再发**：落盘失败就不发，否则会出现"消息发了、下次又新建一个"的重复对话。
       // 标题按实际改没改成功来落：改名失败时存「新会话」以外的真相没有意义 —— 页面会用
       // 这个名字去说"运行都在「X」里"，存错了那句话就是假的。
       await call('/agent-session', { sessionId: created.id, title: created.named ? AGENT_SESSION_TITLE : '新会话' });
       const binding = await waitForBinding(sessions, created.id);
       if (binding === undefined) throw new Error('专用对话刚建好却寻址不到 —— 稍后再试一次');
-      return { id: created.id, binding, created: true, named: created.named, revision };
+      return { id: created.id, binding, created: true, named: created.named, reason: created.reason, revision };
     }
 
     /**
@@ -1168,7 +1190,9 @@ window.__ModuleLoader__.load({
       const learn = task.learn;
       if (learn === undefined) {
         return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '5px' } }, [
-          h('span', { key: 'none' }, '还没有学习资料（只有要求，没有方法）'),
+          // 「（只有要求，没有方法）」是画外音：用户点开一个格子，不需要被告知这道题**缺什么**，
+          // 只需要知道现在没有、以及那个「让 AI 找资料」的按钮能做什么。
+          h('span', { key: 'none' }, '还没有学习资料'),
           h('span', { key: 'act', style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' } }, [
             h(AskButton, { key: 'go', text: `给 ${task.id} 找学习资料`, label: '让 AI 汇总资料' }),
           ]),
@@ -1335,9 +1359,12 @@ window.__ModuleLoader__.load({
     function gapLabel(gap) {
       if (gap === null || gap === undefined || typeof gap !== 'number' || Number.isNaN(gap)) return null;
       if (Math.abs(gap) < 0.005) return { cap: '正好在达标线', value: '0.00', unit: '分' };
+      // 「距达标线 / 已超达标线」这两个词用户读了两次都没读懂（「0.62分 我现在都没明白是啥意思」）——
+      // 它们是**名词**，而这里要说的是"比一个线高还是低"。改成一句能直接读出口的比较，
+      // 并在下面那行把"达标线是什么"说清楚（数字本身没有单位感，是这句比较给了它单位）。
       return gap > 0
-        ? { cap: '距达标线', value: Math.abs(gap).toFixed(2), unit: '分' }
-        : { cap: '已超达标线', value: Math.abs(gap).toFixed(2), unit: '分' };
+        ? { cap: '比达标线低', value: Math.abs(gap).toFixed(2), unit: '分' }
+        : { cap: '比达标线高', value: Math.abs(gap).toFixed(2), unit: '分' };
     }
 
     function Metrics({ state }) {
@@ -1348,16 +1375,30 @@ window.__ModuleLoader__.load({
       const weekNo = metrics.day === null || metrics.day < 1 ? null : Math.floor((metrics.day - 1) / 7) + 1;
       // gap 的单位是**分**（见 `gapLabel`）—— 这里原先印成百分比，是把分值当成了比例。
       const gap = gapLabel(metrics.gap);
+      // 「走到哪一段了」：阶段名 + 第几段 + 那一段的天区间。没有当前阶段（计划还没开始 /
+      // 已经走完）时这一行不出现 —— 那时候没有"第几阶段"可报。
+      const phaseIndex = metrics.phaseIndex;
+      const phase = typeof phaseIndex === 'number' && phaseIndex >= 0 && metrics.phaseName.length > 0
+        ? { index: phaseIndex, total: state.plan.phases.length, name: metrics.phaseName, days: metrics.phaseDays }
+        : undefined;
       const kids = [
         h('div', { key: 'numbers', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '16px', flexWrap: 'wrap' } }, [
           h('div', { key: 'strip', style: { display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', flex: '1 1 auto' } }, [
             h(Readout, { key: 'day', first: true, value: day.value, cap: day.cap }),
             h(Readout, { key: 'done', value: `${String(metrics.completion.done)}/${String(metrics.completion.total)}`, cap: '完成' }),
             h(Readout, { key: 'week', value: week === undefined ? '—' : week, unit: week === undefined ? undefined : '%', cap: weekNo === null ? '本周完成率' : `第 ${String(weekNo)} 周` }),
-            h(Readout, { key: 'gap', value: gap === null ? '—' : gap.value, unit: gap === null ? undefined : gap.unit, cap: gap === null ? '距达标线' : gap.cap }),
+            // 没有自评时不是「距达标线 0.00」—— 那会读成"正好在线上"。说清楚是**还没有**。
+            h(Readout, { key: 'gap', value: gap === null ? '—' : gap.value, unit: gap === null ? undefined : gap.unit, cap: gap === null ? '还没自评' : gap.cap }),
           ]),
           metrics.streak > 0 ? h(Seal, { key: 'streak', tone: 'teal', label: `连续 ${String(metrics.streak)} 天`, sub: '不间断' }) : null,
         ]),
+        // 阶段：这一屏原先只有「第几天」，读到的是时间，读不到**走到哪一段了**（用户问
+        // 「这个显示第几阶段」）。阶段名与天数区间都在 `/state` 里，一直没摆上来。
+        phase === undefined ? null : h('div', { key: 'phase', style: S.meta },
+          `阶段 ${String(phase.index + 1)}/${String(phase.total)}　${phase.name}（第 ${String(phase.days[0])}–${String(phase.days[1])} 天）`),
+        // 达标线是什么，就写在用到它的地方 —— 「0.62 分」不说明白就只是个数字。
+        gap === null ? null : h('div', { key: 'gap-note', style: S.meta },
+          `达标线 = 每项 3 分（照现成规范能独立做出合格产出）；这一栏是「达标线 − 我的分」按权重平均出来的差。`),
         h('div', { key: 'evidence', style: S.meta },
           `证据档位：成果 ${String(metrics.evidence.成果)} · 过程 ${String(metrics.evidence.过程)} · 自述 ${String(metrics.evidence.自述)} · 无 ${String(metrics.evidence.无证据)}　（过程与成果都算数，自述只作辅证）`),
       ];
@@ -1593,14 +1634,16 @@ window.__ModuleLoader__.load({
         if (reply.ok !== true) throw new Error(reply.error ?? '改绑失败');
       });
       const rebuild = act('重建一个', async () => {
-        const created = await createAgentSession(sessions, state?.agentWorkspace);
+        const created = await createAgentSession(sessions, state?.agentWorkspace, state?.agentWorkspaceId);
         const reply = await post('/agent-session', { sessionId: created.id, title: created.named ? AGENT_SESSION_TITLE : '新会话' });
         if (reply.ok !== true) throw new Error(reply.error ?? '固定失败');
         sessions.open(created.id);
         // **要有回声**：点了按钮什么都不说，用户读到的是"没啥反应"（他的原话）。
+        // 改名失败时**把原因一起说出来** —— 我上一版只回了个 true/false，于是用户报了两次，
+        // 我两次都只能猜。名字没改成不是灾难，说不清为什么才是。
         setOk(created.named
           ? `新建了对话「${AGENT_SESSION_TITLE}」，之后的运行都发进它。`
-          : '对话建好了，但没能改成「成长工作台」—— 它在侧栏里可能叫「新会话」。');
+          : `对话建好了，但没能改成「成长工作台」${created.reason.length > 0 ? `（${created.reason}）` : ''} —— 它在侧栏里可能叫「新会话」。`);
       });
 
       // 没有会话服务（预览里就是这样，别的宿主也可能）：这一行只剩说明 —— 两个动作都要
@@ -2053,7 +2096,8 @@ window.__ModuleLoader__.load({
 
       if (plan.selfCheck.length > 0) {
         kids.push(h('div', { key: 'selfcheck', style: S.card }, [
-          h('h3', { key: 't', style: S.h3 }, `考核自查（${String(plan.selfCheck.length)} 题，只有题目）`),
+          // 「只有题目」也是画外音，而且下一行已经说了「答案由你给」—— 同一件事说两遍。
+          h('h3', { key: 't', style: S.h3 }, `考核自查（${String(plan.selfCheck.length)} 题）`),
           h('div', { key: 'note', style: S.meta }, '考核时抽 2-3 题现场作答，答案由你给。'),
           // 16 行平铺是一面墙。折叠之后扫一遍标题就知道会被问什么，展开才看到它属于哪个阶段、
           // 考哪一项能力 —— 这两样正是「为什么问这一题」的答案。

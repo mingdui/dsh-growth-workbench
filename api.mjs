@@ -75,6 +75,7 @@ import {
   updatePlan,
   updateProfile,
   workspaceDir,
+  workspaceId,
   write,
 } from './store.mjs'
 
@@ -196,13 +197,18 @@ export function buildState() {
     /** 考卷草稿（没交卷的答案）—— 页面按 `drafts[key]` 接着答。 */
     drafts: assessments.drafts ?? {},
     /**
-     * 「成长工作台」那个专属会话的**工作区**（宿主侧的空目录）。
+     * 「成长工作台」那个专属会话的**工作区**：宿主侧的空目录路径 + 它在 DSH 工作区注册表里的 id。
      *
-     * 页面自己不知道盘上路径，但它建会话时要把它当 `cwd` 传下去 —— 于是那一行不再挂在
-     * DSH 侧栏的「未分组」下面。**不指向数据目录本身**：那等于把四份 JSON 摆在 Agent 手边，
-     * 随手一次直接编辑就绕过了工具那边的门禁（见 store.workspaceDir）。
+     * 两个都要给：**只给 `cwd` 不够**。侧栏分组读的是注册表（"这个目录注册成工作区了吗"），
+     * 不是会话的 cwd —— 用户撞上过：会话确实建在那个目录里（日志的 cwd 字段是对的），侧栏照样
+     * 写着「未分组」。所以宿主挂载时把那个目录注册成一个工作区，页面建会话时**首选** `workspaceId`
+     * （两者不能同时传，见 `session.create`），注册表拿不到时才退回 `cwd`。
+     *
+     * **不指向数据目录本身**：那等于把四份 JSON 摆在 Agent 手边，随手一次直接编辑就绕过了
+     * 工具那边的门禁（见 store.workspaceDir）。
      */
     agentWorkspace: workspaceDir(),
+    agentWorkspaceId: workspaceId(),
     curve: curvePoints(history),
     metrics: {
       day,

@@ -610,6 +610,29 @@ export function updateProfile(patch = {}) {
   return profile
 }
 
+/**
+ * 我们那个工作区目录在 DSH **工作区注册表**里的 id。
+ *
+ * 为什么需要它：侧栏的分组读的是**注册表**，不是会话的 `cwd`。只带 `cwd` 建出来的会话，
+ * 文件确实落在那个目录里（会话日志的 `cwd` 字段可以作证），但侧栏照样把它归进「未分组」——
+ * 分组问的问题是"这个目录注册成工作区了吗"，而不是"这个会话的 cwd 是什么"。
+ *
+ * 它是**进程内的运行期事实**，不是用户数据：由宿主挂载时注册后记在这里（见 `index.mjs`），
+ * 页面从 `/state` 读走。注册失败或服务不存在时是空串，页面退回到只带 `cwd`（能跑，分组差一点）。
+ */
+let registeredWorkspaceId = ''
+
+/** Remember the workspace id the host registered (empty string = none). */
+export function rememberWorkspaceId(id) {
+  registeredWorkspaceId = typeof id === 'string' ? id : ''
+  return registeredWorkspaceId
+}
+
+/** The registered workspace id, or an empty string when there is none. */
+export function workspaceId() {
+  return registeredWorkspaceId
+}
+
 /** 改动记录里允许出现的模块名。**少一个模块比多一个自由字符串好**：页面按它分区读。 */
 export const CHANGE_MODULES = ['计划', '学习资料', '考核', '能力模型']
 

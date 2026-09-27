@@ -441,11 +441,42 @@ await check('完成的反馈是真的，且 gap 不再被当成分数印', () =>
   // ⚠️ 这条断言原先钉反了：它要求印成百分比、禁止印成"分"，于是「-62% 距达标线」一路留到今天，
   // 直到用户问「-62% 距达标线 是啥意思」。**一条钉错方向的断言，比没有断言更难发现。**
   assert.match(source, /function gapLabel\(gap\)/)
-  assert.match(source, /cap: '已超达标线'/, '高于达标线时标签跟着变，不让负号自己解释自己')
+  assert.match(source, /cap: '比达标线高'/, '高于达标线时标签跟着变，不让负号自己解释自己')
   assert.match(source, /value: Math\.abs\(gap\)\.toFixed\(2\), unit: '分'/, '报的是分，不是百分比')
   assert.doesNotMatch(source, /Math\.round\(gap \* 100\)/, '不许再把分值当百分比印')
+  // 「距达标线 / 已超达标线」是**名词**，用户读了两次都没读懂（「0.62分 我现在都没明白是啥意思」）。
+  // 断言钉住的是"说的是比较，不是名词"，而且**达标线是什么必须写在用到它的那一屏**。
+  // `codeOnly`：注释里正当地写着那两个词（说明它们为什么被换掉），不该被判违规。
+  assert.doesNotMatch(codeOnly(source), /'已超达标线'|'距达标线'/, '不用那两个读不懂的名词')
+  assert.match(source, /达标线 = 每项 3 分/, '读数条上要把"达标线是什么"说清楚')
   // 一处定义、多处共用（读数条 + 画像的自评卡；考核历史现在只列考核轮，不再显示 gap）。
   assert.ok((source.match(/gapLabel\(/g) ?? []).length >= 3, '读数条与自评卡共用同一个读法')
+})
+
+await check('读数条说得出「走到哪一段了」，也说得清达标线是什么', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  const metrics = sliceOfComponent(source, 'Metrics')
+  // 用户问：「这个显示第几阶段」——这一屏原先只有「第几天」，读到的是时间，读不到进度落在哪一段。
+  assert.match(metrics, /阶段 \$\{String\(phase\.index \+ 1\)\}\/\$\{String\(phase\.total\)\}/, '要印「阶段 N/总数」')
+  assert.match(metrics, /phase\.name/, '要印阶段名')
+  assert.match(metrics, /第 \$\{String\(phase\.days\[0\]\)\}–\$\{String\(phase\.days\[1\]\)\} 天/, '要印那一段的天区间')
+  // 没有当前阶段（还没开始 / 已经走完）时这一行不出现 —— 那时候没有"第几阶段"可报。
+  assert.match(metrics, /phaseIndex >= 0 && metrics\.phaseName\.length > 0/)
+  // 「0.62 分」不说明白就只是个数字：达标线是什么，写在用到它的那一屏。
+  assert.match(metrics, /达标线 = 每项 3 分/, '读数条要说清达标线是什么')
+  assert.match(metrics, /gap === null \? '还没自评' : gap\.cap/, '没自评时别说成"正好在线上"')
+})
+
+await check('没有画外音：缺了什么不用讲给用户听', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  // 用户：「（只有要求，没有方法） 类似画外音去掉」——用户点开一个格子，不需要被告知这道题
+  // **缺什么**，只需要知道现在没有、以及那个按钮能做什么。
+  // `codeOnly`：注释里正当地写着这句（说明它为什么被撤掉），不该被判违规。
+  assert.doesNotMatch(codeOnly(source), /只有要求，没有方法/, '这句从页面上撤掉（工具说明里留着，那是给模型读的）')
+  assert.match(source, /'还没有学习资料'/, '空状态照旧说得出来')
+  // 「（过程与成果都算数，自述只作辅证）」不是画外音：它说的是**怎么读这四个数**，
+  // 是用户判断"我这周的 3 条自述算不算数"必须知道的一句。留着。
+  assert.match(source, /过程与成果都算数，自述只作辅证/)
 })
 
 await check('计划页的层次：总目标是一整句，路径与能力块各自成层', () => {
@@ -2024,21 +2055,46 @@ await check('专属会话的工作区：宿主侧的**空**目录，不是数据
   assert.notEqual(store.workspaceDir(), store.dataDir())
   const state = (await callApi('GET', `${api.API_PREFIX}/state`)).body
   assert.equal(state.agentWorkspace, store.workspaceDir(), '/state 要把路径发下来')
+  // **光有 cwd 不够**：侧栏分组读的是工作区注册表（"这个目录注册成工作区了吗"），不是会话的
+  // cwd —— 用户就是这么撞上的：会话确实建在那个目录里（日志的 cwd 字段是对的），侧栏照样
+  // 写着「未分组」。所以宿主注册后要把 id 发下来，页面优先用它建会话。
+  assert.equal(state.agentWorkspaceId, store.workspaceId(), '/state 也要把工作区 id 发下来')
+  assert.equal(store.rememberWorkspaceId('ws-1'), 'ws-1')
+  assert.equal((await callApi('GET', `${api.API_PREFIX}/state`)).body.agentWorkspaceId, 'ws-1', '注册完要读得到')
+  store.rememberWorkspaceId('')
+
   const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
-  assert.match(source, /sessions\.create\(typeof cwd === 'string' && cwd\.length > 0 \? \{ cwd \} : \{\}\)/)
+  // **优先 workspaceId，绝不两个都传**：宿主的 `session.create` 收到两个会直接拒。
+  assert.match(source, /const where = typeof workspaceId === 'string' && workspaceId\.length > 0\s*\n\s*\? \{ workspaceId \}/)
+  assert.match(source, /id = await sessions\.create\(where\);/)
+  assert.doesNotMatch(source, /\{ cwd, workspaceId \}|\{ workspaceId, cwd \}/, '两个一起传会被宿主拒掉')
   // **改名的返回值要检查**：`rename` 失败时返回 `{ ok: false }` 而**不抛** —— 只 try/catch
   // 会把失败静默吃掉（用户建出来的对话就叫「新会话」，而页面说"运行都在「成长工作台」里"）。
-  assert.match(source, /const renamed = await sessions\.binding\(id\)\?\.session\?\.rename\?\.\(AGENT_SESSION_TITLE\)/)
+  assert.match(source, /const renamed = await binding\?\.session\?\.rename\?\.\(AGENT_SESSION_TITLE\)/)
   assert.match(source, /named = renamed\?\.ok === true/, '要看 ok，不能只看有没有抛')
+  // 刚建好就改名常常落空（标题服务要核对会话是不是活着），所以要先 `open`，失败了再试一次；
+  // 而且**原因要带回来** —— 只回 true/false，用户报了两次我也只能猜两次。
+  assert.match(source, /sessions\.open\(id\);/, '改名之前先把会话打开')
+  assert.match(source, /for \(let attempt = 0; attempt < 2 && !named; attempt \+= 1\)/, '失败要重试一次')
+  assert.match(source, /reason = messageOf\(renamed\?\.error\)/, '失败原因要带回来')
+  assert.match(source, /typeof failure\.message === 'string'\) return failure\.message/, '远端失败是 { code, message }，不是 Error')
   // 改了名才知道该存什么标题；存错了，页面上那句"运行都在「X」里"就是假的。
   assert.match(source, /title: created\.named \? AGENT_SESSION_TITLE : '新会话'/)
   // 点了按钮要有回声 —— 什么都不说，用户读到的就是「没啥反应」。
   assert.match(source, /新建了对话「\$\{AGENT_SESSION_TITLE\}」/)
   assert.match(source, /对话建好了，但没能改成「成长工作台」/)
+  assert.match(source, /\$\{created\.reason\.length > 0 \? `（\$\{created\.reason\}）` : ''\}/, '回声里要带上失败原因')
   assert.ok(
-    (source.match(/createAgentSession\(sessions, state\?\.agentWorkspace\)/g) ?? []).length >= 2,
-    'askAgent 与「重建一个」两处新建都要带上工作区',
+    (source.match(/createAgentSession\(sessions, state\?\.agentWorkspace, state\?\.agentWorkspaceId\)/g) ?? []).length >= 2,
+    'askAgent 与「重建一个」两处新建都要带上路径与工作区 id',
   )
+  // 宿主侧：注册走 `ctx.get`（拿不到就退回 cwd），**不能写进 inject** —— 某些 profile 不挂工作区
+  // 服务，写进 inject 会让整个插件静默不挂载（离线自检里根本没有 Harness）。
+  const host = readFileSync(join(ROOT, 'index.mjs'), 'utf8')
+  assert.match(host, /ctx\.get\('workspaceRegistry'\)/)
+  assert.doesNotMatch(host, /export const inject = \[[^\]]*workspace/, 'inject 里不许出现工作区服务')
+  assert.match(host, /registry\.create\(workspaceDir\(\), '成长工作台'\)/, '注册时把标题定成「成长工作台」')
+  assert.match(host, /void registerWorkspace\(ctx\)/, '挂载时注册（不 await：拿不到也不该卡住挂载）')
 })
 
 await check('未知路由是 404', async () => {
