@@ -843,6 +843,44 @@ await check('一段都没排到天的计划被拒（否则「今日」页天生�
   assert.equal(plan.phases[1].tasks.length, 0, '第二段只排到周要照样通过')
 })
 
+await check('一个字段写错只报一次（错的 dependsOn 不该算两处错）', () => {
+  const counted = (plan) => {
+    try {
+      validate.canonicalPlan(plan, undefined, ROLE)
+      return []
+    } catch (error) {
+      return error.message.split('\n').slice(1)
+    }
+  }
+  // 用户真撞上过：13 个任务把**天号**填进了 dependsOn，被判「共 26 处」—— 同一个字段报了两遍
+  //（写法不合法 + 引用不存在）。一份只错了一处的计划，读起来像烂得没法救，而这会直接浪费
+  // 用户一轮运行：他得先猜到底哪儿错了。
+  const bare = counted({
+    planStart: '2026-09-25', goal: 'x',
+    phases: [goodPhase('基础', [1, 30], [goodTask({ day: 1 }), goodTask({ day: 2, dependsOn: '1' })])],
+  })
+  assert.equal(bare.length, 1, `写法错只该报一处，收到 ${String(bare.length)} 处`)
+  assert.match(bare[0], /前置依赖要写「阶段\.序号」/, '消息里要给格式与例子，不只说"必须是任务引用"')
+
+  // 写法对、但指向不存在的引用 —— 这时才该报"指向不存在"，而且同样只有一条。
+  const dangling = counted({
+    planStart: '2026-09-25', goal: 'x',
+    phases: [goodPhase('基础', [1, 30], [goodTask({ day: 1 }), goodTask({ day: 2, dependsOn: '3.9' })])],
+  })
+  assert.equal(dangling.length, 1, `指向不存在也只该报一处，收到 ${String(dangling.length)} 处`)
+  assert.match(dangling[0], /指向了不存在的任务引用/)
+})
+
+await check('任务的字段写在 schema 里，不只写在工具说明那段散文里', () => {
+  const tasks = tools.growthSavePlan.parameters.properties.phases.items.properties.tasks
+  for (const key of ['day', 'action', 'capability', 'reason', 'minutes', 'minimumVersion', 'doneCriteria', 'acceptableEvidence', 'dependsOn']) {
+    assert.ok(tasks.items.properties?.[key] !== undefined, `${key} 要在 schema 里有名有姓`)
+  }
+  // 8 个字段里唯一一个"写法不明显"的：格式与反例都写进去 —— 用户就是在这一项上撞的。
+  assert.match(tasks.items.properties.dependsOn.description, /阶段\.序号/)
+  assert.match(tasks.items.properties.dependsOn.description, /不是天号/)
+})
+
 // 没有模型时不能只是"跳过校验" —— 那样计划可以挂任意编号，而面板与考核都按编号落点。
 await check('方向没有能力模型时，计划写入被拒而不是跳过校验', () => {
   assert.throws(

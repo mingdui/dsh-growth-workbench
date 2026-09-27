@@ -121,6 +121,12 @@ export function canonicalPlan(input, existing = undefined, role = undefined) {
   let nextNumber = Math.max(highestOnDisk + 1, previousNext)
   const used = new Set()
   const refs = new Set()
+  /**
+   * 写法就不合法的前置依赖（按引用记）。这些任务不再进下面那道"引用是否存在"的检查 ——
+   * 同一个字段报两遍，会把「一处错」说成「26 处错」：用户真实撞上过一次，一份只有
+   * dependsOn 写错的计划被判「共 26 处」，看起来像烂得没法救。
+   */
+  const malformedDeps = new Set()
 
   const canonicalPhases = phases.map((phase, phaseIndex) => {
     const [from, to] = Array.isArray(phase?.days) ? phase.days : [0, 0]
@@ -159,7 +165,10 @@ export function canonicalPlan(input, existing = undefined, role = undefined) {
 
       const dependsOn = String(task?.dependsOn ?? '').trim()
       if (dependsOn !== '无' && !TASK_REF.test(dependsOn)) {
-        problems.push(`${label}: 前置依赖必须是任务引用（如 2.3）或字面量「无」，收到 ${JSON.stringify(dependsOn)}`)
+        // 这是 8 个字段里唯一一个"写法不明显"的：模型真的会把天号填进来（dependsOn: "1"）。
+        // 所以消息里直接给格式和一个能照抄的例子，而不是只说"必须是任务引用"。
+        problems.push(`${label}: 前置依赖要写「阶段.序号」这个引用（例如本阶段第 3 个任务写 1.3），没有依赖就写「无」，收到 ${JSON.stringify(dependsOn)} —— 它不是天号`)
+        malformedDeps.add(ref)
       }
 
       // 标识：调用方给的就留（前提是合法、本次未占用，且磁盘上确实还有这个任务 ——
@@ -211,8 +220,9 @@ export function canonicalPlan(input, existing = undefined, role = undefined) {
 
   // ---- 前置依赖必须指到真实任务（引用在本次写入后才会固定）----
   for (const task of canonicalPhases.flatMap((phase) => phase.tasks)) {
-    if (task.dependsOn !== '无' && !refs.has(task.dependsOn)) {
-      problems.push(`任务 ${task.id}: 前置依赖 ${task.dependsOn} 指向了不存在的任务引用`)
+    // 写法本来就不合法的，上面已经说过一次了 —— 不在这里再数一遍。
+    if (task.dependsOn !== '无' && !malformedDeps.has(task.ref) && !refs.has(task.dependsOn)) {
+      problems.push(`任务 ${task.id}（引用 ${task.ref}）: 前置依赖 ${task.dependsOn} 指向了不存在的任务引用`)
     }
   }
 

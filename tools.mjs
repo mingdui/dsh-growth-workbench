@@ -408,7 +408,7 @@ export const growthContext = {
  */
 export const growthSavePlan = {
   name: 'growth_save_plan',
-  description: '写入 90 天成长计划。每个任务必须给全 8 个字段：action 一句话动作 / capability 能力项（必须是能力模型里的编号，评估类任务写全角 —）/ reason 任务理由 / minutes 预计分钟（15-60）/ minimumVersion 最低完成版本 / doneCriteria 完成标准 / acceptableEvidence 可接受证据 / dependsOn 前置依赖（任务引用如 2.3 或「无」）。**阶段1（第一段）必须排到天** —— 它的 tasks 不能是空数组，否则「今日」页一条能执行的任务都没有；后面的阶段可以只排到周（用 weeks 写主题与验收标准）。阶段必须给 days:[起,止] 天区间且不重叠不留缝；planStart 必填。任务标识由系统分配或沿用（永不变、删除的编号不复用）。selfCheck 每题必须挂 1 个能力项编号且不得含答案。',
+  description: '写入 90 天成长计划。每个任务必须给全 8 个字段：action 一句话动作 / capability 能力项（必须是能力模型里的编号，评估类任务写全角 —）/ reason 任务理由 / minutes 预计分钟（15-60）/ minimumVersion 最低完成版本 / doneCriteria 完成标准 / acceptableEvidence 可接受证据 / dependsOn 前置依赖（写「阶段.序号」这个引用，如 1.3；没有依赖写「无」—— 它既不是天号也不是任务序号本身）。**阶段1（第一段）必须排到天** —— 它的 tasks 不能是空数组，否则「今日」页一条能执行的任务都没有；后面的阶段可以只排到周（用 weeks 写主题与验收标准）。阶段必须给 days:[起,止] 天区间且不重叠不留缝；planStart 必填。任务标识由系统分配或沿用（永不变、删除的编号不复用）。selfCheck 每题必须挂 1 个能力项编号且不得含答案。',
   parameters: {
     type: 'object',
     properties: {
@@ -428,7 +428,29 @@ export const growthSavePlan = {
             goal: { type: 'string', description: '阶段目标。' },
             project: { type: 'string', description: '实战项目。' },
             criteria: { type: 'string', description: '考核标准（作品达标度维对照它逐条核）。' },
-            tasks: { type: 'array', items: { type: 'object', additionalProperties: true }, description: '排到天的任务；只排到周的阶段留空数组。' },
+            tasks: {
+              type: 'array',
+              description: '排到天的任务（第一段必须有），每项 8 个字段缺一不可；只排到周的阶段留空数组。',
+              // 字段**写进 schema**，而不是只写在工具说明那段散文里：说明里列了 8 个名字，
+              // 但模型对其中写法最不明显的那个（dependsOn）真的会写错 —— 用户撞上过一次，
+              // 13 个任务的前置依赖全填成了天号（"1"、"2"…）。名字写在散文里，写法得写在结构里。
+              items: {
+                type: 'object',
+                additionalProperties: true,
+                properties: {
+                  day: { type: 'integer', description: '第几天，必须落在本阶段的 days 区间内。' },
+                  action: { type: 'string', description: '一句话动作：做什么，不是学什么。' },
+                  capability: { type: 'string', description: '挂的能力项编号，必须是当前方向能力模型里的编号；纯评估类任务写全角「—」。' },
+                  reason: { type: 'string', description: '为什么是这个任务 —— 对着差距说。' },
+                  minutes: { type: 'integer', description: '预计分钟，15-60；超过 60 就拆。' },
+                  minimumVersion: { type: 'string', description: '最低完成版本：做不到全量时先交什么。' },
+                  doneCriteria: { type: 'string', description: '完成标准：怎么算做完，可被他人核对。' },
+                  acceptableEvidence: { type: 'string', description: '可接受证据：完整版交什么、最低版交什么。' },
+                  dependsOn: { type: 'string', description: '前置依赖，写「阶段.序号」这个引用 —— 例如本阶段第 3 个任务写 1.3；没有依赖写「无」。**不是天号，也不是任务序号本身**。' },
+                  id: { type: 'string', description: '已存在的任务标识（T 开头）。改已有任务时原样带上（措辞可以改，标识永不变）；新任务留空，由系统分配。' },
+                },
+              },
+            },
             weeks: { type: 'array', items: { type: 'object', additionalProperties: true }, description: '只排到周时的主题与验收标准。' },
           },
         },
