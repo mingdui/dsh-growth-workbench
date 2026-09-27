@@ -1342,6 +1342,19 @@ window.__ModuleLoader__.load({
         }
       };
 
+      // 计划还没开始时没有可考的节点 —— 那就别摆一张卷子。原先页头写「考核 · 计划还没开始」，
+      // 下面却摊着三张答题纸，自相矛盾。说清什么时候才有，比给一张空卷子有用。
+      // 注意这个提前返回在所有 hook 之后 —— hook 不能有条件。
+      if (state.metrics.day === null || state.metrics.day < 1) {
+        const left = state.metrics.day === null ? null : 1 - state.metrics.day;
+        return h('div', { key: 'notyet', style: S.card }, [
+          h('h3', { key: 't', style: S.h3 }, '还没有可考的节点'),
+          h('div', { key: 'n', style: S.meta }, left === null
+            ? '还没设第 1 天 —— 去「计划」页设定之后，这里会出现第一场考核。'
+            : `计划还有 ${String(left)} 天开始。到那天这里会出现第一张考卷（第 1 周那个节点的小考）。`),
+        ]);
+      }
+
       return h('div', { className: 'gw-paper', style: { ...S.card, padding: '30px 34px 26px' } }, [
         h('div', { key: 'mast', className: 'gw-masthead' }, [
           h('div', { key: 't', className: 't' }, dayInfo(state.metrics.day).started ? `考核 · 第 ${String(day)} 天` : '考核 · 计划还没开始'),
@@ -1431,6 +1444,8 @@ window.__ModuleLoader__.load({
         h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '14px', flexWrap: 'wrap' } }, [
           h('h3', { key: 't', style: S.h3 }, '考核目录'),
           h('span', { key: 'n', style: S.meta }, `阶段 ${String(phases.length)} 个 · 节点 ${String(phases.reduce((sum, phase) => sum + ((phase.weeks ?? []).length), 0))} 个 · 已考 ${String(rounds.length)} 轮`),
+          // 这张表和上面的卷子是什么关系 —— 不写出来，读者只能自己猜。
+          h('div', { key: 'note', style: { ...S.meta, flexBasis: '100%' } }, '上面那张是「现在能考的这一场」；这张表是「一共几场、考过哪些、还欠哪几场」。'),
         ]),
       ];
       phases.forEach((phase, index) => {
