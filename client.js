@@ -287,12 +287,18 @@ window.__ModuleLoader__.load({
       } catch (failure) {
         throw new Error(`没法新建专用对话：${messageOf(failure)}`);
       }
+      // **`rename` 的返回值必须看**：它是 `{ ok, error }`，失败时**不抛**。
+      // 我原来只 try/catch 了"抛出的错"，于是改名失败被静默吃掉 —— 用户看到的是一行
+      // 「新会话」（DSH 的默认名），而页面说"运行都在「成长工作台」里"。
+      // 改名失败不挡住功能（id 才是身份），但**必须让人知道**。
+      let named = false;
       try {
-        await sessions.binding(id)?.session?.rename?.(AGENT_SESSION_TITLE);
+        const renamed = await sessions.binding(id)?.session?.rename?.(AGENT_SESSION_TITLE);
+        named = renamed?.ok === true;
       } catch {
-        // 改名失败不影响功能：id 才是身份，标题只是给人看的。
+        named = false;
       }
-      return id;
+      return { id, named };
     }
 
     /**
@@ -339,12 +345,14 @@ window.__ModuleLoader__.load({
         return { id: pinnedId, binding, created: false, revision };
       }
 
-      const id = await createAgentSession(sessions, state?.agentWorkspace);
+      const created = await createAgentSession(sessions, state?.agentWorkspace);
       // **先落盘再发**：落盘失败就不发，否则会出现"消息发了、下次又新建一个"的重复对话。
-      await call('/agent-session', { sessionId: id, title: AGENT_SESSION_TITLE });
-      const binding = await waitForBinding(sessions, id);
+      // 标题按实际改没改成功来落：改名失败时存「新会话」以外的真相没有意义 —— 页面会用
+      // 这个名字去说"运行都在「X」里"，存错了那句话就是假的。
+      await call('/agent-session', { sessionId: created.id, title: created.named ? AGENT_SESSION_TITLE : '新会话' });
+      const binding = await waitForBinding(sessions, created.id);
       if (binding === undefined) throw new Error('专用对话刚建好却寻址不到 —— 稍后再试一次');
-      return { id, binding, created: true, revision };
+      return { id: created.id, binding, created: true, named: created.named, revision };
     }
 
     /**
@@ -1519,6 +1527,9 @@ window.__ModuleLoader__.load({
       const title = typeof pin?.title === 'string' && pin.title.length > 0 ? pin.title : AGENT_SESSION_TITLE;
       const sessions = typeof rootCtx?.get === 'function' ? rootCtx.get('sessions') : undefined;
       const [note, setNote] = useState('');
+      // 动作的回声（「新建了对话「成长工作台」」这种）—— 与错误分开存，不然一句好消息长着
+      // 一张红脸。点了按钮什么都不说，用户读到的就是「没啥反应」（他的原话）。
+      const [ok, setOk] = useState('');
       const [busy, setBusy] = useState(false);
       // 既没固定、又没有会话服务（预览环境就是这样）：这一行没有话可说。
       if (pinnedId.length === 0 && sessions === undefined) return null;
@@ -1526,6 +1537,7 @@ window.__ModuleLoader__.load({
       const run = async (work) => {
         setBusy(true);
         setNote('');
+        setOk('');
         try {
           await work();
         } catch (failure) {
@@ -1547,10 +1559,14 @@ window.__ModuleLoader__.load({
         if (reply.ok !== true) throw new Error(reply.error ?? '改绑失败');
       });
       const rebuild = act('重建一个', async () => {
-        const id = await createAgentSession(sessions, state?.agentWorkspace);
-        const reply = await post('/agent-session', { sessionId: id, title: AGENT_SESSION_TITLE });
+        const created = await createAgentSession(sessions, state?.agentWorkspace);
+        const reply = await post('/agent-session', { sessionId: created.id, title: created.named ? AGENT_SESSION_TITLE : '新会话' });
         if (reply.ok !== true) throw new Error(reply.error ?? '固定失败');
-        sessions.open(id);
+        sessions.open(created.id);
+        // **要有回声**：点了按钮什么都不说，用户读到的是"没啥反应"（他的原话）。
+        setOk(created.named
+          ? `新建了对话「${AGENT_SESSION_TITLE}」，之后的运行都发进它。`
+          : '对话建好了，但没能改成「成长工作台」—— 它在侧栏里可能叫「新会话」。');
       });
 
       // 没有会话服务（预览里就是这样，别的宿主也可能）：这一行只剩说明 —— 两个动作都要
@@ -1564,6 +1580,7 @@ window.__ModuleLoader__.load({
           actions: sessions === undefined ? [] : [bindCurrent, pinnedId.length === 0 ? null : rebuild],
         }),
         note.length === 0 ? null : h('span', { key: 'note', style: S.error }, note),
+        ok.length === 0 ? null : h('span', { key: 'ok', style: { ...S.meta, color: 'var(--gw-teal, #2f7d74)' } }, ok),
       ]);
     }
 

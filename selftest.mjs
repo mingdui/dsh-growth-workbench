@@ -1921,6 +1921,15 @@ await check('专属会话的工作区：宿主侧的**空**目录，不是数据
   assert.equal(state.agentWorkspace, store.workspaceDir(), '/state 要把路径发下来')
   const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
   assert.match(source, /sessions\.create\(typeof cwd === 'string' && cwd\.length > 0 \? \{ cwd \} : \{\}\)/)
+  // **改名的返回值要检查**：`rename` 失败时返回 `{ ok: false }` 而**不抛** —— 只 try/catch
+  // 会把失败静默吃掉（用户建出来的对话就叫「新会话」，而页面说"运行都在「成长工作台」里"）。
+  assert.match(source, /const renamed = await sessions\.binding\(id\)\?\.session\?\.rename\?\.\(AGENT_SESSION_TITLE\)/)
+  assert.match(source, /named = renamed\?\.ok === true/, '要看 ok，不能只看有没有抛')
+  // 改了名才知道该存什么标题；存错了，页面上那句"运行都在「X」里"就是假的。
+  assert.match(source, /title: created\.named \? AGENT_SESSION_TITLE : '新会话'/)
+  // 点了按钮要有回声 —— 什么都不说，用户读到的就是「没啥反应」。
+  assert.match(source, /新建了对话「\$\{AGENT_SESSION_TITLE\}」/)
+  assert.match(source, /对话建好了，但没能改成「成长工作台」/)
   assert.ok(
     (source.match(/createAgentSession\(sessions, state\?\.agentWorkspace\)/g) ?? []).length >= 2,
     'askAgent 与「重建一个」两处新建都要带上工作区',
