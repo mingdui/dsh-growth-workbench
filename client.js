@@ -689,7 +689,18 @@ window.__ModuleLoader__.load({
         ? [h('div', { key: 'empty', style: S.empty }, state.plan.phases.length === 0
           ? '还没有计划。完成「画像」后就能生成。'
           : taskTotal === 0
-            ? '计划目前只排到周，还没有排到天的任务 —— 让 AI 把计划细化到天，这里就会出现今天该做的事。'
+            // 这句话原来只说「让 AI 把计划细化到天」，却没有任何入口 —— 用户被告知去找 AI，
+            // 而页面上没有能点的地方。入口就放在他被这句话拦住的地方。
+            ? h('div', { key: 'toDays', style: { display: 'flex', flexDirection: 'column', gap: '11px', alignItems: 'flex-start' } }, [
+              h('div', { key: 't' }, '计划目前只排到周，还没有排到天的任务 —— 让 AI 把它细化到天，这里就会出现今天该做的事。'),
+              h(AskButton, {
+                key: 'btn',
+                text: '帮我把计划细化到天',
+                label: '让 AI 细化到天',
+                style: S.buttonOn,
+                hint: '它会把每个阶段的周，拆成能排到某一天、并且能验收的任务。',
+              }),
+            ])
             : '计划里的任务都做完了 —— 该做一次考核，把成果沉淀下来。')]
         : state.focus.tasks.slice(0, 1).map((task) => h(TaskRow, { key: task.id, task, entry: state.progress.tasks?.[task.id], post }));
       kids.push(h('div', { key: 'card', style: S.card }, [
