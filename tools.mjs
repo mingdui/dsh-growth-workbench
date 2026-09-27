@@ -800,7 +800,7 @@ export const growthSaveAssessment = {
  */
 export const growthSaveLearning = {
   name: 'growth_save_learning',
-  description: `给**一道**任务补学习资料：怎么上手（method）、资料汇总（digest）、来源链接（links，最多 4 条）。用户会在任务卡上看到它，所以三样都写人话。**只写你真的检索到并读过的东西** —— 链接打不开比没有更糟：没搜到就只写 method 并如实说没找到可引用的来源，不许写「待补」这类占位，也不许凭记忆编 URL。digest 是给做题的人看的**汇总**（这道题要掌握的要点、常见的坑），不是资料清单的复述。只改这一道题，计划的其他部分一个字不动。`,
+  description: `给**一道**任务补学习资料：怎么上手（method）、资料汇总（digest）、来源链接（links，最多 4 条）。用户会在任务卡上看到它，所以三样都写人话。**只写你真的检索到并读过的东西** —— 链接打不开比没有更糟：没搜到就如实说没有可引用的来源，不许写「待补」这类占位，也不许凭记忆编 URL。**检索不可用时别就此收工**：先试 web_search，如果它报错（密钥无效、超时）或没有结果，改成**直接抓你确知的官方文档**（如 platform.openai.com/docs、docs.anthropic.com、huggingface.co/docs），抓到什么写什么。写回时说清这份汇总的来源形态：有链接就给链接；一条来源都没抓到，就只写 method/digest 并在 digest 里点明「这是通识，不是查到的」。digest 是给做题的人看的**汇总**（这道题要掌握的要点、常见的坑），不是资料清单的复述。只改这一道题，计划的其他部分一个字不动。`,
   parameters: {
     type: 'object',
     properties: {
