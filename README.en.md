@@ -229,7 +229,7 @@ dsh-growth-workbench/
 ├── validate.mjs        domain: the plan and review write gates
 ├── tools.mjs           host: the agent's six tools and its briefings
 ├── client.js           browser: left page (4 tabs) + right 今日 tab
-├── selftest.mjs        116 offline checks, no Harness required
+├── selftest.mjs        offline checks, no Harness required
 ├── docs/               product doc, architecture doc, blueprint
 └── scripts/            local install / update scripts
 ```
@@ -237,14 +237,14 @@ dsh-growth-workbench/
 ## Development
 
 ```bash
-npm test        # node selftest.mjs — 116 offline checks, no DSH required
+npm test        # node selftest.mjs — offline checks, no DSH required
 npm run check   # parse every file as the form it is loaded as
 ```
 
 The self-test covers each file parsing as its loaded form; the four identities; that no
 host file imports the Harness; the model's arithmetic (weights, gap, completion, streak,
 phase intervals, curve eligibility); every plan and review gate, with counter-examples;
-all six tools end to end against a throwaway home; and the twelve HTTP routes plus a 404.
+all six tools end to end against a throwaway home; and every HTTP route plus a 404.
 
 Read [CLAUDE.md](CLAUDE.md) before changing anything — it is the repository-level
 iteration contract, with the architectural boundaries and data principles that must not

@@ -171,7 +171,7 @@ dsh-growth-workbench/
 ├── validate.mjs        领域：计划与考核的写入门禁
 ├── tools.mjs           宿主：Agent 的 6 个工具与它的简报
 ├── client.js           浏览器：左侧整页（四页签）+ 右侧「今日」Tab
-├── selftest.mjs        116 项离线检查，不需要 Harness
+├── selftest.mjs        离线自检，不需要 Harness，不需要 Harness
 ├── docs/               产品文档、架构文档、产品蓝图
 └── scripts/            本地安装 / 更新脚本
 ```
@@ -179,11 +179,11 @@ dsh-growth-workbench/
 ## 开发
 
 ```bash
-npm test        # node selftest.mjs —— 116 项离线检查，不需要 DSH 在跑
+npm test        # node selftest.mjs —— 离线自检，不需要 DSH 在跑
 npm run check   # 七个文件逐个语法自检
 ```
 
-自检覆盖：每个文件按它被加载的形式解析、四处身份一致、宿主半边不 import Harness 包、模型的算术（权重 / 缺口 / 完成率 / 连续打卡 / 阶段天区间 / 曲线准入）、计划与考核的每一道门禁反例、6 个工具端到端跑在临时 `DSH_HOME` 上、12 条 HTTP 路由加一个 404。
+自检覆盖：每个文件按它被加载的形式解析、四处身份一致、宿主半边不 import Harness 包、模型的算术（权重 / 缺口 / 完成率 / 连续打卡 / 阶段天区间 / 曲线准入）、计划与考核的每一道门禁反例、6 个工具端到端跑在临时 `DSH_HOME` 上、每一条 HTTP 路由加一个 404。
 
 动手改之前请先读 [CLAUDE.md](CLAUDE.md) —— 仓库级迭代规范，写了不可破坏的架构边界与数据原则。
 

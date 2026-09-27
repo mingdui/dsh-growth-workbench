@@ -23,7 +23,7 @@
 ├── validate.mjs        领域：计划、能力模型与考核的写入门禁
 ├── tools.mjs           宿主：Agent 的 6 个工具与它的简报渲染
 ├── client.js           浏览器：左侧整页（四页签）+ 右侧「今日」Tab
-├── selftest.mjs        116 项离线检查
+├── selftest.mjs        离线自检（npm test）
 ├── scripts/            install.mjs / update.mjs（本地安装与更新）
 ├── docs/               产品文档、架构文档、产品蓝图
 └── .github/workflows/  CI 门禁
@@ -62,7 +62,7 @@ CI 会核对这四处。
 ## 开发循环
 
 ```bash
-npm test        # node selftest.mjs —— 116 项离线检查，不需要 DSH 在跑
+npm test        # node selftest.mjs —— 离线自检，不需要 DSH 在跑
 npm run check   # 七个文件逐个语法自检
 ```
 
