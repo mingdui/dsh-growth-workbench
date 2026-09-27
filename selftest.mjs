@@ -32,6 +32,25 @@ async function check(label, fn) {
   }
 }
 
+/**
+ * 取一个组件函数的源码片段。
+ *
+ * 按**"下一个组件开始"**切，不按某个具体函数名切 —— 组件在文件里的顺序会变，按名字切会切出
+ * 空串，于是 `doesNotMatch` 永远通过、`match` 永远失败：断言看着在守，其实没守。
+ */
+function sliceOfComponent(source, name) {
+  const start = source.indexOf(`function ${name}(`)
+  if (start < 0) return ''
+  const rest = source.slice(start + 1)
+  const end = rest.indexOf('\n    function ')
+  return rest.slice(0, end === -1 ? undefined : end)
+}
+
+/** 片段里的代码行（去掉整行注释）—— 注释里正当地写着那些词，不该被判违规。 */
+function codeOnly(text) {
+  return text.split('\n').filter((line) => !line.trim().startsWith('//')).join('\n')
+}
+
 /** A throwaway DSH home, so no check touches the real one. */
 const home = mkdtempSync(join(tmpdir(), 'growth-workbench-selftest-'))
 process.env.DSH_HOME = home
@@ -211,13 +230,13 @@ await check('写证据是一个弹窗：能写、能改、关掉不等于丢掉'
   assert.match(source, /'改写'/, '有内容时提示「改写」（加图在弹窗里承接）')
   // 只看代码、不看注释：注释里正当地写着"那条链撤了"，不该算违规。
   const codeOf = (text) => text.split('\n').filter((line) => !line.trim().startsWith('//')).join('\n')
-  assert.doesNotMatch(codeOf(source), /改写 \/ 加图/, '那条分开的文字链撤了 —— 框自己就是入口')
+  assert.doesNotMatch(codeOnly(source), /改写 \/ 加图/, '那条分开的文字链撤了 —— 框自己就是入口')
   // 缩略图在"整块可点"的框里：点它只该开图，不该把弹窗一起打开。
   assert.match(source, /onClick: \(event\) => event\.stopPropagation\(\)/)
   // **自己声明底色**：不声明就继承宿主给元素的底色（用户截图里那一整条深灰就是这么来的）。
   assert.match(source, /\.gw-root \.gw-answer\{background:transparent\}/)
   // 「证据 · 未交」撤了：档位只在定了之后显示 —— 「未交」是门禁的词，不是给人看的。
-  const evidenceLine = codeOf(source.slice(source.indexOf('function TaskEvidenceLine('), source.indexOf('function TaskLearnLine(')))
+  const evidenceLine = codeOnly(source.slice(source.indexOf('function TaskEvidenceLine('), source.indexOf('function TaskLearnLine(')))
   assert.doesNotMatch(evidenceLine, /未交/, '框里不再出现「未交」这个词')
   assert.match(source, /editing \? h\(EvidenceEditor, \{ key: 'editor'/)
   // 空证据时档位不可点：服务端有这条规则（证据空 → 档位退回），页面不能让你点个寂寞。
@@ -244,21 +263,12 @@ await check('学习资料在弹窗里读：任务行只放引子，方法/汇总
   // 来源日期、「重新找」、那句提示都收进弹窗（用户：「弹窗里面保留即可，外面不用显示」）。
   // 判据：任务行那一段里不许再出现这三样 —— 它们只该在 `LearningSheet` 里。
   // 取片段要按「下一个组件开始」切，不能按某个具体函数名切 —— 组件顺序会变，那样切出来的
-  // 可能是空串（于是断言永远通过，等于没有）。
-  const sliceOf = (name) => {
-    const start = source.indexOf(`function ${name}(`)
-    const rest = source.slice(start + 1)
-    const end = rest.indexOf('\n    function ')
-    return rest.slice(0, end === -1 ? undefined : end)
-  }
-  const learnRow = sliceOf('TaskLearnLine')
-  // **只看代码，不看注释** —— 注释里正当地写着"这些东西收进弹窗了"，那不该算违规
-  //（否则注释一变，断言就红，而它想拦的是"又长回界面上"）。
-  const codeOnly = (text) => text.split('\n').filter((line) => !line.trim().startsWith('//')).join('\n')
+  // 可能是空串（于是断言永远通过，等于没有）。见 `sliceOfComponent`。
+  const learnRow = sliceOfComponent(source, 'TaskLearnLine')
   assert.doesNotMatch(codeOnly(learnRow), /AI 找的/, '任务行不显示来源日期')
   assert.doesNotMatch(codeOnly(learnRow), /重新找/, '任务行不摆「重新找」')
   assert.doesNotMatch(codeOnly(learnRow), /链接会过期/, '任务行不显示那句提示')
-  const sheet = sliceOf('LearningSheet')
+  const sheet = sliceOfComponent(source, 'LearningSheet')
   assert.match(sheet, /AI 找的 · \$\{learn\.foundAt\}/, '弹窗里保留来源日期')
   assert.match(sheet, /label: '重新找一遍'/, '弹窗里保留「重新找」')
   // 那张纸上的三段，以及"没有来源"时要说清这是通识。
@@ -1710,10 +1720,18 @@ await check('提前：节奏比日历快，但不碰起始日与打卡日期', a
 
 await check('提前的入口长在需求出现的地方：今日页做完之后，不在设置卡里', () => {
   const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
-  // 页头如实说两边（我在做第 8 天 / 按日历第 5 天），只放"撤销"那一个动作。
-  assert.match(source, /state\.metrics\.aheadDays > 0 \? h\('div', \{ key: 'ahead'/)
-  assert.match(source, /你已经在做第 \$\{String\(state\.metrics\.day\)\} 天（按日历今天是第 \$\{String\(state\.metrics\.day - state\.metrics\.aheadDays\)\} 天）/)
-  assert.match(source, /post\('\/ahead', \{ days: 0 \}\)/, '回到日历节奏要一键可达')
+  // **状态与设置放页脚**：如实说两边（我在做第 8 天 / 按日历第 5 天），只放"撤销"那一个动作。
+  // 这一条原来钉的是页头 —— 后来用户说「这块放下面就行，顶部留给核心内容」，于是它挪进
+  // `WorkbenchFoot`；断言也跟着改成钉**位置**（在页脚里、不在页头里），而不只是钉文案还在。
+  const foot = sliceOfComponent(source, 'WorkbenchFoot')
+  assert.match(foot, /ahead > 0 \? h\('div', \{ key: 'ahead'/, '提前提示在页脚')
+  assert.match(foot, /你已经在做第 \$\{String\(state\.metrics\.day\)\} 天（按日历今天是第 \$\{String\(state\.metrics\.day - ahead\)\} 天）/)
+  assert.match(foot, /post\('\/ahead', \{ days: 0 \}\)/, '回到日历节奏要一键可达')
+  const header = sliceOfComponent(source, 'WorkbenchHeader')
+  assert.doesNotMatch(header, /key: 'ahead'/, '页头不再挂那条提前提示')
+  assert.doesNotMatch(header, /h\(AgentSessionLine/, '页头不再挂「Agent 运行在哪」——它也归页脚')
+  assert.match(foot, /h\(AgentSessionLine, \{ key: 'agent-session'/, 'Agent 会话那一行在页脚')
+  assert.match(source, /h\(WorkbenchFoot, \{ key: 'foot', state, post \}\)/, '页脚真的挂在页面底部（在页签正文之后）')
   // 「继续做下一天」长在今日页 —— 今天排的做完了、后面还有任务时，才出现。
   // 断言写「kids.push」而不是只写文案：我第一版把它写成了一个被丢掉的三元表达式 ——
   // 文案在、元素也造出来了，就是没进那棵树（渲染出来什么都没有）。

@@ -1358,15 +1358,6 @@ window.__ModuleLoader__.load({
           style: { padding: '16px 18px', borderRadius: '15px', boxShadow: '0 14px 28px rgba(37,59,57,.16)' },
           aside: onThisTab ? null : h('button', { key: 'go', type: 'button', style: { ...S.button, background: '#f3c26b', borderColor: '#f3c26b', color: '#253b39' }, onClick: () => onNavigate(action.targetTab, action.targetAnchor) }, '现在去做 →'),
         }),
-        // 节奏比日历快的时候，页头如实说两边 —— 四个页签都在，因为「我在做第 8 天、按日历
-        // 才第 5 天」这件事一旦不说清，用户读到的每个数字都会错位。这里只放**撤销**那一个
-        // 动作：「继续下一天」长在今日页任务做完的地方（需求出现在那儿），不在这儿重复一次。
-        state.metrics.aheadDays > 0 ? h('div', { key: 'ahead', className: 'gw-ahead', style: { ...S.meta, display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', padding: '9px 12px', borderRadius: '10px', background: '#fdf3e4', border: '1px solid #f0dcb4' } }, [
-          h('span', { key: 'what' }, state.metrics.day === null
-            ? '你的节奏比日历快 —— 计划还没开始，所以还没有"第几天"'
-            : `你已经在做第 ${String(state.metrics.day)} 天（按日历今天是第 ${String(state.metrics.day - state.metrics.aheadDays)} 天）`),
-          h('button', { key: 'off', type: 'button', className: 'gw-quiet', style: { ...S.fine, ...S.quiet }, onClick: () => { void post('/ahead', { days: 0 }); } }, '回到日历节奏'),
-        ]) : null,
         activity === null ? null : h('div', { key: 'activity', role: 'status', 'aria-live': 'polite', style: { ...S.meta, padding: '9px 12px', borderRadius: '10px', background: activity.status === 'error' ? '#fff0ed' : activity.status === 'completed' ? '#edf7ef' : '#f3efe8' } }, activity.status === 'completed'
           ? (activity.wrote === true
             ? 'AI 已返回结果，页面已自动更新。'
@@ -1374,6 +1365,29 @@ window.__ModuleLoader__.load({
             // 「页面已自动更新」就是空欢喜，得说清去哪儿看它说了什么。
             : `AI 跑完了，这次没有改动页面数据 —— 它说了什么在「${agentTitle}」那个对话里。`)
           : activity.status === 'error' ? `AI 处理失败：${activity.error}` : activity.status === 'queued' ? 'AI 已接手，页面会自动刷新结果，不需要守着对话。' : `正在把请求送进「${agentTitle}」对话…`),
+      ]);
+    }
+
+    /**
+     * 页脚：**状态与设置**，不是核心内容。
+     *
+     * 这两行原先在页头 —— 夹在「下一步」和指标卡之间。于是每次打开这一页，第一眼读到的是
+     * "你的节奏比日历快几天""Agent 在哪个对话里跑"：都重要，但都不是"我现在要做什么"。
+     * 核心内容留在上面，这些挪到下面（用户：「这块放下面就行，顶部留给核心内容」）。
+     * 顶部的 DAY 徽标仍然说着"第几天"，所以挪下去没丢信息。
+     */
+    function WorkbenchFoot({ state, post }) {
+      const ahead = state.metrics.aheadDays ?? 0;
+      const pinned = state.profile.agentSession ?? null;
+      const hasAgentLine = (typeof pinned?.id === 'string' && pinned.id.length > 0) || typeof rootCtx?.get === 'function';
+      if (ahead === 0 && !hasAgentLine) return null;
+      return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '4px' } }, [
+        ahead > 0 ? h('div', { key: 'ahead', className: 'gw-ahead', style: { ...S.meta, display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', padding: '9px 12px', borderRadius: '10px', background: '#fdf3e4', border: '1px solid #f0dcb4' } }, [
+          h('span', { key: 'what' }, state.metrics.day === null
+            ? '你的节奏比日历快 —— 计划还没开始，所以还没有"第几天"'
+            : `你已经在做第 ${String(state.metrics.day)} 天（按日历今天是第 ${String(state.metrics.day - ahead)} 天）`),
+          h('button', { key: 'off', type: 'button', className: 'gw-quiet', style: { ...S.fine, ...S.quiet }, onClick: () => { void post('/ahead', { days: 0 }); } }, '回到日历节奏'),
+        ]) : null,
         h(AgentSessionLine, { key: 'agent-session', state, post }),
       ]);
     }
@@ -2852,6 +2866,8 @@ window.__ModuleLoader__.load({
            error.length > 0 ? h('div', { key: 'error', style: S.error }, error) : null,
            h(WorkbenchHeader, { key: 'header', state, post, onNavigate: navigate, hideNext: tab === 'profile', currentTab: tab }),
            bodies[tab](),
+           // 状态与设置放最下面 —— 顶部留给"我现在要做什么"。
+           h(WorkbenchFoot, { key: 'foot', state, post }),
          ])),
       ]);
     }
