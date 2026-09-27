@@ -29,11 +29,13 @@ import { join, resolve, sep } from 'node:path'
 /**
  * Document shape version, so a future migration has something to read.
  *
- * 3 加了 `profile.agentSession`（固定对话）。这是**向后兼容**的新字段：`read()` 会把
- * 磁盘上的文档盖在 {@link empty} 上，旧文档没有它就取到 `null`，行为与旧版一致 —— 所以
- * 不需要手工迁移（见 CLAUDE.md 的两条安全路径）。
+ * 3 加了 `profile.agentSession`（固定对话）。4 加了 `progress.tasks[].checkInDays`
+ * （进度天）。两个都是**向后兼容**的新字段：`read()` 会把磁盘上的文档盖在 {@link empty}
+ * 上，旧文档取到 `null` / 空列表；进度条目缺 `checkInDays` 时由
+ * `model.planDaysOf` 拿 `checkInDates` 按 `planStart` 当场推回来 —— 所以都不需要手工迁移
+ * （见 CLAUDE.md 的两条安全路径）。
  */
-export const DATA_VERSION = 3
+export const DATA_VERSION = 4
 
 /** The DSH home this plugin stores under. A launcher always exports `DSH_HOME`. */
 export function dshHome() {
@@ -245,22 +247,26 @@ export function progressEntry(progress, taskId) {
   if (existing !== undefined) return existing
   // `images` 是后加的字段：旧文档里没有它，`{ ...empty, ...parsed }` 那一套不管这个（进度
   // 条目不是整份文档），所以读取处一律写 `entry.images ?? []` —— 见 addEvidenceImage / 页面。
-  return { done: false, evidence: '', tier: null, checkInDates: [], lastDate: '', images: [] }
+  return { done: false, evidence: '', tier: null, checkInDates: [], checkInDays: [], lastDate: '', images: [] }
 }
 
 /**
  * Record one check-in against a task.
  *
- * `打卡日期` **accumulates** and never overwrites: the streak is counted from the
- * union of every task's dates, so overwriting would make "three days on one task"
- * read as one day — exactly the state the减量 rule puts people in.
+ * 记两样东西，各管各的：
+ *
+ *   - `checkInDates` —— **真实日期**（"我什么时候做的"）。它只追加、不覆盖，
+ *     连续打卡与任何审计都从这里读得懂。
+ *   - `checkInDays` —— **进度天**（"这一笔算计划里的第几天"）。连续打卡按它算：
+ *     用户今天有空一口气推进三天，那是连续三天的进展，按日历只会读成 1 天。
  *
  * @param taskId - 任务标识（`T<n>`）—— the only identity allowed to key storage.
  * @param patch - `{ done?, evidence?, tier? }`; omitted fields keep their value.
- * @param date - the check-in date; defaults to today.
+ * @param date - the real check-in date; defaults to today.
+ * @param planDay - the progress day this check-in belongs to (page passes the pointer).
  * @returns the updated entry.
  */
-export function checkIn(taskId, patch = {}, date = today()) {
+export function checkIn(taskId, patch = {}, date = today(), planDay = null) {
   if (typeof taskId !== 'string' || !/^T\d+$/.test(taskId)) {
     throw new Error(`growth-workbench: task id must look like T<n>, got ${JSON.stringify(taskId)}`)
   }
@@ -277,6 +283,9 @@ export function checkIn(taskId, patch = {}, date = today()) {
   // 证据为空 → 档位必须是 null，不要默认成「自述」。
   if (entry.evidence === '') entry.tier = null
   entry.checkInDates = [...new Set([...(entry.checkInDates ?? []), date])].sort()
+  if (Number.isInteger(planDay)) {
+    entry.checkInDays = [...new Set([...(entry.checkInDays ?? []), planDay])].sort((left, right) => left - right)
+  }
   entry.lastDate = entry.checkInDates[entry.checkInDates.length - 1] ?? ''
   progress.tasks = { ...progress.tasks, [taskId]: entry }
   progress.updated = new Date().toISOString()

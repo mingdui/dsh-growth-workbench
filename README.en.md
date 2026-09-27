@@ -177,10 +177,15 @@ the thumbnail deletes one** — rewriting the plan or dropping a task never touc
 your evidence is yours, not a cache.
 
 **An extra day spare? A task you already know how to do?** Once today's tasks are done the
-今日 tab offers "继续做第 N 天 →": the pace is yours, there is no need to wait for the
+今日 tab offers "继续做下一天 →": the pace is yours, there is no need to wait for the
 calendar. It changes only *which day you are on* — the header then says both ("你已经在做第
-8 天（按日历今天是第 5 天）") and offers *back to the calendar pace*. The start date and every
-check-in date stay real: a check-in records what actually happened.
+8 天（按日历今天是第 5 天）") and offers *back to the calendar pace*. The start date and the
+actual check-in dates stay real: a check-in records what actually happened.
+
+**The streak counts progress days**: push three days forward in one sitting and it reads
+**three**. Anywhere a date is shown, it is the date the plan's day N falls on (derived from
+the start date), so changing the start date moves them all together instead of leaving a
+trail of dates that no longer agree.
 
 A button is **a shortcut for typing, not a hidden worker**: the phrase is delivered as an
 **ordinary user turn**, so you watch it read, you can interrupt it, and you can correct it

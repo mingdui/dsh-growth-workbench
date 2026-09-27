@@ -82,10 +82,11 @@ function progressLine(task, entry) {
 /** The metrics block every briefing opens with. */
 function metricsBlock(state) {
   const { profile, plan, progress, assessments } = state
-  // 试跑期间"今天"是被拨过的那一天 —— Agent 读到的那一天必须与页面显示的一致，
-  // 否则它按真实日期写下来的考核轮次会和页面对不上（见 store.effectiveToday）。
+  // 两个时钟都交给 Agent，别让它自己猜：`day` 是**进度天**（它写考核轮次要用的），
+  // `planDate` 是那一天对应的**计划日期**，`today()` 是**真实日期**。提前模式下后两者不同。
   const date = effectiveToday(profile)
   const day = dayNumber(plan.planStart, date)
+  const planDate = day === null ? '' : dateOfDay(plan.planStart, day)
   const phase = currentPhase(plan, day)
   const completion = completionRate(plan, progress)
   const evidence = evidenceDistribution(plan, progress)
@@ -97,17 +98,19 @@ function metricsBlock(state) {
   const lines = [
     `# 成长工作台 · 现状`,
     ``,
-    `- 今天：${date}（第 ${day === null ? '—' : String(day)} 天，当前阶段：${phase?.name ?? '—'}）`,
+    `- 今天：${day === null ? date : planDate}（计划第 ${day === null ? '—' : String(day)} 天，当前阶段：${phase?.name ?? '—'}）`,
+    // 只有两个时钟不同的时候才啰嗦这一句 —— 平时它就是噪音。
+    planDate.length > 0 && planDate !== today() ? `- ⚠️ 节奏比日历快：进度天是第 ${String(day)} 天，实际日期是 ${today()}（打卡日期照样记实际日期）` : '',
     `- 目标方向：${profile.targetRole || '（未设定）'}${profile.targetRoleStatus ? `（${ROLE_STATUS[profile.targetRoleStatus]?.label ?? profile.targetRoleStatus}）` : ''}`,
     `- 路线：${profile.route || '—'}　每天投入：${profile.timePerDay || '—'}　截止：${profile.deadline || '—'}`,
     `- 计划起始日：${plan.planStart || '（未设定 —— 面板只能拿首次打开日当第 1 天）'}`,
     ``,
     `## 进度口径`,
     `- 完成率：已完成 ${String(completion.done)} / 全部 ${String(completion.total)}（${completion.rate === null ? '—' : `${String(Math.round(completion.rate * 100))}%`}）`,
-    `- 本周完成率：${rate === null ? '—（本周没有排到天的任务，不是 0%）' : `${String(Math.round(rate * 100))}%`}`,
-    `- 连续打卡天数：${String(streakDays(progress, date))}`,
+    `- 第 ${day === null ? '—' : String(Math.floor((day - 1) / 7) + 1)} 周完成率：${rate === null ? '—（这一周没有排到天的任务，不是 0%）' : `${String(Math.round(rate * 100))}%`}`,
+    `- 连续打卡天数：${String(streakDays(progress, day, plan.planStart))}（按**进度天**算：一天里推进三天就是连续三天）`,
     `- 证据档位分布：成果 ${String(evidence.成果)} 条 / 过程 ${String(evidence.过程)} 条 / 自述 ${String(evidence.自述)} 条 / 无证据 ${String(evidence.无证据)} 条`,
-  ]
+  ].filter(Boolean)
   if (analysis !== null) {
     lines.push(
       ``,

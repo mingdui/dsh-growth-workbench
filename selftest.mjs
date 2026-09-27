@@ -757,13 +757,30 @@ await check('任务引用由位置派生，任务标识才是身份', () => {
   assert.equal(model.taskById(PLAN, 'T3').ref, '2.1')
 })
 
-await check('连续打卡天数从全部任务打卡日的并集数', () => {
-  // 同一任务连打三天 —— 按「每任务最新日」算会读成 1 天。
-  const progress = { tasks: { T1: { checkInDates: ['2026-09-25', '2026-09-26', '2026-09-27'] } } }
-  assert.equal(model.streakDays(progress, '2026-09-27'), 3)
-  assert.equal(model.streakDays(progress, '2026-09-28'), 3, '今天还没打卡不算断')
-  assert.equal(model.streakDays(progress, '2026-09-30'), 0)
-  assert.equal(model.streakDays({ tasks: {} }, '2026-09-27'), 0)
+await check('连续打卡按进度天数：一天里推进三天就是连续三天', () => {
+  const planStart = '2026-09-25'
+  // 1) 同一任务连推三天 —— 按「每任务最新天」算会读成 1 天。
+  const one = { tasks: { T1: { checkInDays: [1, 2, 3] } } }
+  assert.equal(model.streakDays(one, 3, planStart), 3)
+  assert.equal(model.streakDays(one, 4, planStart), 3, '进度天今天还没推进不算断')
+  assert.equal(model.streakDays(one, 6, planStart), 0)
+  assert.equal(model.streakDays({ tasks: {} }, 3, planStart), 0)
+
+  // 2) 用户今天有空、一口气推进三天：三个任务，真实日期是同一天，进度天是 1/2/3。
+  const sameRealDay = {
+    tasks: {
+      T1: { checkInDates: ['2026-09-25'], checkInDays: [1] },
+      T2: { checkInDates: ['2026-09-25'], checkInDays: [2] },
+      T3: { checkInDates: ['2026-09-25'], checkInDays: [3] },
+    },
+  }
+  assert.equal(model.streakDays(sameRealDay, 3, planStart), 3, '按日历只有 1 天，按进度天是 3 天')
+
+  // 3) 老文档没有 checkInDays：拿真实日期按 planStart 当场推回来（底层按进度天、
+  //    上层动态关联日期 —— 读取端只有一次换算，没有第二种真相）。
+  const legacy = { tasks: { T1: { checkInDates: ['2026-09-25', '2026-09-26', '2026-09-27'] } } }
+  assert.deepEqual(model.planDaysOf(legacy.tasks.T1, planStart), [1, 2, 3])
+  assert.equal(model.streakDays(legacy, 3, planStart), 3)
 })
 
 await check('第几天与当前阶段', () => {
@@ -1511,22 +1528,28 @@ await check('提前：节奏比日历快，但不碰起始日与打卡日期', a
   const shifted = (await callApi('GET', `${api.API_PREFIX}/state`)).body
   assert.equal(shifted.metrics.aheadDays, 3)
   assert.equal(shifted.metrics.day, before + 3, '第几天跟着走（今日任务、阶段、周次都跟着走）')
-  assert.equal(shifted.today, store.effectiveToday({ aheadDays: 3 }))
+  // 两个时钟分开：`today` 是真实的那一天，`planDate` 是进度天对应的**计划日期**（动态算）。
+  assert.equal(shifted.today, store.today(), '页面读到的"今天"是真实的今天')
+  assert.equal(shifted.planDate, store.effectiveToday({ aheadDays: 3 }), '计划日期由进度天推出来')
   assert.equal(store.read('plan').planStart, planStart, '起始日是"计划从哪天开始"这个事实，一个字都不动')
 
   // 打卡记的仍是**真实日期**：提前改的是"我在做第几天"，不是"现在几号"。
   const taskId = model.planTasks(store.read('plan'))[0].id
   await callApi('POST', `${api.API_PREFIX}/checkin`, { taskId, done: true, evidence: '提前做完的' })
-  const dates = store.read('progress').tasks[taskId].checkInDates
-  assert.ok(dates.includes(store.today()), '打卡日期是真实的今天')
+  const entry = store.read('progress').tasks[taskId]
+  assert.ok(entry.checkInDates.includes(store.today()), '打卡日期是真实的今天')
   assert.ok(
-    !dates.includes(store.effectiveToday({ aheadDays: 3 })),
+    !entry.checkInDates.includes(store.effectiveToday({ aheadDays: 3 })),
     '被提前到的那一天不该进打卡记录 —— 提前改的是"我在做第几天"，不是"现在几号"',
   )
+  // 同一笔打卡记下两样东西：真实日期（什么时候做的）+ 进度天（算计划里的第几天）。
+  assert.ok(entry.checkInDays.includes(before + 3), '打卡同时记下进度天')
 
   // Agent 读到的必须是同一天 —— 否则它按真实日期写下的轮次会和页面显示的对不上。
   const brief = await tools.growthContext.execute({ scope: 'brief' })
-  assert.ok(brief.includes(store.effectiveToday({ aheadDays: 3 })), '简报里的"今天"与页面同一天')
+  assert.ok(brief.includes(store.effectiveToday({ aheadDays: 3 })), '简报里的计划日期与页面的 planDate 同一天')
+  assert.ok(brief.includes(store.today()), '简报里也给出真实日期')
+  assert.match(brief, /节奏比日历快/, '两个时钟不同时要说明白')
 
   // 回到日历节奏：回到真实的那一天。
   await callApi('POST', `${api.API_PREFIX}/ahead`, { days: 0 })

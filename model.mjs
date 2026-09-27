@@ -665,32 +665,52 @@ export function taskById(plan, id) {
 }
 
 /**
- * 连续打卡天数：全部任务 `打卡日期` 的**并集**，从最近一次
- * 往前连续数。
+ * 一条打卡记录落在**计划里的第几天**（可能不止一天）。
  *
- * 用并集而不是"每个任务的最新日"：减量期用户每天只推进同一个任务，
- * 按后者算会把连打三天读成 1 天 —— 最需要正反馈的人看到最错的数字。
+ * 底层存的是 `checkInDays`（进度天）。老文档没有这个字段，就用 `checkInDates`（真实日期）
+ * 按 `planStart` **当场推回来** —— 这就是"底层按进度天、上层动态关联日期"那条规矩的读取端：
+ * 没有第二种真相，只有一次换算。
  */
-export function streakDays(progress, today) {
+export function planDaysOf(entry, planStart) {
+  if (Array.isArray(entry?.checkInDays) && entry.checkInDays.length > 0) {
+    return entry.checkInDays.filter((day) => Number.isInteger(day))
+  }
+  return (entry?.checkInDates ?? [])
+    .map((date) => dayNumber(planStart, date))
+    .filter((day) => Number.isInteger(day))
+}
+
+/**
+ * 连续打卡：全部任务的**进度天**并集，从当前进度天往前连续数。
+ *
+ * 为什么是进度天而不是日历天：用户今天有空、一口气推进了三天 —— 那是**连续三天**的进展，
+ * 按日历算只会读成 1 天，最需要正反馈的人看到最错的数字。反过来，日历上隔了一周没动、
+ * 但计划里是接着推进的，也不该被算成"断了"。
+ *
+ * 用并集而不是"每个任务的最新天"：减量期用户每天只推进同一个任务，按后者算会把连打三天
+ * 读成 1 天 —— 同一个错误，另一条路径。
+ *
+ * @param day - 当前**进度天**（不是日期）；计划没开始时传 null。
+ */
+export function streakDays(progress, day, planStart) {
+  if (!Number.isInteger(day) || day < 1) return 0
   const days = new Set()
   for (const entry of Object.values(progress?.tasks ?? {})) {
-    for (const date of entry?.checkInDates ?? []) days.add(date)
+    for (const value of planDaysOf(entry, planStart)) days.add(value)
   }
   if (days.size === 0) return 0
-  const cursor = new Date(`${today}T00:00:00.000Z`)
-  if (!days.has(today)) {
-    // 今天还没打卡不算断：从昨天起数。
-    cursor.setUTCDate(cursor.getUTCDate() - 1)
-    const yesterday = cursor.toISOString().slice(0, 10)
-    if (!days.has(yesterday)) return 0
+  let cursor = day
+  if (!days.has(cursor)) {
+    // 进度天今天还没打卡不算断：从前一天起数。
+    cursor -= 1
+    if (!days.has(cursor)) return 0
   }
   let count = 0
-  for (;;) {
-    const key = cursor.toISOString().slice(0, 10)
-    if (!days.has(key)) return count
+  while (days.has(cursor)) {
     count += 1
-    cursor.setUTCDate(cursor.getUTCDate() - 1)
+    cursor -= 1
   }
+  return count
 }
 
 /** 计划内第几天（从 `planStart` 起算，第 1 天就是 planStart）。 */

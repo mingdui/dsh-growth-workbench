@@ -163,7 +163,12 @@ function record(value) {
  */
 export function buildState() {
   const { profile, plan, progress, assessments } = readAll()
-  // 试跑期间"今天"是被拨过的那一天 —— 页面与 Agent 用的是同一个日期，见 effectiveToday。
+  // **两个时钟，分开**：
+  //   · 进度天（`day`）—— "我在做第几天"。日历 + 提前的天数，见 effectiveToday。
+  //     第几天、当前阶段、今日任务、周次、考核节奏、连续打卡，全都用它。
+  //   · 日历（`today` / 计划日期）—— 真实的那一天。打卡日期记它，页面要显示日期时，
+  //     显示的是**计划第 N 天对应的日期**（`planDate`，动态算、不落盘）。
+  // 缝在一起的时候，提前模式下考卷刊头会印出一个还没到的日期 —— 那是同一件事两处口径。
   const date = effectiveToday(profile)
   const history = assessments.history ?? []
   const tasks = planTasks(plan)
@@ -188,7 +193,11 @@ export function buildState() {
 
   return {
     ok: true,
-    today: date,
+    // `today` 是**真实**的那一天（打卡、审计、记录用它）。
+    today: today(),
+    // `planDate` 是"进度天对应的计划日期"，动态算、不落盘：页面要显示日期时用它 ——
+    // 提前模式下它与 `today` 不同，而这两个数本来就回答不同的问题。
+    planDate: day === null ? '' : dateOfDay(plan.planStart, day),
     revision,
     nextAction,
     profile,
@@ -205,7 +214,7 @@ export function buildState() {
       phaseIndex: phase === undefined ? -1 : plan.phases.indexOf(phase),
       phaseDays: phase?.days ?? [],
       completion,
-      streak: streakDays(progress, date),
+      streak: streakDays(progress, day, plan.planStart),
       weekRate: weekRate(plan, progress, day),
       // 每周完成率，供「计划」页画执行趋势。只到本周为止 —— 未来周还没到，
       // 画上去就是一排 0%，那不是「执行得差」，是「还没到」。那一周没排到天的
@@ -455,8 +464,10 @@ function saveSelfAssessment(body) {
   }
 
   const analysis = gapAnalysis(role, scores)
+  // 记录里的 `date` 是**真实日期**（什么时候打的这一轮），`day` 是**进度天**（打的是哪一段）。
+  // 手动自评与 Agent 写的那条必须同一个口径 —— 两边各算一遍就会差一个提前的天数。
   const date = today()
-  const day = dayNumber(plan.planStart, date)
+  const day = dayNumber(plan.planStart, effectiveToday(profile))
   const history = assessments.history ?? []
   const window = reviewWindow(history, date, day, plan.planStart)
 
@@ -548,11 +559,21 @@ async function mutate(route, body) {
     }
     case '/checkin': {
       const taskId = String(body.taskId ?? '')
-      const { plan } = readAll()
+      const { profile, plan } = readAll()
       if (planTasks(plan).every((task) => task.id !== taskId)) {
         throw new Error(`计划里没有 ${taskId} 这个任务（任务可能已被删除）`)
       }
-      return { entry: checkIn(taskId, { done: body.done, evidence: body.evidence, tier: body.tier }, typeof body.date === 'string' && body.date.length === 10 ? body.date : undefined) }
+      // 打卡同时记下**进度天**：连续打卡按它算（见 model.streakDays）；真实日期照旧记着，
+      // 它回答的是另一个问题（"我什么时候做的"）。
+      const planDay = dayNumber(plan.planStart, effectiveToday(profile))
+      return {
+        entry: checkIn(
+          taskId,
+          { done: body.done, evidence: body.evidence, tier: body.tier },
+          typeof body.date === 'string' && body.date.length === 10 ? body.date : undefined,
+          planDay,
+        ),
+      }
     }
     case '/transferable': {
       // 一次提交可以同时做两件事：确认几条（进 verifiedFacts）、否掉几条（进

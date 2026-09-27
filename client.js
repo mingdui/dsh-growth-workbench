@@ -928,6 +928,8 @@ window.__ModuleLoader__.load({
       const { metrics } = state;
       const day = dayInfo(metrics.day);
       const week = metrics.weekRate === null ? undefined : String(Math.round(metrics.weekRate * 100));
+      // 「本周」在提前模式下不是字面意义的本周 —— 它一直是**计划里的第 N 周**。所以按计划叫它。
+      const weekNo = metrics.day === null || metrics.day < 1 ? null : Math.floor((metrics.day - 1) / 7) + 1;
       // gap 是加权缺口的**比例**（模型里断言的就是 180/1300 这种值），不是分数 ——
       // 所以这里印成百分比，而不是把它当"分"报出去。
       const gap = metrics.gap === null || metrics.gap === undefined ? undefined : String(Math.round(metrics.gap * 100));
@@ -936,7 +938,7 @@ window.__ModuleLoader__.load({
           h('div', { key: 'strip', style: { display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', flex: '1 1 auto' } }, [
             h(Readout, { key: 'day', first: true, value: day.value, cap: day.cap }),
             h(Readout, { key: 'done', value: `${String(metrics.completion.done)}/${String(metrics.completion.total)}`, cap: '完成' }),
-            h(Readout, { key: 'week', value: week === undefined ? '—' : week, unit: week === undefined ? undefined : '%', cap: '本周完成率' }),
+            h(Readout, { key: 'week', value: week === undefined ? '—' : week, unit: week === undefined ? undefined : '%', cap: weekNo === null ? '本周完成率' : `第 ${String(weekNo)} 周` }),
             h(Readout, { key: 'gap', value: gap === undefined ? '—' : gap, unit: gap === undefined ? undefined : '%', cap: '距达标线' }),
           ]),
           metrics.streak > 0 ? h(Seal, { key: 'streak', tone: 'teal', label: `连续 ${String(metrics.streak)} 天`, sub: '不间断' }) : null,
@@ -979,7 +981,10 @@ window.__ModuleLoader__.load({
         : state.focus.tasks.slice(0, 1).map((task) => h(TaskRow, { key: task.id, task, entry: state.progress.tasks?.[task.id], post, reload, tiers: state.catalog.tiers }));
       kids.push(h('div', { key: 'card', style: S.card }, [
         h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '14px', flexWrap: 'wrap' } }, [
-          h('h3', { key: 'title', style: S.h3 }, state.focus.scheduled ? '今天要做' : '接下来要做'),
+          h('h3', { key: 'title', style: S.h3 }, state.focus.scheduled
+            // 提前模式下"今天"不是字面意义的今天 —— 那就是"你在第 N 天要做"。
+            ? (aheadDays > 0 && pointer !== null ? `你在第 ${String(pointer)} 天要做` : '今天要做')
+            : '接下来要做'),
           // 全部做完才落这枚章 —— 它得是真的，否则就成了那种"永远在表扬你"的装饰。
           state.focus.tasks.length > 0 && state.focus.tasks.every((task) => state.progress.tasks?.[task.id]?.done === true)
             ? h(Seal, { key: 'all', tone: 'teal', label: '已全部完成', sub: `共 ${String(state.focus.tasks.length)} 件`, stamp: true })
@@ -1419,7 +1424,9 @@ window.__ModuleLoader__.load({
       if (weekRates.length > 0) {
         kids.push(h('div', { key: 'exec-trend', style: S.card }, [
           h('h3', { key: 't', style: S.h3 }, '执行趋势'),
-          h('div', { key: 'sub', style: S.meta }, '每周完成率，到本周为止。'),
+          h('div', { key: 'sub', style: S.meta }, weekRates.length > 0 && state.metrics.day !== null
+            ? `每周完成率，到第 ${String(Math.floor((state.metrics.day - 1) / 7) + 1)} 周为止。`
+            : '每周完成率，到本周为止。'),
           h(WeekTrendChart, { key: 'chart', rates: weekRates }),
           h('div', { key: 'note', style: S.fine }, '完成率 = 那一周排到天的任务里完成了多少；那一周没排到天的任务时不画柱子。'),
         ]));
@@ -1753,7 +1760,9 @@ window.__ModuleLoader__.load({
         h('div', { key: 'mast', className: 'gw-masthead' }, [
           h('div', { key: 't', className: 't' }, dayInfo(state.metrics.day).started ? `考核 · 第 ${String(day)} 天` : '考核 · 计划还没开始'),
           h('div', { key: 'right', style: { display: 'flex', alignItems: 'baseline', gap: '16px' } }, [
-            h('div', { key: 'd', className: 'd' }, state.today),
+            // 刊头印的是**计划第 N 天对应的日期**（动态算），不是"今天"：这张卷子属于哪一段，
+            // 由进度天决定。真实日期在记录里（考核历史那一栏），两者回答的不是同一个问题。
+            h('div', { key: 'd', className: 'd' }, state.planDate || state.today),
             h('button', {
               key: 'swap',
               className: 'swap',
