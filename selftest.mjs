@@ -2081,8 +2081,11 @@ await check('专属会话的工作区：宿主侧的**空**目录，不是数据
   assert.match(source, /const workspaceId = await ensureAgentWorkspace\(cwd, knownWorkspaceId\)/, '建会话前先把工作区确保下来')
   assert.match(source, /return \{ id, named, reason, workspaceId \};/, '建出来的会话要带上"归到哪个工作区"')
   // 空对话在侧栏里显示「新会话」是 **DSH 的规矩**（`displayTitle`：blank 的行一律用那个标签，
-  // 不看标题）—— 用户为此报过两次，所以回声里要把这件事说清楚，别再让人以为是没改上名。
-  assert.match(source, /空对话在侧栏里显示成「新会话」/, '空对话的显示规矩要说出来')
+  // 不看标题）。用户点名要的解法是把话说在前面：「重建一个」之后自动发一句「老师好！」——
+  // 那一行当场归位，老师也开了口。
+  assert.match(source, /const AGENT_GREETING = '老师好！'/)
+  assert.match(source, /void askAgent\(AGENT_GREETING\)\.catch\(\(\) => \{\}\)/, '重建之后自动打招呼')
+  assert.match(source, /已经把「\$\{AGENT_GREETING\}」发过去了/, '回声要说这句已经发了')
   assert.match(source, /没能归到工作区 —— 侧栏里挂在「未分组」下/, '没归上就说没归上')
 
   // 宿主侧：注册走 `ctx.get`（拿不到就退回 cwd），**不能写进 inject** —— 某些 profile 不挂工作区
@@ -2109,7 +2112,7 @@ await check('专属会话的工作区：宿主侧的**空**目录，不是数据
   assert.match(source, /title: created\.named \? AGENT_SESSION_TITLE : '新会话'/)
   // 点了按钮要有回声 —— 什么都不说，用户读到的就是「没啥反应」。
   assert.match(source, /新建了对话「\$\{AGENT_SESSION_TITLE\}」/)
-  assert.match(source, /对话建好了，但没能改成「成长工作台」/)
+  assert.match(source, /对话建好了，也把「\$\{AGENT_GREETING\}」发过去了，但没能改成「成长工作台」/)
   assert.match(source, /\$\{created\.reason\.length > 0 \? `（\$\{created\.reason\}）` : ''\}/, '回声里要带上失败原因')
   assert.ok(
     (source.match(/createAgentSession\(sessions, state\?\.agentWorkspace, state\?\.agentWorkspaceId\)/g) ?? []).length >= 2,

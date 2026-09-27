@@ -278,6 +278,15 @@ window.__ModuleLoader__.load({
     const AGENT_SESSION_TITLE = '成长工作台';
 
     /**
+     * 「重建一个」之后自动发过去的第一句话。
+     *
+     * 两件事一起办：① 侧栏对**没有消息的空对话**一律显示「新会话」（`displayTitle`：blank 的行
+     * 不看标题）—— 发一句出去，那一行当场变成「成长工作台」，用户不用等到自己第一次提问；
+     * ② 老师本来就得先开口，这是用户点名要的（「自动发段话过去『老师好!』」）。
+     */
+    const AGENT_GREETING = '老师好！';
+
+    /**
      * 确保「成长工作台」这个**工作区**存在，返回它的 id。
      *
      * 为什么非有不可：侧栏的分组读的是**工作区注册表**（"这个目录注册成工作区了吗"），不是会话的
@@ -1696,10 +1705,14 @@ window.__ModuleLoader__.load({
         //     那一行就会变成「成长工作台」。用户为此报过两次，所以这句话得说。
         //  ② 名字没改上 —— 把原因带上。
         //  ③ 没能归到工作区 —— 直说它会挂在「未分组」下。
+        // 打个招呼：空对话在侧栏里叫「新会话」，这一句发出去它就变成「成长工作台」了。
+        // 走的是 `askAgent` —— 同一份可见、可打断的通道，不是偷偷跑一个后台。发送失败不挡住
+        // 这一行的话（`askAgent` 自己会把失败落到页头那行状态里）。
+        void askAgent(AGENT_GREETING).catch(() => {});
         const where = created.workspaceId.length > 0 ? '' : '没能归到工作区 —— 侧栏里挂在「未分组」下。';
         setOk(created.named
-          ? `新建了对话「${AGENT_SESSION_TITLE}」，之后的运行都发进它。（空对话在侧栏里显示成「新会话」，你发出第一条就变过来。）${where}`
-          : `对话建好了，但没能改成「成长工作台」${created.reason.length > 0 ? `（${created.reason}）` : ''}。${where}`);
+          ? `新建了对话「${AGENT_SESSION_TITLE}」，已经把「${AGENT_GREETING}」发过去了，之后的运行都发进它。${where}`
+          : `对话建好了，也把「${AGENT_GREETING}」发过去了，但没能改成「成长工作台」${created.reason.length > 0 ? `（${created.reason}）` : ''}。${where}`);
       });
 
       // 没有会话服务（预览里就是这样，别的宿主也可能）：这一行只剩说明 —— 两个动作都要
