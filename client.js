@@ -425,7 +425,9 @@ window.__ModuleLoader__.load({
       row: { display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 0', borderBottom: '1px solid var(--gw-line-soft, #efeae2)' },
       input: { flex: '1 1 auto', minWidth: '0', padding: '11px 14px', fontSize: '14px', font: 'inherit', color: 'inherit', background: '#fffdf9', borderRadius: '11px', border: '1px solid var(--gw-line, #e5dfd5)', outline: 'none', transition: 'border-color 160ms ease, box-shadow 160ms ease' },
       button: { padding: '11px 18px', minHeight: '44px', fontSize: '14px', fontWeight: '600', font: 'inherit', cursor: 'pointer', color: 'var(--gw-ink, #1f2933)', background: '#fffdf9', borderRadius: '12px', border: '1px solid var(--gw-line, #d9d0c4)', transition: 'transform 150ms ease, background 150ms ease, border-color 150ms ease, box-shadow 150ms ease' },
-      buttonOn: { borderColor: 'var(--gw-coral, #e56b55)', background: 'var(--gw-coral, #e56b55)', color: '#fff' },
+      // 选中态：珊瑚实底 + **更深的珊瑚边**。边框若与底色同色，就等于没有边 ——
+      // 用户读到的不是「选中了」，而是「点击之后边框消失了」。
+      buttonOn: { borderColor: 'var(--gw-coral-deep, #a64132)', background: 'var(--gw-coral, #e56b55)', color: '#fff' },
       buttonLight: { borderColor: 'var(--gw-coral, #e56b55)', color: 'var(--gw-coral-deep, #a64132)' },
       small: { padding: '9px 14px', minHeight: '44px', fontSize: '13px' },
       select: { padding: '10px 12px', fontSize: '13px', font: 'inherit', color: 'inherit', background: '#fffdf9', borderRadius: '11px', border: '1px solid var(--gw-line, #d9d0c4)' },
@@ -1002,15 +1004,6 @@ window.__ModuleLoader__.load({
         ]),
         h('div', { key: 'path-head', style: { ...S.subhead, marginTop: '8px' } }, '路径 · 四个阶段'),
         h(PathBand, { key: 'path', phases: plan.phases, currentIndex: state.metrics.phaseIndex }),
-        // 段位阶梯：七段都在这儿，达成的填色、没达成的空心 —— 阶段卡上那一枚是它的局部读数。
-        // 摆成一条是因为「还差几段」比「现在几段」更能推人往前走。
-        h('div', { key: 'ladder', style: { display: 'flex', gap: '14px', flexWrap: 'wrap', alignItems: 'center', marginTop: '14px' } },
-          RANKS.map((rank, index) => h(RankBadge, {
-            key: rank.name,
-            rank,
-            achieved: rankReached(index, state.metrics.phaseIndex, plan.phases.length),
-            size: 22,
-          }))),
         // 目标里说要补齐的东西，量的就是这份模型；没有模型时这一段不出现，而不是显示空壳。
         state.catalog.activeRole === null || state.catalog.activeRole === undefined ? null
           : h('div', { key: 'groups-head', style: { ...S.subhead, marginTop: '8px' } }, '要补的四块能力 · 权重高的先补'),
@@ -1056,7 +1049,10 @@ window.__ModuleLoader__.load({
             // 段位章摆在这一步的最前面：一眼看到「做完这个阶段能拿到什么」。
             // 达成看的是「这个阶段有没有走完」—— 当前这段还没走完，所以它是空心的。
             h('div', { key: 'left', style: { display: 'flex', alignItems: 'center', gap: '12px', flex: '1 1 auto', minWidth: '0' } }, [
-              h(RankBadge, { key: 'rank', rank: rankOf(index, plan.phases.length), achieved: index < state.metrics.phaseIndex, size: 32 }),
+              // 段位牌子一律按它对应的段位渲染出颜色（「这一段该拿什么牌」），
+              // 不走「达成才填色」——「当前段位」只由总目标右上那一枚承担，
+              // 「这一段走到哪了」由旁边那枚印章（已走完/进行中/未开始）承担。
+              h(RankBadge, { key: 'rank', rank: rankOf(index, plan.phases.length), achieved: true, size: 32 }),
               h('h3', { key: 'title', style: { ...S.h3, flex: '1 1 auto', minWidth: '0' } }, `阶段${String(index + 1)} ${phase.name}（第 ${String(phase.days[0])}-${String(phase.days[1])} 天）`),
             ]),
             // 阶段状态不另存：phaseIndex 就是当前阶段，比它小的都已经走完。
@@ -1553,7 +1549,10 @@ window.__ModuleLoader__.load({
         h('div', { key: 'choices', style: S.wrap }, catalog.roles.map((entry) => h('button', {
           key: entry.slug,
           type: 'button',
-          style: { ...S.button, ...(!typing && profile.targetRoleSlug === entry.slug ? S.buttonOn : {}) },
+          // 选中的那枚是珊瑚实底，而它的边框也是珊瑚色 —— 边和底同色，看起来就像
+          // 「点击之后边框消失了」。给它一条更深的珊瑚边：填充 + 清晰的轮廓，
+          // 才读得出是「选中」，而不是「掉了边框」。
+          style: { ...S.button, ...(!typing && profile.targetRoleSlug === entry.slug ? { ...S.buttonOn, borderColor: 'var(--gw-coral-deep, #a64132)' } : {}) },
           title: catalog.roleStatus[entry.status]?.note ?? '',
           onClick: () => { setDraft(''); commit(entry.slug, undefined); },
         }, entry.name))),

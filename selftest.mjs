@@ -378,7 +378,13 @@ await check('段位：七段等距挂在阶段上，达成的才填色', () => {
   assert.match(source, /if \(phaseIndex <= 0\) return false;/, '一段都没走完时，七段全是空心的')
   // 阶段卡前面那枚 + 总目标卡里的整条阶梯：只有两处都用 RankBadge，阶梯才是同一套语言。
   assert.match(source, /h\(RankBadge, \{ key: 'rank', rank: rankOf\(index, plan\.phases\.length\)/, '阶段卡最前面是段位章')
-  assert.match(source, /key: 'ladder'/, '总目标卡里要有完整阶梯')
+  // 当前段位**只由总目标右上那一枚**承担（用户定的）：阶段卡上的牌子一律按各自段位渲染出颜色，
+  // 「这一段走到哪了」由旁边那枚印章承担。页面里没有第二条阶梯。
+  assert.match(source, /function currentRank\(state, phaseCount\)/)
+  assert.match(source, /const START_RANK = \{ name: '木牌'/, '起点是木牌 —— 它不在 RANKS 里')
+  assert.match(source, /rank: currentRank\(state, plan\.phases\.length\)/, '总目标右上是当前段位')
+  assert.match(source, /rankOf\(index, plan\.phases\.length\), achieved: true/, '阶段牌子按各自段位渲染颜色')
+  assert.doesNotMatch(source, /key: 'ladder'/, '路径带下面不再有第二条阶梯')
   assert.ok((source.match(/h\(RankBadge, \{/g) ?? []).length >= 2, '阶梯与阶段章都要用它')
 })
 
