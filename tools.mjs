@@ -45,7 +45,7 @@ import {
   streakDays,
   weekRate,
 } from './model.mjs'
-import { appendAssessment, effectiveToday, readAll, setTransferableSuggestions, today, updatePlan, updateProfile, updateTask } from './store.mjs'
+import { appendAssessment, appendChange, effectiveToday, readAll, setTransferableSuggestions, today, updatePlan, updateProfile, updateTask } from './store.mjs'
 import { MODEL_TEMPLATE_NOTE, canonicalCapabilityModel, canonicalLearning, canonicalNotTransferable, canonicalPlan, canonicalReview, canonicalTransferable } from './validate.mjs'
 
 /** Tool names are prefixed so they cannot collide with another plugin's. */
@@ -64,6 +64,33 @@ const asText = (_args, value) => [{ type: 'text', text: String(value) }]
 
 /** A generic pending card, so the tool row reads as itself while it runs. */
 const card = (title) => () => ({ card: 'generic', title, kind: 'other', rawInput: {} })
+
+/**
+ * 「老师」这一层的人格与权限边界 —— 逐字写进每个改动类工具的说明里。
+ *
+ * 为什么重复四遍：模型每次调用**只看得到它正要调的那个工具**，说明写在别处等于没写。
+ * 用户想让老师改点东西，这件事本身不需要任何新能力 —— 它需要的是**边界**：什么可以商量，
+ * 什么不许松，以及改完要留一句痕。能被商量松掉的标准等于没有标准，所以这段边界必须
+ * 常驻在每一次写入的门口。
+ */
+const TEACHER_CONTRACT = [
+  '**你跟用户的关系**：你是他这一个账号的私人老师。他对哪一段不满意，可以跟你商量，你也可以改 —— 不喜欢的任务措辞、每天排得太满、某道题根本不会做，都该说清楚然后改。',
+  '**可以改的**：任务措辞与拆分、预计分钟、最低完成版本、完成标准、可接受证据、某个动作落到哪一天、学习资料的深浅、考题（selfCheck）的措辞、下一场考核日期。',
+  '**不许改的**（用户要求也不改）：rubric 的四维定义与铁律；写入门禁（8 字段合同、15-60 分钟、阶段天区间连续、第一段必须排到天、任务标识不复用）；能力模型的权重与锚点格式；「未确认 ≠ 0 分」；「缺数据记为未提交」。**拒绝时要说清为什么，并给出你能做的那一步** —— 例如"分数不能因为你忙就改，但我们可以把这题的完成标准降到你今天真的做得到的样子"。',
+  '**改动要留痕**：改的是**已经有的东西**时（第一次生成不算），用 `change` 写一句话，如「按你的要求把 T7 从 60 分钟压到 30」。页面会把它记进「改动记录」（时间 + 模块 + 这一句）。写人话，不要写操作日志。',
+].join('\n\n')
+
+/**
+ * Log one change, if the caller gave one.
+ *
+ * 第一次生成没有"改动"可言 —— 所以 `change` 是可选的、空的就是不记，而不是报错。
+ * 模块名由这里决定，不让模型填：模型填错的模块名会让这份账读起来像假的。
+ */
+function recordChange(module, change) {
+  const text = String(change ?? '').replace(/\s+/g, ' ').trim()
+  if (text.length === 0) return null
+  return appendChange({ module, text })
+}
 
 /** One line per task, for the briefing's progress section. */
 function progressLine(task, entry) {
@@ -422,7 +449,9 @@ export const growthContext = {
  */
 export const growthSavePlan = {
   name: 'growth_save_plan',
-  description: '写入 90 天成长计划。每个任务必须给全 8 个字段：action 一句话动作 / capability 能力项（必须是能力模型里的编号，评估类任务写全角 —）/ reason 任务理由 / minutes 预计分钟（15-60）/ minimumVersion 最低完成版本 / doneCriteria 完成标准 / acceptableEvidence 可接受证据 / dependsOn 前置依赖（写「阶段.序号」这个引用，如 1.3；没有依赖写「无」—— 它既不是天号也不是任务序号本身）。另外每个任务可以带 `learn`（学习资料：method 怎么上手 / digest 汇总 / links 来源）—— **第一段（排到天的那一段）的每道题都要带**，只给要求不给方法，做题的人第一步就卡住；后面的段留到用到时用 growth_save_learning 补。**阶段1（第一段）必须排到天** —— 它的 tasks 不能是空数组，否则「今日」页一条能执行的任务都没有；后面的阶段可以只排到周（用 weeks 写主题与验收标准）。阶段必须给 days:[起,止] 天区间且不重叠不留缝；planStart 必填。任务标识由系统分配或沿用（永不变、删除的编号不复用）。selfCheck 每题必须挂 1 个能力项编号且不得含答案。',
+  description: `写入 90 天成长计划。每个任务必须给全 8 个字段：action 一句话动作 / capability 能力项（必须是能力模型里的编号，评估类任务写全角 —）/ reason 任务理由 / minutes 预计分钟（15-60）/ minimumVersion 最低完成版本 / doneCriteria 完成标准 / acceptableEvidence 可接受证据 / dependsOn 前置依赖（写「阶段.序号」这个引用，如 1.3；没有依赖写「无」—— 它既不是天号也不是任务序号本身）。另外每个任务可以带 \`learn\`（学习资料：method 怎么上手 / digest 汇总 / links 来源）—— **第一段（排到天的那一段）的每道题都要带**，只给要求不给方法，做题的人第一步就卡住；后面的段留到用到时用 growth_save_learning 补。**阶段1（第一段）必须排到天** —— 它的 tasks 不能是空数组，否则「今日」页一条能执行的任务都没有；后面的阶段可以只排到周（用 weeks 写主题与验收标准）。阶段必须给 days:[起,止] 天区间且不重叠不留缝；planStart 必填。任务标识由系统分配或沿用（永不变、删除的编号不复用）。selfCheck 每题必须挂 1 个能力项编号且不得含答案。用户嫌计划不合理时也是调这个工具改，不是新生成一份。
+
+${TEACHER_CONTRACT}`,
   parameters: {
     type: 'object',
     properties: {
@@ -490,6 +519,7 @@ export const growthSavePlan = {
       },
       portfolio: { type: 'array', items: { type: 'object', additionalProperties: true }, description: '作品集清单。' },
       resources: { type: 'array', items: { type: 'object', additionalProperties: true }, description: '学习资源。' },
+      change: { type: 'string', description: '改动留痕：一句话说清这次改了什么（例：按你的要求把 T7 从 60 分钟压到 30，并把第 3 天拆成两天）。改的是**已有的计划**时才填；第一次生成不用填。' },
     },
   },
   output: { schema: { type: 'string' }, render: asText },
@@ -507,7 +537,8 @@ export const growthSavePlan = {
       resolveRole(state.profile),
     )
     const written = updatePlan(plan)
-    return (summarisePlan(written, state.plan))
+    const logged = recordChange('计划', args?.change)
+    return ([summarisePlan(written, state.plan), logged === null ? '' : `\n已记进改动记录：${logged.text}`].filter(Boolean).join('\n'))
   },
   presentCall: card('Write growth plan'),
 }
@@ -650,7 +681,9 @@ export const growthProposeTransferable = {
  */
 export const growthProposeCapabilityModel = {
   name: 'growth_propose_capability_model',
-  description: `为一个**还没有能力模型**的方向生成能力模型，让自评与加权缺口能逐项落点。先调 growth_context scope=model 拿结构模板（预置的数据运营模型），照它的结构填新方向的内容。${MODEL_TEMPLATE_NOTE}。锚点必须是 1/3/5 三个真实刻度：3 分是"岗位达标线：能照现成规范独立做出合格产出"，5 分是"没有现成可照，自己定标准、自己下判断"。**不得写"待补""…"这类占位** —— 写不出 5 分锚点说明这一项还没定义，那就别放进来。生成结果会标记为 generated（未经行业校准），页面上会如实说明。用户已有的方向如果已经有模型，不要覆盖。`,
+  description: `为一个**还没有能力模型**的方向生成能力模型，让自评与加权缺口能逐项落点。先调 growth_context scope=model 拿结构模板（预置的数据运营模型），照它的结构填新方向的内容。${MODEL_TEMPLATE_NOTE}。锚点必须是 1/3/5 三个真实刻度：3 分是"岗位达标线：能照现成规范独立做出合格产出"，5 分是"没有现成可照，自己定标准、自己下判断"。**不得写"待补""…"这类占位** —— 写不出 5 分锚点说明这一项还没定义，那就别放进来。生成结果会标记为 generated（未经行业校准），页面上会如实说明。用户已有的方向如果已经有模型，不要覆盖。
+
+${TEACHER_CONTRACT}`,
   parameters: {
     type: 'object',
     properties: {
@@ -684,6 +717,7 @@ export const growthProposeCapabilityModel = {
           },
         },
       },
+      change: { type: 'string', description: '改动留痕：一句话说清这次改了什么（例：原来的锚点太笼统，把 B2 的 5 分锚点写成可核对的样子）。第一次生成不用填；改一份已有的生成模型时要填。' },
     },
   },
   output: { schema: { type: 'string' }, render: asText },
@@ -701,6 +735,7 @@ export const growthProposeCapabilityModel = {
       basedOn: lines,
     })
     updateProfile({ capabilityModel: model })
+    const logged = recordChange('能力模型', args?.change)
     const high = highWeightItems(model)
     return ([
       `能力模型已生成并写入画像：${model.name}（${String(model.groups.length)} 组 / ${String(model.items.length)} 项）。`,
@@ -711,7 +746,8 @@ export const growthProposeCapabilityModel = {
       `页面「画像 → ⑤ 能力自评」现在可以逐项打分了，每项会带上你写的 1/3/5 锚点。`,
       `⚠️ 这份模型标记为 **generated**：结构按预置模板校验过，但锚点**未经行业校准**，页面上会如实说明。`,
       `若用户换方向，它会自动失效（不会拿旧方向的模型给新方向打分）。`,
-    ].join('\n'))
+      logged === null ? '' : `已记进改动记录：${logged.text}`,
+    ].filter(Boolean).join('\n'))
   },
   presentCall: card('Propose capability model'),
 }
@@ -726,7 +762,9 @@ export const growthProposeCapabilityModel = {
  */
 export const growthSaveAssessment = {
   name: 'growth_save_assessment',
-  description: '**考核的收尾动作**：问完 2-3 道自查题、拿到用户回答之后必须调用本工具落盘 —— 考核内容只有在写进这一轮之后才会出现在页面上；只在对话里问完不算考过，页面会一直是空的。逐题记录、四维依据、下一场考核日期都写进 report。**考核分两档，coverage 必须跟本次相符**：节点小考只重测当前节点相关的几项 → `定向`（它的曲线点不画线，部分重测不能和全量比）；阶段大考评到完整的高权重项集 → `全量`。页面交卷时会说明本次是哪一档，照它填。写入一次考核结果（四维各 0-25：完成率 / 证据质量 / 作品达标度 / 知识考核）。写之前先用 growth_context 读 scope=progress 与 scope=plan，按 rubric 逐维给依据。数据缺失的维度必须放进 unsubmitted 标「未提交」按 0 计，**不要把 0 分和真的得 0 分混为一谈**；完成率与证据质量必须分开报，不得合成一个「真实完成率」。调整建议必须动到任务（换最低完成版本 / 改预计分钟 / 明确可接受证据），只给鼓励不算调整；并把下一场考核日期写进调整项。',
+  description: `**考核的收尾动作**：问完 2-3 道自查题、拿到用户回答之后必须调用本工具落盘 —— 考核内容只有在写进这一轮之后才会出现在页面上；只在对话里问完不算考过，页面会一直是空的。逐题记录、四维依据、下一场考核日期都写进 report。**考核分两档，coverage 必须跟本次相符**：节点小考只重测当前节点相关的几项 → \`定向\`（它的曲线点不画线，部分重测不能和全量比）；阶段大考评到完整的高权重项集 → \`全量\`。页面交卷时会说明本次是哪一档，照它填。写入一次考核结果（四维各 0-25：完成率 / 证据质量 / 作品达标度 / 知识考核）。写之前先用 growth_context 读 scope=progress 与 scope=plan，按 rubric 逐维给依据。数据缺失的维度必须放进 unsubmitted 标「未提交」按 0 计，**不要把 0 分和真的得 0 分混为一谈**；完成率与证据质量必须分开报，不得合成一个「真实完成率」。调整建议必须动到任务（换最低完成版本 / 改预计分钟 / 明确可接受证据），只给鼓励不算调整；并把下一场考核日期写进调整项。用户对分数有异议时，**解释依据，不改分** —— 忙、累、状态不好都不是改分的理由；能改的是下一段的任务难度。
+
+${TEACHER_CONTRACT}`,
   parameters: {
     type: 'object',
     properties: {
@@ -749,6 +787,7 @@ export const growthSaveAssessment = {
       adjustments: { type: 'array', items: { type: 'object', additionalProperties: true }, description: '接下来 7 天的调整版任务，每条含 任务标识 / 一句话动作 / 最低完成版本 / 改了什么为什么。' },
       report: { type: 'string', description: '考核报告正文（可含四维依据、逐题记录、下一场考核日期）。' },
       curvePoints: { type: 'array', items: { type: 'object', additionalProperties: true }, description: '本轮逐项曲线点：{能力项, 分, 置信度, 证据档位, 来源}。' },
+      change: { type: 'string', description: '改动留痕：一句话说清这轮之后改了什么（例：第 3 天的题太满，把最低完成版本降成只交一张表）。只记了分、没动任务就不用填。' },
     },
   },
   output: { schema: { type: 'string' }, render: asText },
@@ -767,6 +806,7 @@ export const growthSaveAssessment = {
       sources: ['页面'],
     }
     appendAssessment(entry)
+    const logged = recordChange('考核', args?.change)
     const low = Object.entries(round.scores).sort((left, right) => left[1] - right[1])[0]
     const rule = round.scores.完成率 < 15 ? IRON_RULES[0] : ''
     const row = FEEDBACK_ROWS.find((item) => item.dimension === low[0])
@@ -783,6 +823,7 @@ export const growthSaveAssessment = {
       `- 可用的归因：${ATTRIBUTIONS.map((item) => item.name).join(' / ')}`,
       '',
       '面板刷新即可看到趋势与这次的四维得分。',
+      logged === null ? '' : `已记进改动记录：${logged.text}`,
     ].filter(Boolean).join('\n'))
   },
   presentCall: card('Record growth review'),
@@ -800,7 +841,9 @@ export const growthSaveAssessment = {
  */
 export const growthSaveLearning = {
   name: 'growth_save_learning',
-  description: `给**一道**任务补学习资料：怎么上手（method）、资料汇总（digest）、来源链接（links，最多 4 条）。用户会在任务卡上看到它，所以三样都写人话。**只写你真的检索到并读过的东西** —— 链接打不开比没有更糟：没搜到就如实说没有可引用的来源，不许写「待补」这类占位，也不许凭记忆编 URL。**检索不可用时别就此收工**：先试 web_search，如果它报错（密钥无效、超时）或没有结果，改成**直接抓你确知的官方文档**（如 platform.openai.com/docs、docs.anthropic.com、huggingface.co/docs），抓到什么写什么。写回时说清这份汇总的来源形态：有链接就给链接；一条来源都没抓到，就只写 method/digest 并在 digest 里点明「这是通识，不是查到的」。digest 是给做题的人看的**汇总**（这道题要掌握的要点、常见的坑），不是资料清单的复述。只改这一道题，计划的其他部分一个字不动。`,
+  description: `给**一道**任务补学习资料：怎么上手（method）、资料汇总（digest）、来源链接（links，最多 4 条）。用户会在任务卡上看到它，所以三样都写人话。**只写你真的检索到并读过的东西** —— 链接打不开比没有更糟：没搜到就如实说没有可引用的来源，不许写「待补」这类占位，也不许凭记忆编 URL。**检索不可用时别就此收工**：先试 web_search，如果它报错（密钥无效、超时）或没有结果，改成**直接抓你确知的官方文档**（如 platform.openai.com/docs、docs.anthropic.com、huggingface.co/docs），抓到什么写什么。写回时说清这份汇总的来源形态：有链接就给链接；一条来源都没抓到，就只写 method/digest 并在 digest 里点明「这是通识，不是查到的」。digest 是给做题的人看的**汇总**（这道题要掌握的要点、常见的坑），不是资料清单的复述。只改这一道题，计划的其他部分一个字不动。用户说「这题我不会」「给点资料」时也是调它，不是重写计划。
+
+${TEACHER_CONTRACT}`,
   parameters: {
     type: 'object',
     properties: {
@@ -812,6 +855,7 @@ export const growthSaveLearning = {
         description: '来源链接，最多 4 条。每条 { title, url, source }；url 必须是 http(s):// 开头的真实地址。',
         items: { type: 'object', additionalProperties: true },
       },
+      change: { type: 'string', description: '改动留痕：一句话说清这次补了什么（例：你说不会用透视表，给 T5 补了两种拆法）。补一道原本空着的题也算改动，要填。' },
     },
     required: ['taskId'],
   },
@@ -835,13 +879,15 @@ export const growthSaveLearning = {
     )
     if (learn === undefined) throw new Error('至少要给一样：method（怎么上手）或 digest（汇总）或 links（来源）')
     updateTask(task.id, { learn })
+    const logged = recordChange('学习资料', args?.change)
     return ([
       `${task.id} 的学习资料已写入。`,
       `- 怎么上手：${learn.method || '（没给）'}`,
       `- 汇总：${learn.digest.length > 0 ? `${String(learn.digest.length)} 字` : '（没给）'}`,
       `- 来源：${learn.links.length === 0 ? '（没有可引用的来源 —— 这没关系，别编）' : learn.links.map((link) => link.url).join('　')}`,
       `用户现在能在「今日」页那道题下面看到它。`,
-    ].join('\n'))
+      logged === null ? '' : `已记进改动记录：${logged.text}`,
+    ].filter(Boolean).join('\n'))
   },
   presentCall: card('Write task learning'),
 }

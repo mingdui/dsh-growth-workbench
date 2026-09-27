@@ -99,6 +99,8 @@ From then on it is one thing a day: open 今日, do the task, tick it, leave a l
 
 Reviews show up on time: a **node exam** weekly, a **phase exam** when a phase completes. Open the paper on 考核, answer, submit — the agent grades it in your own conversation and writes the result back.
 
+The plan is not a verdict. The 计划 and 考核 tabs each carry a quiet **和老师聊聊** (talk to your teacher) line at the foot: a day that doesn't fit, a task you already know how to do — say so and it gets changed. Wording, splits, minutes, which day an action lands on are all negotiable. **The rubric and the iron rules are not** (being busy is not a reason to change a score), but the difficulty of the next stretch is. What it changed is listed one line at a time — time · module · one sentence — under **改动记录** at the foot of the 画像 tab.
+
 ## Where the data lives
 
 `$DSH_HOME/growth-workbench/`: `profile.json`, `plan.json`, `progress.json`, `assessments.json` and `evidence/`. The page and the agent read and write this one copy — there is no second one.

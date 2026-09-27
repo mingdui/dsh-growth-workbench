@@ -35,7 +35,7 @@ import { join, resolve, sep } from 'node:path'
  * 进度条目缺 `checkInDays` 时由 `model.planDaysOf` 拿 `checkInDates` 按 `planStart` 当场推回来 ——
  * 所以都不需要手工迁移（见 CLAUDE.md 的两条安全路径）。
  */
-export const DATA_VERSION = 5
+export const DATA_VERSION = 6
 
 /** The DSH home this plugin stores under. A launcher always exports `DSH_HOME`. */
 export function dshHome() {
@@ -230,6 +230,16 @@ export function empty(kind) {
          * `planStart`。见 {@link effectiveToday}。
          */
         aheadDays: 0,
+        /**
+         * 改动记录：`[{ at, module, text }]` —— 「老师」改了什么，用户得看得见。
+         *
+         * 它**只由 Agent 写入**（`appendChange`），页面的每一次编辑都不进这里：页面上的动作是
+         * 用户自己做的，他自己知道。这里记的是"我没动手，但东西变了"的那一类 —— 隔一天回到
+         * 页面，看到的是"第 3 天的题变成 30 分钟了"，而不是"这题怎么变了"。
+         *
+         * **不是审计日志**：一句话 + 时间 + 模块，最多留 {@link CHANGE_LIMIT} 条。
+         */
+        changes: [],
         updated: '',
       }
     case 'plan':
@@ -598,6 +608,45 @@ export function updateProfile(patch = {}) {
   profile.updated = new Date().toISOString()
   write('profile', profile)
   return profile
+}
+
+/** 改动记录里允许出现的模块名。**少一个模块比多一个自由字符串好**：页面按它分区读。 */
+export const CHANGE_MODULES = ['计划', '学习资料', '考核', '能力模型']
+
+/** 改动记录留多少条。它记的是"最近发生了什么"，不是审计 —— 满了丢最老的。 */
+export const CHANGE_LIMIT = 50
+
+/** 一条改动最多这么长；超了截断，而不是拒绝 —— 改动已经发生了，账还是要记上。 */
+const CHANGE_TEXT_MAX = 140
+
+/**
+ * Append one line to the 改动记录.
+ *
+ * 只追加、不覆盖（与 `verifiedFacts` 同理）：这条账的全部价值就在于"当时确实这么说过"，
+ * 允许改写它等于让它变成一份随时可被美化的总结。
+ *
+ * 模块名由**调用方**（工具层）决定，不让模型自己填 —— 每个工具知道自己动的是哪一块，
+ * 模型填错的模块名会让这份账读起来像假的。
+ *
+ * @param entry - `{ module, text, at? }`。`module` 必须是 {@link CHANGE_MODULES} 之一；
+ *   `text` 是**一句人话**（「按你的要求把 T7 从 60 分钟压到 30」），不是操作日志；
+ *   `at` 默认现在（ISO）。
+ * @returns 写进去的那一条。
+ */
+export function appendChange(entry = {}) {
+  const module = String(entry.module ?? '').trim()
+  if (!CHANGE_MODULES.includes(module)) {
+    throw new Error(`growth-workbench: change module must be one of ${CHANGE_MODULES.join('/')}, got ${JSON.stringify(entry.module)}`)
+  }
+  const text = String(entry.text ?? '').replace(/\s+/g, ' ').trim()
+  if (text.length === 0) throw new Error('growth-workbench: change needs one sentence')
+  const at = typeof entry.at === 'string' && entry.at.length > 0 ? entry.at : new Date().toISOString()
+  const record = { at, module, text: text.slice(0, CHANGE_TEXT_MAX) }
+  const profile = read('profile')
+  profile.changes = [...(profile.changes ?? []), record].slice(-CHANGE_LIMIT)
+  profile.updated = new Date().toISOString()
+  write('profile', profile)
+  return record
 }
 
 /**

@@ -1483,7 +1483,8 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * 页脚：**状态与设置**，不是核心内容。
+     * 页脚：**状态与设置**，不是核心内容。现在有四行，各归各页：提前的节奏（计划）、
+     * 跟老师商量（计划 / 考核）、Agent 运行在哪（画像）、改动记录（画像）。
      *
      * 这两行原先在页头 —— 夹在「下一步」和指标卡之间。于是每次打开这一页，第一眼读到的是
      * "你的节奏比日历快几天""Agent 在哪个对话里跑"：都重要，但都不是"我现在要做什么"。
@@ -1507,8 +1508,41 @@ window.__ModuleLoader__.load({
           actions: [{ label: '回到日历节奏', onClick: () => { void post('/ahead', { days: 0 }); } }],
         }));
       }
+      // 「和老师聊聊」—— 这两个页签上的东西是**可以商量的**：计划怎么排、考卷与评分标准怎么定。
+      // 入口就长在它们自己那一页的页脚，说清"能商量"与"商量完会发生什么"（改动记在画像页），
+      // 点下去发出去的是一句**完整的**话（带着这一页的上下文），不是半句等着用户接。
+      // 计划还没有的时候不摆它：那时候页面上只有一件事要做 —— 先生成计划。
+      if (state.plan.phases.length > 0 && tab === 'plan') {
+        kids.push(h(NoteLine, {
+          key: 'teacher-plan',
+          text: '哪一天排得不合适、哪道题你本来就会 —— 跟老师说，他会改；改了什么记在「画像」页的改动记录里。',
+          actions: [{
+            label: '和老师聊聊',
+            onClick: () => {
+              void askAgent('我想跟你聊聊现在的计划。先调 growth_context scope=plan 看一遍，用三句话说明现在最卡的是哪几处，然后问我想改什么 —— 先别动手，等我说完再改。').catch(() => {});
+            },
+          }],
+        }));
+      }
+      if (state.plan.phases.length > 0 && tab === 'review') {
+        kids.push(h(NoteLine, {
+          key: 'teacher-review',
+          text: '对考卷、考题或评分标准有疑问 —— 问老师。分数不会因为忙或累就改，下一段的任务难度可以调。',
+          actions: [{
+            label: '和老师聊聊',
+            onClick: () => {
+              void askAgent('我想跟你聊聊考核 —— 考卷、考题、评分标准这些。先调 growth_context scope=plan 与 scope=history，说明这次的考卷与标准是怎么定的，然后问我对哪一条有疑问。').catch(() => {});
+            },
+          }],
+        }));
+      }
       if (tab === 'profile' && hasAgentLine) {
         kids.push(h(AgentSessionLine, { key: 'agent-session', state, post }));
+      }
+      // 改动记录紧跟在「Agent 运行在哪个对话」后面（用户：「放这后面」）—— 这两行说的是同一件
+      // 事的两半：谁在动，动了什么。空账时 `ChangeLog` 自己返回 null，不必在这儿判。
+      if (tab === 'profile') {
+        kids.push(h(ChangeLog, { key: 'changes', state }));
       }
       if (kids.length === 0) return null;
       return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '4px' } }, kids);
@@ -1584,6 +1618,53 @@ window.__ModuleLoader__.load({
       ]);
     }
 
+
+    /** ISO（UTC）→ 本地「MM-DD HH:mm」；不是今年的才带上年份。 */
+    function stampOf(iso) {
+      const at = new Date(iso);
+      if (Number.isNaN(at.getTime())) return '';
+      const md = `${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`;
+      const hm = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
+      return at.getFullYear() === new Date().getFullYear() ? `${md} ${hm}` : `${String(at.getFullYear())}-${md} ${hm}`;
+    }
+
+    /**
+     * 改动记录 —— **老师动了什么**，一行一条：`时间 · 模块 · 一句话`。
+     *
+     * 它回答的是一个很具体的不安：隔一天回到页面，"这题怎么变了"。所以它不是审计日志 ——
+     * 每条只有一句话；也不是统计 —— 最近三条直接摆出来，更早的折在一个按钮后面。
+     * 一条都没有的时候整个模块不出现：没发生的事不用占一行。
+     */
+    function ChangeLog({ state }) {
+      const all = state.profile.changes ?? [];
+      const [open, setOpen] = useState(false);
+      if (all.length === 0) return null;
+      const entries = [...all].reverse(); // 最近的在上
+      const shown = open ? entries : entries.slice(0, 3);
+      const hidden = entries.length - shown.length;
+      return h('div', { className: 'gw-changes', style: { display: 'flex', flexDirection: 'column', gap: '6px' } }, [
+        h('div', { key: 'head', style: { ...S.meta, fontWeight: 600 } }, `改动记录（${String(entries.length)} 条）`),
+        ...shown.map((entry, index) => h('div', {
+          key: `${String(entry.at)}-${String(index)}`,
+          style: { ...S.meta, display: 'flex', gap: '10px', alignItems: 'baseline', flexWrap: 'wrap' },
+        }, [
+          h('span', { key: 'at', style: { flex: '0 0 auto', opacity: .72, fontFamily: 'var(--gw-mono, monospace)' } }, stampOf(entry.at)),
+          // 模块用 `chipPlain`（灰底）而不是 `chip`（珊瑚底）：一整列珊瑚色小签读起来像五条告警，
+          // 而这里只是个分类标签 —— 该被看见的是那句话。
+          h('span', { key: 'module', style: S.chipPlain }, entry.module),
+          h('span', { key: 'text', style: { flex: '1 1 200px', minWidth: '0' } }, entry.text),
+        ])),
+        hidden > 0 || open
+          ? h('button', {
+            key: 'more',
+            type: 'button',
+            className: 'gw-quiet',
+            style: { ...S.meta, ...S.quiet, alignSelf: 'flex-start', cursor: 'pointer' },
+            onClick: () => { setOpen(!open); },
+          }, open ? '收起' : `更早的 ${String(hidden)} 条`)
+          : null,
+      ]);
+    }
 
     /**
      * 执行趋势：每周完成率的柱状图。

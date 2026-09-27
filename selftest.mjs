@@ -1849,6 +1849,111 @@ await check('提前的入口长在需求出现的地方：今日页做完之后�
   assert.match(source, /title: state\.progress\.tasks\?\.\[task\.id\]\?\.done === true \? '已完成' : '还没做'/)
 })
 
+await check('改动记录：改了什么留一句话，模块由工具决定、账本只追加', async () => {
+  // 还没有改动时账本是空的 —— 页面据此不摆这个模块（没发生的事不占一行）。
+  assert.deepEqual(store.read('profile').changes ?? [], [])
+
+  // 存储层：模块白名单 + 必须有一句话。模块名不让模型填 —— 它填错，这份账读起来就像假的。
+  // `async () =>` 不是装饰：`appendChange` 是**同步**抛，裸箭头函数抛出去的错会绕过
+  // `assert.rejects` 直接落到 check 的兜底 catch 里 —— 断言看着在守，其实没守。
+  await assert.rejects(async () => store.appendChange({ module: '随便', text: '改了' }), /module must be one of/)
+  await assert.rejects(async () => store.appendChange({ module: '计划', text: '   ' }), /one sentence/)
+
+  // 工具层：带 `change` 才记；不带就不记（第一次生成没有"改动"可言）。
+  const taskId = model.planTasks(store.read('plan'))[0].id
+  const quiet = await tools.growthSaveLearning.execute({ taskId, method: '再跑一遍，换一个口径看数' })
+  assert.doesNotMatch(quiet, /改动记录/, '没给 change 就不该记账')
+  assert.deepEqual(store.read('profile').changes ?? [], [])
+
+  const loud = await tools.growthSaveLearning.execute({
+    taskId,
+    change: '你说不会用透视表，给这道题补了两种拆法',
+    method: '先用数据透视表看两列，再回原表核对',
+  })
+  assert.match(loud, /已记进改动记录/)
+  const first = store.read('profile').changes
+  assert.equal(first.length, 1)
+  assert.equal(first[0].module, '学习资料', '模块由工具给，不是模型填的')
+  assert.match(first[0].at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/, '要带时间，页面才印得出"什么时候改的"')
+  assert.equal(first[0].text, '你说不会用透视表，给这道题补了两种拆法')
+
+  // 计划那个工具记的是另一个模块 —— 同一份账，模块分得开。
+  const before = store.read('plan')
+  const replanned = await tools.growthSavePlan.execute({
+    planStart: before.planStart,
+    goal: before.goal,
+    phases: before.phases.map((phase) => ({ ...phase, tasks: (phase.tasks ?? []).map((task) => ({ ...task })) })),
+    selfCheck: before.selfCheck,
+    change: '把第 1 天那道题从 60 分钟压到 30',
+  })
+  assert.match(replanned, /已记进改动记录/)
+  const both = store.read('profile').changes
+  assert.equal(both.length, 2, '只追加：先前那条还在')
+  assert.deepEqual(both.map((entry) => entry.module), ['学习资料', '计划'])
+
+  // 页面读的就是 /state 里这一份（不得另建真相）。
+  const state = await callApi('GET', `${api.API_PREFIX}/state`)
+  assert.equal(state.body.profile.changes.length, 2)
+
+  // 太长就截断，而不是拒绝：改动已经发生了，账还是要记上。
+  const capped = store.appendChange({ module: '考核', text: 'x'.repeat(400) })
+  assert.equal(capped.text.length, 140)
+  assert.equal(store.read('profile').changes.length, 3)
+
+  // 四份文档的结构变了就 bump DATA_VERSION（读端不校验版本，但账要认得出是哪一代）。
+  assert.equal(store.DATA_VERSION, 6)
+})
+
+await check('和老师聊聊：入口在能商量的那两页，说的是"能改什么"，不是"不能改什么"', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  const foot = sliceOfComponent(source, 'WorkbenchFoot')
+  // 计划与考核各一行，而且只在各自那一页（用户：「这两个不需要所有页面都有」的同一个道理）。
+  assert.match(foot, /if \(state\.plan\.phases\.length > 0 && tab === 'plan'\)/, '计划页那行只在有计划的计划页')
+  assert.match(foot, /if \(state\.plan\.phases\.length > 0 && tab === 'review'\)/, '考核页那行只在有计划的考核页')
+  assert.equal((foot.match(/label: '和老师聊聊'/g) ?? []).length, 2, '两处入口，别多')
+  // 入口要**把上下文带进那句话**：空着手发一句"我想聊聊"，老师还得先反问你在哪一页。
+  assert.match(foot, /askAgent\('我想跟你聊聊现在的计划。[\s\S]{0,200}?growth_context scope=plan/)
+  assert.match(foot, /askAgent\('我想跟你聊聊考核[\s\S]{0,220}?scope=history/)
+  assert.match(foot, /先别动手，等我说完再改/, '计划那次要老师先问、别抢着改')
+  // 商量得动什么、商量不动什么，都得写在明面上 —— 这是"私人老师"与"随便改"的分界。
+  assert.match(foot, /改了什么记在「画像」页的改动记录里/)
+  assert.match(foot, /分数不会因为忙或累就改，下一段的任务难度可以调/)
+  // 每一句都发进**同一个**固定对话 —— 老师只有一份记忆。
+  assert.match(sliceOfComponent(source, 'askAgent'), /resolveAgentSession\(sessions\)/)
+})
+
+await check('改动记录的入口只有一处：画像页脚、Agent 那行后面，空账时不出现', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  const foot = sliceOfComponent(source, 'WorkbenchFoot')
+  // 用户点名：「放这后面」—— Agent 那行之后。
+  assert.match(foot, /h\(AgentSessionLine, \{ key: 'agent-session'[\s\S]{0,400}?h\(ChangeLog, \{ key: 'changes'/, '改动记录紧跟在 Agent 会话那一行后面')
+  assert.match(foot, /if \(tab === 'profile'\) \{\s*kids\.push\(h\(ChangeLog/, '只有画像页摆它')
+  const log = sliceOfComponent(source, 'ChangeLog')
+  assert.match(log, /if \(all\.length === 0\) return null;/, '一条都没有时整个模块不出现')
+  assert.match(log, /entry\.module/, '每条要印模块')
+  assert.match(log, /stampOf\(entry\.at\)/, '每条要印时间')
+  assert.match(log, /entry\.text/, '每条要印那一句话')
+  // 时间存的是 ISO（UTC），显示必须换成本地时间 —— 否则东八区看到的是八小时前的钟点。
+  assert.match(sliceOfComponent(source, 'stampOf'), /at\.getHours\(\)/)
+  // 老师那套边界必须常驻在**每一个**可以改东西的工具说明里：模型每次只看得到它要调的那个工具。
+  const toolSource = readFileSync(join(ROOT, 'tools.mjs'), 'utf8')
+  assert.equal((toolSource.match(/\$\{TEACHER_CONTRACT\}/g) ?? []).length, 4, '四个写入类工具都要带章程')
+  assert.match(toolSource, /不许改的/, '要写明什么不许改')
+  assert.match(toolSource, /拒绝时要说清为什么/, '拒绝要给出理由与能做的那一步')
+  // tools 里的工具是 `export const x = {…}` 这种对象，不是 `function` —— `sliceOfComponent`
+  // 按 `function <名>(` 找，在这里会返回空串（于是断言永远失败）。按"下一个 export const"切。
+  const toolSlice = (tool) => {
+    const start = toolSource.indexOf(`export const ${tool} = {`)
+    if (start < 0) return ''
+    const rest = toolSource.slice(start + 1)
+    const end = rest.indexOf('\nexport const ')
+    return rest.slice(0, end === -1 ? undefined : end)
+  }
+  for (const tool of ['growthSavePlan', 'growthSaveLearning', 'growthSaveAssessment', 'growthProposeCapabilityModel']) {
+    assert.match(toolSlice(tool), /change: \{ type: 'string'/, `${tool} 要收 change`)
+  }
+})
+
 await check('POST /reset 只清指定分区', async () => {
   const reply = await callApi('POST', `${api.API_PREFIX}/reset`, { kind: 'progress' })
   assert.equal(reply.status, 200)
