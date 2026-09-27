@@ -206,6 +206,14 @@ await check('写证据是一个弹窗：能写、能改、关掉不等于丢掉'
   assert.match(source, /const close = useCallback\(\(\) => \{\r?\n\s+if \(dirty\) void post\('\/checkin'/)
   // 阅读态那一行是**可点的文本块**，不是输入框：编排放进弹窗了。
   assert.match(source, /className: 'gw-evidence-open'/)
+  // 而它**必须自己声明底色**：不声明就继承宿主给 button 的底色 —— 用户截图里那一整条深灰
+  // 就是这么来的（当时它只有一条 hover 规则）。行内那份从 `S.quiet` 来，CSS 里也兜了一层。
+  assert.match(source, /\.gw-root \.gw-evidence-open\{background:transparent/)
+  assert.match(
+    source.slice(source.indexOf('function TaskEvidenceLine('), source.indexOf('function NextActionCard(')),
+    /\.\.\.S\.quiet/,
+    '这一块看起来得像文字，得像 S.quiet 那样把按钮那层皮全脱掉',
+  )
   assert.match(source, /editing \? h\(EvidenceEditor, \{ key: 'editor'/)
   // 空证据时档位不可点：服务端有这条规则（证据空 → 档位退回），页面不能让你点个寂寞。
   assert.match(source, /const canPickTier = text\.trim\(\)\.length > 0/)

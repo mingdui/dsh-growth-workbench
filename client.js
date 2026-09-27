@@ -117,6 +117,10 @@ window.__ModuleLoader__.load({
         // 证据的阅读态就是一个可点的文本块（点它进弹窗写）。它自己一条 hover：
         // 通用那条会给按钮加上浮与投影，落在一块纯文字上就是一团脏影子。
         + '.gw-root button.gw-evidence-open:not(:disabled):hover{transform:none;box-shadow:none;border-color:transparent;color:inherit;background:rgba(229,107,85,.06)}'
+        // 它是"看起来不像按钮"的控件，**底色必须自己声明**：不声明就继承宿主给 button 的底色
+        // （用户的截图里，证据那块是一整条深灰底 + 深色字）。CSS 只兜一层底，行内那份在
+        // `TaskEvidenceLine` 里（从 S.quiet 来）—— 两处都写，是因为宿主样式表可能后加载。
+        + '.gw-root .gw-evidence-open{background:transparent;border:0;font:inherit;width:100%;display:block;text-align:left}'
         + '@media (prefers-reduced-motion: reduce){.gw-modal,.gw-modal-card{animation:none}}'
         + '.gw-root input:focus,.gw-root select:focus,.gw-root textarea:focus{border-color:var(--gw-coral,#e56b55);box-shadow:0 0 0 4px var(--gw-coral-soft,rgba(229,107,85,.10))}'
         // The section label's coral dash. It cannot be an inline style, and it is what
@@ -940,7 +944,11 @@ window.__ModuleLoader__.load({
             type: 'button',
             className: 'gw-evidence-open',
             title: evidenceText.length > 0 ? '点开改一改，或再加点东西' : '写点什么',
+            // 从 `S.quiet` 起手：它把"按钮"那层皮（底色、边框、字体、内边距）全部去掉 —— 证据
+            // 这一块看起来必须是一段文字，而不是一个控件。**底色必须自己声明**，否则会继承宿主
+            // 给 button 的底色（截图里那一整条深灰就是这么来的）。
             style: {
+              ...S.quiet, textDecoration: 'none', cursor: 'text', width: '100%',
               fontSize: '14px', lineHeight: '1.8', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
               padding: '7px 10px', margin: '0 -10px 0 -10px', textAlign: 'left',
               color: evidenceText.length > 0 ? 'var(--gw-ink, #1f2933)' : 'var(--gw-muted-2, #9aa7b1)',
