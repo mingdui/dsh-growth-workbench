@@ -415,9 +415,15 @@ await check('完成的反馈是真的，且 gap 不再被当成分数印', () =>
   assert.match(source, /done \? h\(Seal, \{ key: 'mark', tone: 'teal', label: '已完成'/)
   assert.match(source, /function Seal\(\{ label, sub, tone, round, stamp \}\)/)
   assert.match(source, /function Readout\(\{ value, unit, cap, first \}\)/)
-  // gap 是加权缺口的比例（模型里断言的就是 180/1300 这种值）。印成「X 分」是单位错误。
-  assert.match(source, /Math\.round\(gap \* 100\)/, 'gap 要按百分比印')
-  assert.doesNotMatch(source, /gap\.toFixed\(2\)/, '不许再把它当分数印')
+  // gap 的单位是**分**：「(达标线 3 分 − 你的分) × 权重」的加权平均 —— 0.62 就是"平均比达标线低
+  // 0.62 分"，**负数就是高于达标线**。
+  // ⚠️ 这条断言原先钉反了：它要求印成百分比、禁止印成"分"，于是「-62% 距达标线」一路留到今天，
+  // 直到用户问「-62% 距达标线 是啥意思」。**一条钉错方向的断言，比没有断言更难发现。**
+  assert.match(source, /function gapLabel\(gap\)/)
+  assert.match(source, /cap: '已超达标线'/, '高于达标线时标签跟着变，不让负号自己解释自己')
+  assert.match(source, /value: Math\.abs\(gap\)\.toFixed\(2\), unit: '分'/, '报的是分，不是百分比')
+  assert.doesNotMatch(source, /Math\.round\(gap \* 100\)/, '不许再把分值当百分比印')
+  assert.ok((source.match(/gapLabel\(/g) ?? []).length >= 4, '读数条 / 自评卡 / 考核历史共用同一个读法')
 })
 
 await check('计划页的层次：总目标是一整句，路径与能力块各自成层', () => {

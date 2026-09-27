@@ -1244,22 +1244,37 @@ window.__ModuleLoader__.load({
       return { value: String(day), cap: '第几天', chip: `DAY ${String(day).padStart(2, '0')}`, started: true };
     }
 
+    /**
+     * 加权缺口怎么念。
+     *
+     * `gap` 的单位是**分**，不是百分比：它是「(达标线 3 分 − 你的分) × 权重」的加权平均 ——
+     * 0.62 就是"平均比达标线低 0.62 分"，**负数就是高于达标线**。页面上原先一律印成
+     * 「-62%」：把分值当成了百分比，而且那个负号没有任何解释（用户的疑问就是
+     * 「-62% 距达标线 是啥意思」）。一处定义，三处显示（读数条、自评卡、考核历史）都用它。
+     */
+    function gapLabel(gap) {
+      if (gap === null || gap === undefined || typeof gap !== 'number' || Number.isNaN(gap)) return null;
+      if (Math.abs(gap) < 0.005) return { cap: '正好在达标线', value: '0.00', unit: '分' };
+      return gap > 0
+        ? { cap: '距达标线', value: Math.abs(gap).toFixed(2), unit: '分' }
+        : { cap: '已超达标线', value: Math.abs(gap).toFixed(2), unit: '分' };
+    }
+
     function Metrics({ state }) {
       const { metrics } = state;
       const day = dayInfo(metrics.day);
       const week = metrics.weekRate === null ? undefined : String(Math.round(metrics.weekRate * 100));
       // 「本周」在提前模式下不是字面意义的本周 —— 它一直是**计划里的第 N 周**。所以按计划叫它。
       const weekNo = metrics.day === null || metrics.day < 1 ? null : Math.floor((metrics.day - 1) / 7) + 1;
-      // gap 是加权缺口的**比例**（模型里断言的就是 180/1300 这种值），不是分数 ——
-      // 所以这里印成百分比，而不是把它当"分"报出去。
-      const gap = metrics.gap === null || metrics.gap === undefined ? undefined : String(Math.round(metrics.gap * 100));
+      // gap 的单位是**分**（见 `gapLabel`）—— 这里原先印成百分比，是把分值当成了比例。
+      const gap = gapLabel(metrics.gap);
       const kids = [
         h('div', { key: 'numbers', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '16px', flexWrap: 'wrap' } }, [
           h('div', { key: 'strip', style: { display: 'flex', flexWrap: 'wrap', alignItems: 'flex-end', flex: '1 1 auto' } }, [
             h(Readout, { key: 'day', first: true, value: day.value, cap: day.cap }),
             h(Readout, { key: 'done', value: `${String(metrics.completion.done)}/${String(metrics.completion.total)}`, cap: '完成' }),
             h(Readout, { key: 'week', value: week === undefined ? '—' : week, unit: week === undefined ? undefined : '%', cap: weekNo === null ? '本周完成率' : `第 ${String(weekNo)} 周` }),
-            h(Readout, { key: 'gap', value: gap === undefined ? '—' : gap, unit: gap === undefined ? undefined : '%', cap: '距达标线' }),
+            h(Readout, { key: 'gap', value: gap === null ? '—' : gap.value, unit: gap === null ? undefined : gap.unit, cap: gap === null ? '距达标线' : gap.cap }),
           ]),
           metrics.streak > 0 ? h(Seal, { key: 'streak', tone: 'teal', label: `连续 ${String(metrics.streak)} 天`, sub: '不间断' }) : null,
         ]),
@@ -2345,7 +2360,7 @@ window.__ModuleLoader__.load({
           head.push(h('span', { key: 'gap', style: { ...S.fine, marginLeft: '8px' } },
             entry.gap === null || entry.gap === undefined
               ? `已评 ${String(entry.answered ?? 0)} 项`
-              : `距达标线 ${String(Math.round(Number(entry.gap) * 100))}% · 已评 ${String(entry.answered ?? 0)} 项`));
+              : (() => { const label = gapLabel(Number(entry.gap)); return `${label.cap} ${label.value} ${label.unit} · 已评 ${String(entry.answered ?? 0)} 项`; })()));
         } else {
           head.push(h('span', { key: 'scores', style: { marginLeft: '8px' } },
             Object.entries(entry.scores).map(([dimension, value]) => `${dimension} ${String(value)}`).join(' / ')));
@@ -2803,7 +2818,10 @@ window.__ModuleLoader__.load({
 
       // 提交入口不在这里：④ 的「确认能力自评」负责落盘。这里只留读数 —— 它是上一次已提交
       // 自评的结果，不是这份草稿的。
-      if (gap !== null) kids.push(h('div', { key: 'gap', style: S.meta }, `距达标线 ${String(Math.round(gap * 100))}%（每项 3 分算达标）`));
+      if (gap !== null) {
+        const label = gapLabel(gap);
+        kids.push(h('div', { key: 'gap', style: S.meta }, `${label.cap} ${label.value} ${label.unit}（每项 3 分算达标）`));
+      }
       if (state.metrics.priorities.length > 0) {
         kids.push(h('div', { key: 'prio' }, [
           h('div', { key: 'label', style: S.meta }, '补强优先级（差得多、又重要的排前面）：'),
