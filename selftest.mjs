@@ -467,6 +467,28 @@ await check('读数条说得出「走到哪一段了」，也说得清达标线�
   assert.match(metrics, /gap === null \? '还没自评' : gap\.cap/, '没自评时别说成"正好在线上"')
 })
 
+await check('图表的左槽放得下最宽的那个刻度，页脚有署名', async () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  // 「100%」是周趋势图里最宽的刻度（11px 下约 27px），右对齐到 `LEFT - 8`：LEFT = 34 时
+  // 它的左边缘落在 x ≈ -1，被 SVG 自己的边界切掉前面那个 1 —— 用户看出来的就是这一处
+  // （「计划那个图标 100% 感觉看不到那个1了，太靠左了」）。
+  const chart = sliceOfComponent(source, 'WeekTrendChart')
+  assert.match(chart, /Math\.round\(tick \* 100\)/, '刻度里会有 100%')
+  const left = Number((chart.match(/const LEFT = (\d+)/) ?? [])[1])
+  assert.ok(left >= 44, `左槽要放得下「100%」（当前 LEFT = ${String(left)}，34 会切掉那个 1）`)
+  const trend = sliceOfComponent(source, 'TrendChart')
+  assert.ok(trend.length > 0, '四维趋势图还在（它最宽的刻度是两位数，34 够用）')
+
+  // 页脚署名：落款 + 版本 + 源码链接，每个页签都有（它不是某一页的设置）。
+  const foot = sliceOfComponent(source, 'WorkbenchFoot')
+  assert.match(foot, /MIT · © mingdui/, '页脚要落款')
+  assert.match(foot, /state\.version/, '版本号来自 /state，不写死在页面里')
+  assert.match(foot, /href: REPO_URL/, '源码那一个链接指向仓库（地址只写一处）')
+  assert.match(source, /const REPO_URL = 'https:\/\/github\.com\/mingdui\/dsh-growth-workbench'/)
+  // 宿主侧那两条（版本从 package.json 读、`/state` 发得下来）在下面那个 check 里 ——
+  // 这里太靠前，`api` 模块还没 import（"Cannot access 'api' before initialization"）。
+})
+
 await check('没有画外音：缺了什么不用讲给用户听', () => {
   const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
   // 用户：「（只有要求，没有方法） 类似画外音去掉」——用户点开一个格子，不需要被告知这道题
@@ -2098,6 +2120,13 @@ await check('专属会话的工作区：宿主侧的**空**目录，不是数据
   // 「服务还没挂上」也要重试 —— 挂载是异步的，我们可能先被 apply。
   assert.match(host, /if \(attempt < 3\) \{/, '注册要重试几次')
   assert.match(host, /registerWorkspace\(ctx, attempt \+ 1\)/, '重试要真的再调一次')
+
+  // 页脚署名的版本号：宿主从**自己**的 package.json 读一次，读不到就空串（一个版本号不值得
+  // 让路由挂掉），然后随 `/state` 发下来 —— 页面不写死、也不去猜。
+  const apiSource = readFileSync(join(ROOT, 'api.mjs'), 'utf8')
+  assert.match(apiSource, /new URL\('\.\/package\.json', import\.meta\.url\)/, '从包自己的 package.json 读')
+  const version = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).version
+  assert.equal(state.version, version, '/state 要把版本发下来')
   // **改名的返回值要检查**：`rename` 失败时返回 `{ ok: false }` 而**不抛** —— 只 try/catch
   // 会把失败静默吃掉（用户建出来的对话就叫「新会话」，而页面说"运行都在「成长工作台」里"）。
   assert.match(source, /const renamed = await binding\?\.session\?\.rename\?\.\(AGENT_SESSION_TITLE\)/)

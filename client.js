@@ -66,6 +66,8 @@ window.__ModuleLoader__.load({
     const PANEL_ID = 'growth-workbench';
     /** The row title, the guide title, and the page heading. */
     const LABEL = '成长工作台';
+    /** 页脚署名的落款指向哪儿 —— 仓库地址只写这一处。 */
+    const REPO_URL = 'https://github.com/mingdui/dsh-growth-workbench';
 
     const API = '/gw/api';
     if (typeof document !== 'undefined' && !document.querySelector('style[data-growth-fonts]')) {
@@ -1643,7 +1645,22 @@ window.__ModuleLoader__.load({
       if (tab === 'profile') {
         kids.push(h(ChangeLog, { key: 'changes', state }));
       }
-      if (kids.length === 0) return null;
+      // 页脚最后一行：署名。**每个页签都有**（它是这件东西的落款，不是某一页的设置），
+      // 但它得轻 —— 一行 12px 灰字，一个链接，不占版面、不抢"我现在要做什么"。
+      // 版本号从 `/state` 来（宿主读自己的 package.json）：报问题时说得出装的是哪一版。
+      kids.push(h('div', {
+        key: 'credit',
+        style: { ...S.fine, display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'baseline', color: 'var(--gw-muted-2, #9aa7b1)' },
+      }, [
+        h('span', { key: 'by' }, `${LABEL}${state.version ? ` v${state.version}` : ''} · MIT · © mingdui`),
+        h('a', {
+          key: 'src',
+          href: REPO_URL,
+          target: '_blank',
+          rel: 'noreferrer',
+          style: { color: 'inherit', textDecoration: 'underline' },
+        }, '源码'),
+      ]));
       return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '4px' } }, kids);
     }
 
@@ -1789,7 +1806,10 @@ window.__ModuleLoader__.load({
       if (rates.length === 0) return null
       const W = 640
       const H = 170
-      const LEFT = 34
+      // 左侧留给刻度字：**「100%」是这里最宽的一个**，11px 下约 27px，右对齐到 `LEFT - 8`，
+      // 所以 LEFT = 34 时它的左边缘落在 x ≈ -1 —— 被 SVG 自己的边界切掉，四个刻度里
+      // 只有它少了前面那个 1（用户看出来的：「感觉看不到那个1了，太靠左了」）。46 留出余量。
+      const LEFT = 46
       const RIGHT = 14
       const TOP = 14
       const BOTTOM = 30

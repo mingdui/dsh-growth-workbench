@@ -56,6 +56,7 @@ import {
   reviewWindow,
   weekRate,
 } from './model.mjs'
+import { readFileSync } from 'node:fs'
 import {
   KINDS,
   addEvidenceFile,
@@ -81,6 +82,21 @@ import {
 
 /** Path prefix this plugin owns on the Harness web server. */
 export const API_PREFIX = '/gw/api'
+
+/**
+ * 本插件的版本号，从自己的 `package.json` 读一次。
+ *
+ * 页脚那行署名要印它：报问题的人说得出自己装的是哪一版，才谈得上"这个问题修没修"。
+ * 读不到（打包方式古怪、文件被剥离）就退回空串 —— 页脚少印一个版本号，不是一件值得
+ * 让整个插件的路由挂掉的事。
+ */
+const VERSION = (() => {
+  try {
+    return String(JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version ?? '')
+  } catch {
+    return ''
+  }
+})()
 
 /** Largest accepted request body, so one caller cannot exhaust the process. */
 const MAX_BODY_BYTES = 256 * 1024
@@ -189,6 +205,8 @@ export function buildState() {
     // 提前模式下它与 `today` 不同，而这两个数本来就回答不同的问题。
     planDate: day === null ? '' : dateOfDay(plan.planStart, day),
     revision,
+    /** 页脚署名用：本插件的版本号（读不到就是空串，页脚少印一个号）。 */
+    version: VERSION,
     nextAction,
     profile,
     plan: { ...plan, tasks },
