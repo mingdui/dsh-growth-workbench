@@ -198,9 +198,9 @@ export function buildState() {
     curve: curvePoints(history),
     metrics: {
       day,
-      // 试跑偏移（0 = 关）。页面靠它决定要不要挂那条「试跑中」的提醒 —— 被拨过的日子里，
-      // 用户最不该做的事就是把"第 8 天"当成真的第 8 天。
-      rehearsalDays: Number.isInteger(profile.rehearsalDays) ? profile.rehearsalDays : 0,
+      // 提前了几天（0 = 跟日历走）。页面靠它决定要不要在页头如实说两边：
+      // 「你已经在做第 8 天（按日历今天是第 5 天）」。
+      aheadDays: Number.isInteger(profile.aheadDays) ? profile.aheadDays : 0,
       phaseName: phase?.name ?? '',
       phaseIndex: phase === undefined ? -1 : plan.phases.indexOf(phase),
       phaseDays: phase?.days ?? [],
@@ -579,12 +579,12 @@ async function mutate(route, body) {
       updateProfile({ capabilityModel: null, selfAssessment: null })
       return { profile: read('profile') }
     }
-    case '/rehearsal': {
-      // 试跑：把"今天"往后拨。给验收用的 —— 90 天的流程没法靠真实日历在一天里走完。
-      // 上限 365：这不是"跳到任意日期"的工具，只是让日子能快一点。
+    case '/ahead': {
+      // 提前：节奏比日历快几天。今天有空多做了一天、或某道题本来就会直接过了 ——
+      // 用户的节奏是他自己的事，产品只负责如实记下来（见 store.effectiveToday）。
       const days = Number(body.days)
-      if (!Number.isInteger(days) || days < 0 || days > 365) throw new Error('试跑偏移必须是 0-365 的整数（0 = 退出试跑）')
-      updateProfile({ rehearsalDays: days })
+      if (!Number.isInteger(days) || days < 0 || days > 365) throw new Error('提前的天数必须是 0-365 的整数（0 = 回到日历节奏）')
+      updateProfile({ aheadDays: days })
       return { profile: read('profile') }
     }
     case '/agent-session': {

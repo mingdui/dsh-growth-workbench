@@ -176,10 +176,11 @@ the plugin's data directory (`$DSH_HOME/growth-workbench/evidence/`) and **only 
 the thumbnail deletes one** — rewriting the plan or dropping a task never touches them:
 your evidence is yours, not a cache.
 
-**In a hurry?** A 90-day plan cannot be walked through in one real day, so the 计划 tab's
-start-date row carries a **rehearsal** control: it shifts "today" forward a day and a banner
-appears in the page header, with *next day* / *exit rehearsal* right there. It changes only
-which day the product thinks it is — the start date and every check-in date stay real.
+**An extra day spare? A task you already know how to do?** Once today's tasks are done the
+今日 tab offers "继续做第 N 天 →": the pace is yours, there is no need to wait for the
+calendar. It changes only *which day you are on* — the header then says both ("你已经在做第
+8 天（按日历今天是第 5 天）") and offers *back to the calendar pace*. The start date and every
+check-in date stay real: a check-in records what actually happened.
 
 A button is **a shortcut for typing, not a hidden worker**: the phrase is delivered as an
 **ordinary user turn**, so you watch it read, you can interrupt it, and you can correct it

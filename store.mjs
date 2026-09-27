@@ -49,13 +49,13 @@ export function dataDir() {
 /**
  * 「今天」—— 页面与 Agent 都认的那一个。
  *
- * 试跑（`profile.rehearsalDays`）是给验收用的：一份 90 天的东西，靠真实日历没法在一天里
- * 走完。它只拨动"现在算第几天"（第几天、当前阶段、今日任务、本周完成率、考核该不该考，
- * 全都跟着走），**不改打卡日期** —— 打卡记的是真发生的事；也不动 `planStart`：
- * 起始日是"计划从哪天开始"这个事实，不该为了测试被改写。
+ * `profile.aheadDays` 是**提前**：今天有空多做了一天、或某道题本来就会直接过了，用户的
+ * 节奏就比日历快。它只拨动"我在做第几天"（第几天、当前阶段、今日任务、本周完成率、该不该
+ * 考核，全都跟着走），**不改打卡日期** —— 打卡记的是真发生的事；也不动 `planStart`：
+ * 起始日是"计划从哪天开始"这个事实，不该因为节奏快慢被改写。
  */
 export function effectiveToday(profile) {
-  const offset = Number.isInteger(profile?.rehearsalDays) ? profile.rehearsalDays : 0
+  const offset = Number.isInteger(profile?.aheadDays) ? profile.aheadDays : 0
   if (offset === 0) return today()
   const [year, month, day] = today().split('-').map(Number)
   // 用本地日期做加法：跨月、跨年由 Date 自己进位，不做手写的天数表。
@@ -198,11 +198,11 @@ export function empty(kind) {
          */
         agentSession: null,
         /**
-         * 试跑：把"今天"往后拨几天（0 = 关）。给验收用的 —— 90 天的流程靠真实日历没法在
-         * 一天里走完。它只影响"现在算第几天"，不影响打卡日期，也不动 `planStart`。
-         * 见 {@link effectiveToday}。
+         * 提前：节奏比日历快几天（0 = 跟日历走）。今天有空多做了一天、或某道题本来就会
+         * 直接过了，就在这里记一笔 —— 它只影响"我在做第几天"，不影响打卡日期，也不动
+         * `planStart`。见 {@link effectiveToday}。
          */
-        rehearsalDays: 0,
+        aheadDays: 0,
         updated: '',
       }
     case 'plan':

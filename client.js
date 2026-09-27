@@ -583,8 +583,9 @@ window.__ModuleLoader__.load({
       select: { padding: '10px 12px', fontSize: '13px', font: 'inherit', color: 'inherit', background: '#fffdf9', borderRadius: '11px', border: '1px solid var(--gw-line, #d9d0c4)' },
       chip: { display: 'inline-block', padding: '4px 10px', fontSize: '12px', borderRadius: '999px', color: 'var(--gw-coral-deep, #a64132)', background: 'var(--gw-coral-soft, rgba(229,107,85,.10))', border: '1px solid rgba(229,107,85,.2)' },
       chipPlain: { display: 'inline-block', padding: '4px 10px', fontSize: '12px', borderRadius: '999px', color: 'var(--gw-muted, #6f7c87)', background: '#f4f1ea', border: '1px solid var(--gw-line-soft, #efeae2)' },
-      // 文字链式的动作（页头那一行「改绑 / 重建」、试跑提醒里的两个动作）：无边框无底色，
-      // 只靠下划线 + 颜色说"这能点"。它的 hover 自己一条（`.gw-quiet`），不吃通用那套上浮与投影。
+      // 文字链式的动作（页头那一行「改绑 / 重建」、提前那条提醒里的「回到日历节奏」）：
+      // 无边框无底色，只靠下划线 + 颜色说"这能点"。它的 hover 自己一条（`.gw-quiet`），
+      // 不吃通用那套上浮与投影。
       quiet: { font: 'inherit', background: 'none', border: 'none', padding: '0', textDecoration: 'underline', color: 'var(--gw-coral-deep, #a64132)', cursor: 'pointer' },
       error: { fontSize: '13px', color: '#b33a2d', background: '#fff0ed', border: '1px solid #f3c5be', borderRadius: '12px', padding: '12px 15px' },
       warn: { fontSize: '13px', color: '#8a5a1f', background: '#fdf7e8', border: '1px solid #ecd9a8', borderRadius: '12px', padding: '12px 15px' },
@@ -955,6 +956,16 @@ window.__ModuleLoader__.load({
     /** Today's body, shared by the page tab and the right-sidebar tab. */
     function TodayBody({ state, post, reload, compact }) {
       const kids = [];
+      // 「我在做第几天」是提前过的指针；「按日历今天是第几天」= 指针减掉提前的天数。
+      const aheadDays = state.metrics.aheadDays ?? 0;
+      const pointer = state.metrics.day;
+      const allTasks = state.plan.phases.flatMap((phase) => phase.tasks ?? []);
+      const todayLeft = pointer === null
+        ? []
+        : allTasks.filter((task) => task.day === pointer && state.progress.tasks?.[task.id]?.done !== true);
+      const nextDay = pointer === null
+        ? null
+        : (allTasks.map((task) => task.day).filter((day) => Number.isInteger(day) && day > pointer).sort((left, right) => left - right)[0] ?? null);
       if (!compact) kids.push(h(Metrics, { key: 'metrics', state }));
       // 空状态要说清「为什么空、下一步怎么办」。原先只有一句「计划里没有待办任务」，
       // 而下面这三种情况的原因完全不同 —— 用户看完还是不知道该做什么。
@@ -976,6 +987,22 @@ window.__ModuleLoader__.load({
         ]),
         ...rows,
       ]));
+      // 「今天排的做完了，我还有力气」—— 这句话只有在这里说得出口：需求就出现在这一刻。
+      // 所以入口长在这儿，而不是计划页的设置卡里（那里是"日历"，不是"我今天的状态"）。
+      // 按钮把指针推到**下一道真实存在的任务**那一天（中间可能有没排任务的空档）。
+      if (pointer !== null && todayLeft.length === 0 && nextDay !== null) {
+        kids.push(h('div', { key: 'ahead', className: 'gw-nextday', style: { ...S.meta, display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap', paddingLeft: '2px' } }, [
+          h('span', { key: 'what' }, `今天排的做完了 —— 接下来是第 ${String(nextDay)} 天。`),
+          h('button', {
+            key: 'go',
+            type: 'button',
+            className: 'gw-quiet',
+            style: { ...S.fine, ...S.quiet },
+            // 推到"那一天"，而不是无脑 +1：第 3 天之后可能第 5 天才排了任务。
+            onClick: () => { void post('/ahead', { days: nextDay - pointer + aheadDays }); },
+          }, `继续做第 ${String(nextDay)} 天 →`),
+        ]));
+      }
       return h('div', { style: { display: 'flex', flexDirection: 'column', gap: compact ? '8px' : '18px' } }, kids);
     }
 
@@ -1008,12 +1035,14 @@ window.__ModuleLoader__.load({
           ]),
           onThisTab ? null : h('button', { key: 'go', type: 'button', style: { ...S.button, background: '#f3c26b', borderColor: '#f3c26b', color: '#253b39' }, onClick: () => onNavigate(action.targetTab, action.targetAnchor) }, '现在去做 →'),
         ]),
-        // 试跑中：被拨过的日子里，最不该发生的事就是把「第 8 天」当成真的第 8 天 ——
-        // 所以这条提醒跟着页头走（四个页签都在），并且就地给两个动作。
-        state.metrics.rehearsalDays > 0 ? h('div', { key: 'rehearsal', className: 'gw-rehearsal', style: { ...S.meta, display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', padding: '9px 12px', borderRadius: '10px', background: '#fdf3e4', border: '1px solid #f0dcb4' } }, [
-          h('span', { key: 'what' }, `试跑中${state.metrics.day === null ? '' : ` · 今天当成第 ${String(state.metrics.day)} 天`}（打卡仍记真实日期）`),
-          h('button', { key: 'step', type: 'button', className: 'gw-quiet', style: { ...S.fine, ...S.quiet }, onClick: () => { void post('/rehearsal', { days: state.metrics.rehearsalDays + 1 }); } }, '进一天'),
-          h('button', { key: 'off', type: 'button', className: 'gw-quiet', style: { ...S.fine, ...S.quiet }, onClick: () => { void post('/rehearsal', { days: 0 }); } }, '退出试跑'),
+        // 节奏比日历快的时候，页头如实说两边 —— 四个页签都在，因为「我在做第 8 天、按日历
+        // 才第 5 天」这件事一旦不说清，用户读到的每个数字都会错位。这里只放**撤销**那一个
+        // 动作：「继续下一天」长在今日页任务做完的地方（需求出现在那儿），不在这儿重复一次。
+        state.metrics.aheadDays > 0 ? h('div', { key: 'ahead', className: 'gw-ahead', style: { ...S.meta, display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', padding: '9px 12px', borderRadius: '10px', background: '#fdf3e4', border: '1px solid #f0dcb4' } }, [
+          h('span', { key: 'what' }, state.metrics.day === null
+            ? '你的节奏比日历快 —— 计划还没开始，所以还没有"第几天"'
+            : `你已经在做第 ${String(state.metrics.day)} 天（按日历今天是第 ${String(state.metrics.day - state.metrics.aheadDays)} 天）`),
+          h('button', { key: 'off', type: 'button', className: 'gw-quiet', style: { ...S.fine, ...S.quiet }, onClick: () => { void post('/ahead', { days: 0 }); } }, '回到日历节奏'),
         ]) : null,
         activity === null ? null : h('div', { key: 'activity', role: 'status', 'aria-live': 'polite', style: { ...S.meta, padding: '9px 12px', borderRadius: '10px', background: activity.status === 'error' ? '#fff0ed' : activity.status === 'completed' ? '#edf7ef' : '#f3efe8' } }, activity.status === 'completed'
           ? (activity.wrote === true
@@ -1307,8 +1336,6 @@ window.__ModuleLoader__.load({
       // 用户看到的就是「点了没反应」。所以让它跟着数据的真实状态走，而不是跟着点击走：
       // 与库里一致就显示「已保存」（不假装可点），改动了才是可点的「保存」。
       const [saving, setSaving] = useState(false);
-      // 试跑偏移（0 = 关）。页面靠它把两个动作的文案与那行说明切换过来。
-      const rehearsal = state.metrics.rehearsalDays ?? 0;
       useEffect(() => { setStartDraft(plan.planStart ?? ''); }, [plan.planStart]);
       const startChanged = startDraft !== (plan.planStart ?? '');
       const saveStart = async () => {
@@ -1383,21 +1410,6 @@ window.__ModuleLoader__.load({
             onClick: () => { void saveStart(); },
           }, saving ? '保存中…' : startChanged ? '保存' : '已保存'),
           h('span', { key: 'note', style: S.meta }, '计划的第 1 天，决定「第几天」与周次。'),
-        ]),
-        // 试跑：把"今天"往后拨。给验收用的 —— 90 天的东西没法靠真实日历在一天里走完。
-        // 它**不动起始日**（那是"计划从哪天开始"这个事实），也不动打卡日期（打卡记的是真
-        // 发生的事），只改"现在算第几天"。开着的时候页头会挂一条提醒，免得把第 8 天当真。
-        h('div', { key: 'rehearsal', style: { ...S.inline, marginTop: '8px' } }, [
-          h('button', {
-            key: 'step',
-            type: 'button',
-            style: S.buttonLight,
-            onClick: () => { void post('/rehearsal', { days: rehearsal + 1 }); },
-          }, rehearsal > 0 ? '试跑：再进一天' : '试跑：进一天'),
-          rehearsal > 0 ? h('button', { key: 'off', type: 'button', style: S.buttonLight, onClick: () => { void post('/rehearsal', { days: 0 }); } }, '退出试跑') : null,
-          h('span', { key: 'note', style: S.meta }, rehearsal > 0
-            ? `试跑中：今天当成第 ${String(state.metrics.day)} 天，打卡仍记真实日期。`
-            : '试跑：把「今天」往后拨一天，用来在一天里走完几天的流程 —— 不动起始日，也不动打卡日期。'),
         ]),
       ]));
 
