@@ -1450,7 +1450,8 @@ window.__ModuleLoader__.load({
       ];
       phases.forEach((phase, index) => {
         const locked = currentIndex < 0 || index > currentIndex;
-        const done = index < currentIndex;
+        // 这里不摆段位章：段位是「计划」页那套语义（做完一个阶段拿一段），
+        // 目录只回答「考过哪些、还欠哪几场」—— 混在一起只会多一层噪音。
         const bigExam = rounds.some((entry) => entry.coverage === '全量' && entry.day >= phase.days[0] && entry.day <= phase.days[1]);
         const rows = [];
         (phase.weeks ?? []).forEach((week) => {
@@ -1468,7 +1469,6 @@ window.__ModuleLoader__.load({
         });
         kids.push(h('div', { key: phase.name, style: { marginTop: '14px' } }, [
           h('div', { key: 'p', style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' } }, [
-            h(RankBadge, { key: 'rank', rank: rankOf(index, phases.length), achieved: done, size: 22 }),
             h('span', { key: 'n', style: { fontSize: '14px', fontWeight: '600', color: locked ? 'var(--gw-muted-2, #9aa7b1)' : 'inherit' } }, `阶段${String(index + 1)} ${phase.name}`),
             h('span', { key: 'd', style: { fontFamily: 'var(--gw-mono, monospace)', fontSize: '11.5px', color: 'var(--gw-muted-2, #9aa7b1)' } }, `${String(phase.days[0])}–${String(phase.days[1])} 天`),
             h('span', { key: 'big', style: { marginLeft: 'auto', fontSize: '12px', fontWeight: '600', color: bigExam ? 'var(--gw-teal, #2f7d74)' : (locked ? 'var(--gw-muted-2, #9aa7b1)' : '#8a5a1f'), whiteSpace: 'nowrap' } },
