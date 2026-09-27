@@ -204,16 +204,21 @@ await check('写证据是一个弹窗：能写、能改、关掉不等于丢掉'
   // 行尾用 `\r?\n`：这个断言不该取决于检出时的换行符（Windows 上的工作副本可能是 CRLF，
   // 而 git 在入库时会归一成 LF —— 断言跟着检出方式变红是最没意义的红）。
   assert.match(source, /const close = useCallback\(\(\) => \{\r?\n\s+if \(dirty\) void post\('\/checkin'/)
-  // 阅读态那一行是**可点的文本块**，不是输入框：编排放进弹窗了。
-  assert.match(source, /className: 'gw-evidence-open'/)
-  // 而它**必须自己声明底色**：不声明就继承宿主给 button 的底色 —— 用户截图里那一整条深灰
-  // 就是这么来的（当时它只有一条 hover 规则）。行内那份从 `S.quiet` 来，CSS 里也兜了一层。
-  assert.match(source, /\.gw-root \.gw-evidence-open\{background:transparent/)
-  assert.match(
-    source.slice(source.indexOf('function TaskEvidenceLine('), source.indexOf('function NextActionCard(')),
-    /\.\.\.S\.quiet/,
-    '这一块看起来得像文字，得像 S.quiet 那样把按钮那层皮全脱掉',
-  )
+  // 作答框：**整块就是入口**（空=虚线「这里能写」、有内容=实线纸色「这是我写的」），点框进弹窗。
+  assert.match(source, /className: 'gw-answer'/)
+  assert.match(source, /role: 'button'/, '整块可点，所以要给 role 与 aria-label')
+  assert.match(source, /border: `1px \$\{hasContent \? 'solid' : 'dashed'\}/, '空=虚线、有内容=实线')
+  assert.match(source, /'改写'/, '有内容时提示「改写」（加图在弹窗里承接）')
+  // 只看代码、不看注释：注释里正当地写着"那条链撤了"，不该算违规。
+  const codeOf = (text) => text.split('\n').filter((line) => !line.trim().startsWith('//')).join('\n')
+  assert.doesNotMatch(codeOf(source), /改写 \/ 加图/, '那条分开的文字链撤了 —— 框自己就是入口')
+  // 缩略图在"整块可点"的框里：点它只该开图，不该把弹窗一起打开。
+  assert.match(source, /onClick: \(event\) => event\.stopPropagation\(\)/)
+  // **自己声明底色**：不声明就继承宿主给元素的底色（用户截图里那一整条深灰就是这么来的）。
+  assert.match(source, /\.gw-root \.gw-answer\{background:transparent\}/)
+  // 「证据 · 未交」撤了：档位只在定了之后显示 —— 「未交」是门禁的词，不是给人看的。
+  const evidenceLine = codeOf(source.slice(source.indexOf('function TaskEvidenceLine('), source.indexOf('function TaskLearnLine(')))
+  assert.doesNotMatch(evidenceLine, /未交/, '框里不再出现「未交」这个词')
   assert.match(source, /editing \? h\(EvidenceEditor, \{ key: 'editor'/)
   // 空证据时档位不可点：服务端有这条规则（证据空 → 档位退回），页面不能让你点个寂寞。
   assert.match(source, /const canPickTier = text\.trim\(\)\.length > 0/)
@@ -261,6 +266,19 @@ await check('学习资料在弹窗里读：任务行只放引子，方法/汇总
   assert.match(source, /'AI 汇总'/)
   assert.match(source, /links\.length > 0 \? '来源' : '来源（没有找到可引用的）'/)
   assert.match(source, /这次的汇总来自模型自己的通识，没有可引用的来源/)
+})
+
+await check('任务卡分三块：这一步的要求 / 怎么学 / 我的痕迹', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  // 三块层标 —— 它们是这一屏的落点：哪行是要求、哪行是参考、哪行是我写的。
+  for (const zone of ['这一步的要求', '怎么学', '我的痕迹']) {
+    assert.match(source, new RegExp(zone), `要有「${zone}」这块层标`)
+  }
+  // 要求那一块是**标签 + 内容**两列（可核对的条件），不是又一段说明文字。
+  assert.match(source, /\.\.\.\[\['最低版本', task\.minimumVersion\], \['完成标准', task\.doneCriteria\], \['可接受证据', task\.acceptableEvidence\]\]/)
+  // 「打卡 N 天」撤了：它要解释才懂，而读数条上已经有「连续 N 天」。
+  assert.doesNotMatch(source, /打卡 \$\{String\(days\)\} 天/, '「打卡 N 天」不该回来')
+  assert.doesNotMatch(source, /const days = \(entry\?\.checkInDates \?\? \[\]\)\.length/, '它连变量一起撤掉')
 })
 
 await check('画像每一步都能点回收起，标题行就是那个开关', () => {

@@ -114,13 +114,17 @@ window.__ModuleLoader__.load({
         + '@keyframes gw-rise{from{opacity:0;transform:translateY(16px) scale(.985)}to{opacity:1;transform:none}}'
         + '.gw-modal textarea{border:0;outline:0;background:transparent;resize:none;box-sizing:border-box}'
         + '.gw-modal textarea:focus{box-shadow:none;border:0}'
-        // 证据的阅读态就是一个可点的文本块（点它进弹窗写）。它自己一条 hover：
-        // 通用那条会给按钮加上浮与投影，落在一块纯文字上就是一团脏影子。
-        + '.gw-root button.gw-evidence-open:not(:disabled):hover{transform:none;box-shadow:none;border-color:transparent;color:inherit;background:rgba(229,107,85,.06)}'
-        // 它是"看起来不像按钮"的控件，**底色必须自己声明**：不声明就继承宿主给 button 的底色
-        // （用户的截图里，证据那块是一整条深灰底 + 深色字）。CSS 只兜一层底，行内那份在
-        // `TaskEvidenceLine` 里（从 S.quiet 来）—— 两处都写，是因为宿主样式表可能后加载。
-        + '.gw-root .gw-evidence-open{background:transparent;border:0;font:inherit;width:100%;display:block;text-align:left}'
+        // 作答框：空的时候是**虚线**（"这里能写"），有内容时是**实线纸色**（"这是我写的"）。
+        // 它是"看起来不像控件"的东西，所以底色必须自己声明（见下面那条注释）。
+        // 「改写」只在 hover / 键盘聚焦时浮出来 —— 常显就会变成又一个要读的词。
+        + '.gw-answer{transition:border-color 160ms ease,background 160ms ease}'
+        + '.gw-answer:hover{border-color:var(--gw-coral,#e56b55)}'
+        + '.gw-answer .gw-answer-edit{opacity:0;transition:opacity 160ms ease}'
+        + '.gw-answer:hover .gw-answer-edit,.gw-answer:focus-visible .gw-answer-edit{opacity:1}'
+        // 它是个 div（里面还有可点的缩略图链接，button 里不能嵌 a），所以要自己给焦点环。
+        + '.gw-root .gw-answer:focus-visible{outline:2px solid var(--gw-coral,#e56b55);outline-offset:2px}'
+        // 宿主可能给 button 之类的元素一层底色 —— 自绘控件必须自己声明底色（见下面的注释）。
+        + '.gw-root .gw-answer{background:transparent}'
         + '@media (prefers-reduced-motion: reduce){.gw-modal,.gw-modal-card{animation:none}}'
         + '.gw-root input:focus,.gw-root select:focus,.gw-root textarea:focus{border-color:var(--gw-coral,#e56b55);box-shadow:0 0 0 4px var(--gw-coral-soft,rgba(229,107,85,.10))}'
         // The section label's coral dash. It cannot be an inline style, and it is what
@@ -1012,29 +1016,42 @@ window.__ModuleLoader__.load({
       const [editing, setEditing] = useState(false);
       const evidenceText = String(entry?.evidence ?? '');
       const images = entry?.images ?? [];
+      const hasContent = evidenceText.length > 0 || images.length > 0;
+      const open = () => setEditing(true);
       return h(React.Fragment, null, [
-        h('div', { key: 'line', className: 'gw-evidence', style: { display: 'flex', flexDirection: 'column', gap: '8px' } }, [
-          h('button', {
-            key: 'open',
-            type: 'button',
-            className: 'gw-evidence-open',
-            title: evidenceText.length > 0 ? '点开改一改，或再加点东西' : '写点什么',
-            // 从 `S.quiet` 起手：它把"按钮"那层皮（底色、边框、字体、内边距）全部去掉 —— 证据
-            // 这一块看起来必须是一段文字，而不是一个控件。**底色必须自己声明**，否则会继承宿主
-            // 给 button 的底色（截图里那一整条深灰就是这么来的）。
+        // **整块就是入口**：空的时候点提示语、有内容时点正文，都进写作弹窗。
+        // 所以它不再挂一条「改写 / 加图」的文字链 —— 那正是"框和动作分家"的样子。
+        h('div', {
+          key: 'line',
+          className: 'gw-answer',
+          role: 'button',
+          tabIndex: 0,
+          'aria-label': evidenceText.length > 0 ? '改写这条证据' : '写一条证据',
+          title: '点一下写点什么',
+          style: {
+            display: 'flex', flexDirection: 'column', gap: '9px',
+            padding: '12px 14px', borderRadius: '12px', cursor: 'text',
+            // 空 = 虚线（这里能写）；有内容 = 实线纸色（这是我写的）。
+            border: `1px ${hasContent ? 'solid' : 'dashed'} ${hasContent ? 'var(--gw-line-soft, #efeae2)' : 'var(--gw-line, #e5dfd5)'}`,
+            background: hasContent ? '#fffdf9' : 'transparent',
+          },
+          onClick: open,
+          onKeyDown: (event) => {
+            if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(); }
+          },
+        }, [
+          h('div', {
+            key: 'text',
             style: {
-              ...S.quiet, textDecoration: 'none', cursor: 'text', width: '100%',
               fontSize: '14px', lineHeight: '1.8', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-              padding: '7px 10px', margin: '0 -10px 0 -10px', textAlign: 'left',
               color: evidenceText.length > 0 ? 'var(--gw-ink, #1f2933)' : 'var(--gw-muted-2, #9aa7b1)',
             },
-            onClick: () => setEditing(true),
           }, evidenceText.length > 0
             ? evidenceText
             : '写下今天留下的东西 —— 一段笔记、一个链接、一张图、或者做出来的那个东西'),
           h('div', { key: 'meta', style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' } }, [
-            h('span', { key: 'tier', style: entry?.tier ? S.chipPlain : { ...S.chipPlain, color: 'var(--gw-muted-2, #9aa7b1)' } },
-              entry?.tier ? `证据 · ${entry.tier}` : '证据 · 未交'),
+            // 档位**只在定了之后**显示：没定就不提（「未交」是门禁的词，不是给人看的）。
+            entry?.tier ? h('span', { key: 'tier', style: S.chipPlain }, entry.tier) : null,
             ...images.map((image) => h('a', {
               key: image.file,
               className: 'gw-shot',
@@ -1043,14 +1060,16 @@ window.__ModuleLoader__.load({
               rel: 'noreferrer',
               title: `${String(Math.max(1, Math.round(image.bytes / 1024)))} KB　点开看原图`,
               style: { display: 'block', lineHeight: '0' },
+              // 缩略图在"整块可点"的框里：点它只该开图，不该把弹窗一起打开。
+              onClick: (event) => event.stopPropagation(),
             }, [h('img', {
               key: 'img',
               src: shotUrl(image.file),
               alt: '证据图片',
               style: { width: '40px', height: '40px', objectFit: 'cover', borderRadius: '8px', border: '1px solid var(--gw-line, #e5dfd5)', background: '#fff' },
             })])),
-            h('button', { key: 'edit', type: 'button', className: 'gw-quiet', style: { ...S.fine, ...S.quiet }, onClick: () => setEditing(true) },
-              evidenceText.length > 0 ? '改写 / 加图' : '写证据'),
+            // 常态不占位置，hover / 键盘聚焦时浮出来。
+            h('span', { key: 'edit', className: 'gw-answer-edit', style: { ...S.fine, marginLeft: 'auto', color: 'var(--gw-coral-deep, #a64132)' } }, '改写'),
           ]),
         ]),
         editing ? h(EvidenceEditor, { key: 'editor', task, entry, post, reload, tiers, onClose: () => setEditing(false) }) : null,
@@ -1113,10 +1132,14 @@ window.__ModuleLoader__.load({
     function TaskRow({ task, entry, post, reload, tiers }) {
       // 交互件全部来自**共用组件**（`TaskCheck` 勾选 / `TaskEvidenceLine` 证据与弹窗）——
       // 这一行自己只管版式与元信息，所以不会再出现"改了左边、忘了右边"。
+      //
+      // 版式按**三块**分（层次是这里唯一的活）：
+      //   这一步的要求 · 怎么学 · 我的痕迹
+      // 原先这七行是平的：同一字号、同一颜色，读者没有落点，得自己猜哪行是任务、哪行是要求、
+      // 哪行是自己写的。
       const done = entry?.done === true;
-      const days = (entry?.checkInDates ?? []).length;
       const save = (patch) => post('/checkin', { taskId: task.id, ...patch });
-      return h('div', { 'data-task-id': task.id, style: { ...S.row, flexDirection: 'column', alignItems: 'stretch', gap: '6px' } }, [
+      return h('div', { 'data-task-id': task.id, style: { ...S.row, flexDirection: 'column', alignItems: 'stretch', gap: '14px' } }, [
         h('div', { key: 'head', style: { display: 'flex', alignItems: 'flex-start', gap: '8px' } }, [
           h(TaskCheck, { key: 'box', task, done, onToggle: () => { void save({ done: !done }); } }),
           h('div', { key: 'text', style: { flex: '1 1 auto', minWidth: '0' } }, [
@@ -1133,24 +1156,34 @@ window.__ModuleLoader__.load({
               h('span', { key: 'id', style: { ...S.chip, marginRight: '8px', verticalAlign: '1px' } }, task.id),
               task.action,
             ]),
-            h('div', { key: 'meta1', style: { ...S.fine, marginTop: '4px' } },
-              `引用 ${task.ref}　能力项 ${task.capability}　预计 ${String(task.minutes)} 分钟　最低完成版本：${task.minimumVersion}`),
-            h('div', { key: 'meta2', style: { ...S.fine, marginTop: '2px' } },
-              `完成标准：${task.doneCriteria}　|　可接受证据：${task.acceptableEvidence}`),
+            // 元信息只留"这是哪一道、要多久" —— 最低版本/完成标准/可接受证据搬到下面
+            // 「这一步的要求」那一块去，它们是要核对的条件，不该混在编号里。
+            h('div', { key: 'meta', style: { ...S.fine, marginTop: '4px' } },
+              `引用 ${task.ref}　能力项 ${task.capability}　预计 ${String(task.minutes)} 分钟`),
           ]),
-          h('span', { key: 'days', style: S.chip }, `打卡 ${String(days)} 天`),
-          // 完成时落一枚印章。它只在 done 时挂载 —— 挂载即跑动画，所以勾下去就有
-          // 「盖上去」的那一下；取消再勾会重来一次。
+          // 「打卡 N 天」撤了：它说的是"你为这道题打过几次卡"，但读数条上已经有「连续 N 天」，
+          // 而它自己不说清就需要解释 —— 一个要解释才懂的读数不值得占一屏。
           done ? h(Seal, { key: 'mark', tone: 'teal', label: '已完成', stamp: true }) : null,
+        ]),
+        // ① 要求：**标签 + 内容**两列。这样它读起来是"可以核对的条件"，而不是又一段说明文字。
+        h('div', { key: 'req', style: { display: 'flex', flexDirection: 'column', gap: '5px', paddingLeft: '22px' } }, [
+          h('div', { key: 'h', className: 'gw-subhead', style: S.subhead }, '这一步的要求'),
+          ...[['最低版本', task.minimumVersion], ['完成标准', task.doneCriteria], ['可接受证据', task.acceptableEvidence]]
+            .map(([label, value]) => h('div', { key: label, style: { display: 'flex', gap: '12px', alignItems: 'baseline' } }, [
+              h('span', { key: 'l', style: { flex: '0 0 62px', fontSize: '12px', color: 'var(--gw-muted-2, #9aa7b1)' } }, label),
+              h('span', { key: 'v', style: { flex: '1 1 auto', fontSize: '13px', lineHeight: '1.7', color: 'var(--gw-ink-2, #3d4a54)' } }, value),
+            ])),
         ]),
         // 学习资料：这道题**怎么学**。计划只给要求是不够的 —— 没有方法，做题的人第一步就卡住。
         // 这一行只放引子与入口，方法与汇总在 `LearningSheet` 那张纸上读。
-        h('div', { key: 'learn', className: 'gw-learn', style: { ...S.fine, paddingLeft: '22px' } }, [
+        h('div', { key: 'learn', className: 'gw-learn', style: { ...S.fine, paddingLeft: '22px', display: 'flex', flexDirection: 'column', gap: '5px' } }, [
+          h('div', { key: 'h', className: 'gw-subhead', style: S.subhead }, '怎么学'),
           h(TaskLearnLine, { task }),
         ]),
-        // 证据：**阅读态 + 写作弹窗**，两边共用（`TaskEvidenceLine`）。左页这里只负责把缩进
-        // 让给勾选框那一列 —— 版式在这一层，交互件在共用组件里。
-        h('div', { key: 'evidence', style: { paddingLeft: '22px' } }, [
+        // ③ 我的痕迹：作答框（`TaskEvidenceLine`，两边共用）。右栏同一块也用它 ——
+        // 「看起来不像控件」的东西在这里只需要一处实现。
+        h('div', { key: 'evidence', style: { display: 'flex', flexDirection: 'column', gap: '7px', paddingLeft: '22px' } }, [
+          h('div', { key: 'h', className: 'gw-subhead', style: S.subhead }, '我的痕迹'),
           h(TaskEvidenceLine, { task, entry, post, reload, tiers }),
         ]),
       ]);
