@@ -30,12 +30,12 @@ import { join, resolve, sep } from 'node:path'
  * Document shape version, so a future migration has something to read.
  *
  * 3 加了 `profile.agentSession`（固定对话）。4 加了 `progress.tasks[].checkInDays`
- * （进度天）。两个都是**向后兼容**的新字段：`read()` 会把磁盘上的文档盖在 {@link empty}
- * 上，旧文档取到 `null` / 空列表；进度条目缺 `checkInDays` 时由
- * `model.planDaysOf` 拿 `checkInDates` 按 `planStart` 当场推回来 —— 所以都不需要手工迁移
- * （见 CLAUDE.md 的两条安全路径）。
+ * （进度天）。5 加了 `assessments.drafts`（没交卷的考卷答案）。三个都是**向后兼容**的新字段：
+ * `read()` 会把磁盘上的文档盖在 {@link empty} 上，旧文档取到 `null` / 空列表 / 空对象；
+ * 进度条目缺 `checkInDays` 时由 `model.planDaysOf` 拿 `checkInDates` 按 `planStart` 当场推回来 ——
+ * 所以都不需要手工迁移（见 CLAUDE.md 的两条安全路径）。
  */
-export const DATA_VERSION = 4
+export const DATA_VERSION = 5
 
 /** The DSH home this plugin stores under. A launcher always exports `DSH_HOME`. */
 export function dshHome() {
@@ -225,7 +225,18 @@ export function empty(kind) {
     case 'progress':
       return { version: DATA_VERSION, tasks: {}, updated: '' }
     case 'assessments':
-      return { version: DATA_VERSION, history: [], updated: '' }
+      return {
+        version: DATA_VERSION,
+        history: [],
+        /**
+         * **没交卷的答案**（考卷草稿）：`{ [paperKey]: { answers: { [题号]: 文本 }, updated } }`。
+         *
+         * 为什么放这儿：一轮考卷是「已交 / 未交」两半，它属于同一件事；也省掉第五份文档
+         * （KINDS、导出、清空分区都得跟着改）。
+         */
+        drafts: {},
+        updated: '',
+      }
     default:
       throw new Error(`growth-workbench: unknown document ${kind}`)
   }
@@ -427,6 +438,46 @@ export function removeEvidenceImage(taskId, file) {
     // 文件已经不在了：记录清掉就够了（用户要的是"这张图别再跟着这个任务"）。
   }
   return true
+}
+
+/**
+ * Save the answers typed into one exam paper (**not submitted**).
+ *
+ * 一次一题地合并不是省事：考卷是"失焦即存"的，整份覆盖会让并发的那两次写互相吃掉。
+ * 调用方不必先读后写，也不会把别的题的草稿抹掉。
+ *
+ * @param key - the paper's identity (`节点-2` / `阶段-1`）。
+ * @param answers - `{ [题号]: 文本 }`；空字符串 = 清掉那一题。
+ */
+export function saveDraft(key, answers) {
+  if (typeof key !== 'string' || key.length === 0) throw new Error('growth-workbench: draft needs a paper key')
+  const store = read('assessments')
+  const drafts = { ...(store.drafts ?? {}) }
+  const current = drafts[key] ?? { answers: {}, updated: '' }
+  const merged = { ...(current.answers ?? {}) }
+  for (const [id, text] of Object.entries(answers ?? {})) {
+    const value = String(text ?? '')
+    if (value.trim().length === 0) delete merged[id]
+    else merged[id] = value
+  }
+  // 一题都不剩就把这条草稿删掉 —— 空草稿会让目录上多出一个"继续作答"的假入口。
+  if (Object.keys(merged).length === 0) delete drafts[key]
+  else drafts[key] = { answers: merged, updated: new Date().toISOString() }
+  store.drafts = drafts
+  store.updated = new Date().toISOString()
+  write('assessments', store)
+  return drafts[key] ?? null
+}
+
+/** 交卷之后清掉这张卷子的草稿 —— 答案已经作为一整轮交出去了，留着只会在目录上多出一个假入口。 */
+export function clearDraft(key) {
+  const store = read('assessments')
+  const drafts = { ...(store.drafts ?? {}) }
+  delete drafts[key]
+  store.drafts = drafts
+  store.updated = new Date().toISOString()
+  write('assessments', store)
+  return null
 }
 
 /**

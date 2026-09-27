@@ -61,6 +61,7 @@ import {
   addEvidenceImage,
   appendAssessment,
   checkIn,
+  clearDraft,
   dismissTransferable,
   effectiveToday,
   empty,
@@ -68,6 +69,7 @@ import {
   readAll,
   readEvidenceImage,
   removeEvidenceImage,
+  saveDraft,
   today,
   updatePlan,
   updateProfile,
@@ -204,6 +206,8 @@ export function buildState() {
     plan: { ...plan, tasks },
     progress,
     history,
+    /** 考卷草稿（没交卷的答案）—— 页面按 `drafts[key]` 接着答。 */
+    drafts: assessments.drafts ?? {},
     curve: curvePoints(history),
     metrics: {
       day,
@@ -599,6 +603,14 @@ async function mutate(route, body) {
       if (body.discard !== true) throw new Error('能力模型只能由 Agent 生成（用 growth_propose_capability_model）；这个接口只接受 { discard: true }')
       updateProfile({ capabilityModel: null, selfAssessment: null })
       return { profile: read('profile') }
+    }
+    case '/draft': {
+      // 考卷草稿：失焦存一题、定时再存一遍、交卷后清掉。按题合并不是省事 —— 整份覆盖会让
+      // 两次并发写（失焦那次 + 定时那次）互相吃掉。
+      const key = String(body.key ?? '')
+      if (key.length === 0) throw new Error('草稿要知道是哪一张卷子（key 不能为空）')
+      if (body.clear === true) return { draft: clearDraft(key) }
+      return { draft: saveDraft(key, record(body.answers)) }
     }
     case '/ahead': {
       // 提前：节奏比日历快几天。今天有空多做了一天、或某道题本来就会直接过了 ——

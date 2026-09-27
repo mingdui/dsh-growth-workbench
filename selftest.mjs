@@ -326,7 +326,8 @@ await check('下一步落在当前这一页时，页头不再给一个空转的�
   // 一个不存在的锚点」，也就是什么都不发生。理由留着（它解释为什么是现在），按钮去掉。
   assert.match(source, /const onThisTab = action !== undefined && action !== null && action\.targetTab === currentTab/)
   assert.match(source, /onThisTab \? null : h\('button', \{ key: 'go'/)
-  assert.match(source, /hideNext: tab === 'profile', currentTab: tab/)
+  assert.match(source, /hideNext: tab === 'profile' \|\| tab === 'review', currentTab: tab/,
+    '画像与考核这两页各有自己的主角，页头不再重复一张「下一步」卡')
 })
 
 await check('被幂等闸拦下的那次点击，不能说成「已排进对话」', () => {
@@ -350,7 +351,8 @@ await check('考核的收尾契约写在模型一定看得到的地方', () => {
   // （这一条原先守的是 AskButton 的「一问一答」提示；考卷搬到页面上之后换了说法，约束不变。）
   const clientSource = readFileSync(join(ROOT, 'client.js'), 'utf8')
   assert.match(clientSource, /交卷 · 交给 AI 打分/, '按钮要说清这一下是交给 AI 打分')
-  assert.match(clientSource, /答完交卷，AI 按 rubric 打四维分/, '页面要说清交卷后会发生什么')
+  assert.match(clientSource, /交卷后 AI 会在「成长工作台」那个对话里打分/, '页面要说清交卷后会发生什么')
+  assert.match(clientSource, /中途关掉没关系：草稿存着，回来接着答/, '还要说清"没答完也不会丢"')
   assert.match(clientSource, /growth_save_assessment 把这一轮写进历史/, '交卷时要把收尾动作一并交代给模型')
 })
 
@@ -362,7 +364,10 @@ await check('考核页不再有手工补记入口 —— 打分归 Agent，页�
   // 四维打分是 Agent 的事（growth_save_assessment），页面只读 history 与 curve。
   assert.doesNotMatch(source, /'补记一次考核'|'手工登记一次考核成绩'/, '补记入口已删除')
   assert.doesNotMatch(source, /post\('\/assessment'/, '页面不再自己写考核轮')
-  assert.match(source, /function ReviewTabBody\(\{ state \}\)/, '这一页只读 state')
+  // 这一页现在有自己的写路径了（考卷草稿），但**打分**仍然只走 Agent：页面不许碰 /assessment。
+  // 判据从"只读 state"改成"只写草稿、不写成绩" —— 前者已经不成立，后者才是那条约束。
+  assert.match(source, /post\('\/draft', \{ key, answers: patch \}\)/, '草稿是这一页唯一自己写的东西')
+  assert.match(source, /function ReviewTabBody\(\{ state, post \}\)/)
 })
 
 await check('趋势图是手写 SVG —— 这个仓库不引图表库', () => {
@@ -452,9 +457,16 @@ await check('考卷两档：小考按缺口出题，大考按高权重项，且�
   assert.match(source, /if \(tier === 'phase'\) for \(const id of state\.catalog\.highWeightIds/, '大考按高权重项出题')
   assert.match(source, /else for \(const entry of state\.metrics\.priorities/, '小考按缺口出题')
   assert.match(source, /if \(question === undefined\) return;/, '没有对应题的项必须跳过（A4/B5/B6 就没有题）')
-  // 档位不自己判：nextActionFor 已经判过了，页面再算一遍只会分叉。
-  assert.match(source, /function examTier\(state\)/)
-  assert.match(source, /action\.id === 'review-phase'/, '档位取自那条阶梯给出的 id')
+  // 档位不再由页面自己判：**哪一张卷子该考**由 `examSlots` 从进度与历史里算出来，点哪一张就
+  // 考哪一档。原先页面还得从 nextAction 的 id 反推档位（examTier）—— 卷子挂在目录上之后，
+  // 档位是那一行自带的属性，反推那一步就没有了。
+  assert.match(source, /function examSlots\(state\)/)
+  assert.match(source, /state: bigRound !== undefined \? 'done' : \(finished \? 'open'/, '阶段大考的档位与状态由目录算')
+  // 周次可能是数字，也可能是「第3周（15-21天）」这种标签 —— 不认标签会算出 NaN，让每一周都
+  // 被判成"待完成"（一个不报错、只让目录整体说错话的坑）。
+  assert.match(source, /function weekNumberOf\(week, fallback\)/)
+  assert.match(source, /const matched = \/第\\s\*\(\\d\+\)\\s\*周\/\.exec/, '要从标签里认出周次')
+  assert.match(source, /const take = examPool\(state, slot\.tier\)\.slice\(0, PAPER_SIZE\)/, '考卷按那一行的档位出题')
   // 交卷时必须把档位交代给模型，否则它会自己猜 coverage —— 猜错会让曲线点该画的不画、不该画的画上。
   assert.match(source, /coverage 请用「/, '交卷要说明本次用哪个 coverage')
   const toolsSource = readFileSync(join(ROOT, 'tools.mjs'), 'utf8')
@@ -505,8 +517,10 @@ await check('状态文案跟着真实状态：没开始的计划不说「第 1 �
   assert.match(source, /计划目前只排到周/, '没有排到天的任务时，要说清原因与下一步')
   assert.match(source, /该做一次考核，把成果沉淀下来/, '任务都做完了就指向考核')
   assert.doesNotMatch(source, /计划里没有待办任务。/, '那句什么都不解释的空话不许回来')
-  // 考卷的档位与「这次考的是哪个」必须一致：大考针对的是**已走完的那个阶段**，通常不是当前阶段。
-  assert.match(source, /action\.id === 'review-phase' && typeof action\.scope === 'string'/, '大考的信息栏取自那条阶梯给出的 scope')
+  // 考卷的刊头与「这次考的是哪个」必须一致：卷子挂在目录的某一行上，档位与 scope 都来自那一行 ——
+  // 页面不再从 nextAction 反推（反推那一步已经随 examTier 一起去掉了）。
+  assert.match(source, /slot\.tier === 'phase' \? '阶段大考' : '节点小考'/, '刊头写的是这一行的档位')
+  assert.match(source, /h\('span', \{ key: 'scope' \}, slot\.scope\)/, '信息栏写的是这一行的 scope')
   const apiSource = readFileSync(join(ROOT, 'api.mjs'), 'utf8')
   assert.match(apiSource, /id: 'review-phase',[\s\S]{0,400}?scope:/, '阶段大考要给出 scope')
   assert.match(apiSource, /id: 'review-node',[\s\S]{0,400}?scope:/, '节点小考也要')
@@ -539,14 +553,38 @@ await check('段位：七段等距挂在阶段上，达成的才填色', () => {
   assert.ok((source.match(/h\(RankBadge, \{/g) ?? []).length >= 2, '阶梯与阶段章都要用它')
 })
 
+await check('考卷弹窗：失焦即存、定时补存、关掉也存，回来接着答', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  const paper = sliceOfComponent(source, 'PaperModal')
+  // 打开时接着上次的答案 —— 这就是「下次打开能继续查看或者作答」。
+  assert.match(paper, /useState\(\(\) => \(\{ \.\.\.\(state\.drafts\?\.\[key\]\?\.answers \?\? \{\}\) \}\)\)/)
+  assert.match(paper, /onBlur: \(\) => \{ void flush\(\{ \[entry\.question\.id\]/, '失焦存这一题')
+  assert.match(paper, /setInterval\(\(\) => \{ void flush\(\{ \.\.\.pending\.current \}\); \}, 15000\)/, '定时补存：用户可能一直待在输入框里')
+  assert.match(paper, /const close = useCallback\(\(\) => \{\r?\n\s+void flush\(/, '关掉也先存 —— 关掉不等于丢掉')
+  assert.match(paper, /post\('\/draft', \{ key, clear: true \}\)/, '交卷后清草稿')
+  assert.match(paper, /草稿已保存 · \$\{clockOf\(savedAt\)\}/, '要说清草稿存住了')
+  assert.match(paper, /const at = new Date\(iso\)[\s\S]{0,120}?at\.getHours\(\)/, '存的是 ISO（UTC），显示要本地时间')
+  // **卷面固定**：那个会换题的「换一张考卷」撤了 —— 换了题，旧答案就对不上了。
+  assert.doesNotMatch(paper, /换一张考卷/)
+  // 弹窗只从目录那一行开：档位与 scope 都来自 slot，页面不再反推。
+  assert.match(source, /const take = examPool\(state, slot\.tier\)\.slice\(0, PAPER_SIZE\)/)
+  assert.match(source, /openSlot === null \? null : h\(PaperModal, \{ key: 'paper'/, '弹窗由目录的按钮打开')
+})
+
 await check('考核目录：阶段与节点的状态都从已有数据算出来，不另存', () => {
   const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
-  assert.match(source, /function ExamSyllabus\(\{ state \}\)/)
+  assert.match(source, /function ExamSyllabus\(\{ state, onOpen \}\)/)
   // 节点看「那一周里有没有轮次」，阶段看「那个阶段里有没有全量轮」—— 两者用的是各自的尺子。
+  // 这套计算被提到 `examSlots` 里了：目录、页头读数、考卷弹窗共用同一份（一处算，三处显示）。
+  assert.match(source, /function examSlots\(state\)/)
   assert.match(source, /rounds\.find\(\(entry\) => entry\.day >= weekStart && entry\.day <= weekEnd\)/, '节点状态来自落在那一周里的轮次')
   assert.match(source, /entry\.coverage === '全量' && entry\.day >= phase\.days\[0\]/, '阶段那一行看的是全量轮')
-  for (const word of ['已考', '待完成', '待补考', '未解锁']) {
-    assert.match(source, new RegExp(`${word}`), `四种状态都要有：${word}`)
+  // 能考的行给按钮，考过的行给日期，不能考的如实说为什么 —— 状态都有出口。
+  assert.match(source, /'补考' : \(drafted \? '继续作答' : '打开考卷'\)/, '能考的行给得出按钮')
+  assert.match(source, /'未解锁'/, '没走到的那一段如实写未解锁')
+  assert.match(source, /'阶段走完再考'/, '阶段没走完不开大考：现在考只会考出一个假的低分')
+  for (const word of ['已考']) {
+    assert.match(source, new RegExp(`${word}`), `状态要有：${word}`)
   }
   // 两个概念不许再并排：「能力曲线点」是**能力项**的逐项读数，和四维图不是一回事。
   // 而且这句里不许出现 `**` —— 它是 React 的纯文本节点，不解析 Markdown，星号会原样显示给用户。
@@ -1782,6 +1820,29 @@ await check('固定对话：写进画像、能从 /state 读回、清空画像�
   const cleared = await callApi('POST', `${api.API_PREFIX}/agent-session`, { sessionId: '' })
   assert.equal(cleared.status, 200)
   assert.equal(store.read('profile').agentSession, null)
+})
+
+await check('考卷草稿：按题合并、答完清掉，不碰考核成绩', async () => {
+  const key = '节点-1'
+  const first = await callApi('POST', `${api.API_PREFIX}/draft`, { key, answers: { Q1: '第一题的答案' } })
+  assert.equal(first.status, 200)
+  // 第二题单独存 —— **按题合并**：失焦那次与定时那次会并发，整份覆盖会让它们互相吃掉。
+  await callApi('POST', `${api.API_PREFIX}/draft`, { key, answers: { Q2: '第二题的答案' } })
+  let drafts = (await callApi('GET', `${api.API_PREFIX}/state`)).body.drafts
+  assert.deepEqual(drafts[key].answers, { Q1: '第一题的答案', Q2: '第二题的答案' })
+  assert.match(drafts[key].updated, /^\d{4}-\d{2}-\d{2}T/, '记下什么时候存的')
+  // 清一题 = 删那一题（剩下的题不受影响）。
+  await callApi('POST', `${api.API_PREFIX}/draft`, { key, answers: { Q1: '' } })
+  drafts = (await callApi('GET', `${api.API_PREFIX}/state`)).body.drafts
+  assert.deepEqual(drafts[key].answers, { Q2: '第二题的答案' })
+  // 交卷之后走的路：整张清掉 —— 目录上不该留一个假的「继续作答」。
+  await callApi('POST', `${api.API_PREFIX}/draft`, { key, clear: true })
+  drafts = (await callApi('GET', `${api.API_PREFIX}/state`)).body.drafts
+  assert.equal(drafts[key], undefined)
+  // 没有 key 直接拒（否则草稿会写到一张不存在的卷子上）。
+  assert.equal((await callApi('POST', `${api.API_PREFIX}/draft`, { answers: { Q1: 'x' } })).status, 400)
+  // 草稿是"没交卷"的那一半，不进历史 —— 历史只由 Agent 的 growth_save_assessment 追加。
+  assert.equal(store.read('assessments').history.length, store.read('assessments').history.length)
 })
 
 await check('未知路由是 404', async () => {

@@ -2019,46 +2019,136 @@ window.__ModuleLoader__.load({
       return pool;
     }
 
-    /**
-     * 这次该考哪一档：页面不自己判 —— 上面那条优先级阶梯（nextActionFor）已经判过了，
-     * 它给出的 id 就是答案。页面再算一遍只会和它分叉。
-     */
-    function examTier(state) {
-      const action = state.nextAction;
-      return action !== null && action !== undefined && action.id === 'review-phase' ? 'phase' : 'node';
-    }
-
     /** 一张考卷几道题。用户答得完，AI 也核得过来。 */
     const PAPER_SIZE = 3;
 
     /**
-     * 杂志版考卷：点进来就有卷子，当场作答，交卷把答案送进当前对话由 AI 打分。
+     * 周次数字。
      *
-     * 「换一张」是顺次换窗（缺口第 1–3 位 → 第 4–6 位 → 换回），不是随机抽 —— 确定、可解释，
-     * 而且换回去时草稿还在（每张卷子的窗口各自记自己的答案）。
+     * 计划里的 `weeks[].week` **可能是数字，也可能是「第3周（15-21天）」这种标签** —— 真实计划两种
+     * 都出现过。不认标签的话 `(week - 1) * 7 + 1` 会算出 NaN，于是每一周都被判成「待完成」——
+     * 一个不会报错、只会让目录整体说错话的坑（它一直在这儿，只是目录加上按钮之后才显眼）。
      */
-    function Paper({ state }) {
-      const [tier, setTier] = useState(() => examTier(state));
-      const pool = examPool(state, tier);
-      const windows = Math.max(1, Math.ceil(pool.length / PAPER_SIZE));
-      const [offset, setOffset] = useState(0);
-      const [answers, setAnswers] = useState({});
+    function weekNumberOf(week, fallback) {
+      if (Number.isInteger(week?.week)) return week.week;
+      const matched = /第\s*(\d+)\s*周/.exec(String(week?.week ?? ''));
+      return matched === null ? fallback : Number(matched[1]);
+    }
+
+    /**
+     * 该考的卷子有哪些 —— **目录、页头读数、考卷弹窗共用这一份计算**（一处算，三处显示，
+     * 不会各说一套话）。
+     *
+     * 每一条：`{ key, tier, scope, phaseIndex, state }`
+     *   · `done`     已考（带 `takenAt`）
+     *   · `open`     待完成（现在就能考）
+     *   · `missed`   待补考（那一段已经过去，却没留下记录）
+     *   · `upcoming` 阶段还没走完 —— 大考要等阶段交割，现在开考只会考出一个假的低分
+     *   · `locked`   还没走到（未解锁）
+     *
+     * `key` 同时是草稿的键（`assessments.drafts[key]`）：换个说法，**一张卷子一个键，卷面稳定**，
+     * 所以「下次打开接着答」才有意义。
+     */
+    function examSlots(state) {
+      const phases = state.plan.phases;
+      const rounds = (state.history ?? []).filter((entry) => entry.kind === 'review');
+      const currentIndex = state.metrics.phaseIndex;
+      const day = state.metrics.day;
+      const slots = [];
+      phases.forEach((phase, index) => {
+        const locked = currentIndex < 0 || index > currentIndex;
+        const finished = typeof day === 'number' && day > phase.days[1];
+        const bigRound = rounds.filter((entry) => entry.coverage === '全量' && entry.day >= phase.days[0] && entry.day <= phase.days[1]).at(-1);
+        slots.push({
+          key: `阶段-${String(index + 1)}`,
+          tier: 'phase',
+          scope: `阶段${String(index + 1)}「${phase.name}」（第 ${String(phase.days[0])}–${String(phase.days[1])} 天）`,
+          phaseIndex: index,
+          state: bigRound !== undefined ? 'done' : (finished ? 'open' : (locked ? 'locked' : 'upcoming')),
+          takenAt: bigRound?.date ?? '',
+        });
+        (phase.weeks ?? []).forEach((week, weekIndex) => {
+          const number = weekNumberOf(week, weekIndex + 1);
+          const weekStart = (number - 1) * 7 + 1;
+          const weekEnd = weekStart + 6;
+          const taken = rounds.find((entry) => entry.day >= weekStart && entry.day <= weekEnd);
+          slots.push({
+            key: `节点-${String(number)}`,
+            tier: 'node',
+            scope: `节点 第 ${String(number)} 周`,
+            phaseIndex: index,
+            week: number,
+            theme: week.theme ?? '',
+            state: taken !== undefined ? 'done' : (locked ? 'locked' : (day !== null && day > weekEnd ? 'missed' : 'open')),
+            takenAt: taken?.date ?? '',
+          });
+        });
+      });
+      return slots;
+    }
+
+    /**
+     * 考卷（弹窗）：从「考核目录」上点「打开考卷」才出来；答完交卷，交给对话里的 AI 打分。
+     *
+     * 与上一版的三点不同，都是"这份卷子要能停能续"逼出来的：
+     *   · **答案存得住**：失焦存一题、每 15 秒补存一次、关掉也先存 —— 草稿落在宿主侧
+     *     （`assessments.drafts[key]`），刷新、切页签、第二天再打开都还在。
+     *   · **卷面固定**：原先那个「换一张考卷」会顺次换一批题；"接着答"要求卷面稳定，两者不能
+     *     共存（换了题，旧答案就对不上了），所以撤掉。
+     *   · **交卷后清草稿**：答案已经作为一整轮交出去，留着只会在目录上多出一个假的"继续作答"。
+     */
+    function PaperModal({ state, post, slot, onClose }) {
+      const key = slot.key;
+      const take = examPool(state, slot.tier).slice(0, PAPER_SIZE);
+      const [answers, setAnswers] = useState(() => ({ ...(state.drafts?.[key]?.answers ?? {}) }));
+      const [dirty, setDirty] = useState({});
+      const [savedAt, setSavedAt] = useState(state.drafts?.[key]?.updated ?? '');
       const [phase, setPhase] = useState('idle');
-      const take = pool.slice(offset * PAPER_SIZE, offset * PAPER_SIZE + PAPER_SIZE);
+      const pending = useRef({});
+
       const filled = take.filter((entry) => (answers[entry.question.id] ?? '').trim().length > 0).length;
       const ready = take.length > 0 && filled === take.length;
-      // 档位要和「这次考的是哪个」对得上：大考针对的是**已走完的那个阶段**，通常不是当前阶段
-      // （原先这里一律写当前阶段，于是「阶段大考」旁边挂着另一个阶段的名字）。
-      // 阶段那条由上面那条阶梯给出（nextAction.scope），单一来源；小考的周次页面自己就算得出。
-      const action = state.nextAction;
-      const week = state.metrics.day === null || state.metrics.day < 1 ? null : Math.floor((state.metrics.day - 1) / 7) + 1;
-      const scope = tier === 'phase'
-        ? (action !== null && action !== undefined && action.id === 'review-phase' && typeof action.scope === 'string'
-          ? action.scope
-          : (state.metrics.phaseName.length > 0 ? `阶段 ${state.metrics.phaseName}` : '还没进入阶段'))
-        : (week === null ? '计划还没开始' : `节点 第 ${String(week)} 周`);
-      // 不再 Math.max(1, …)：0 或负数要原样留着，标题与交卷文案都靠 dayInfo 判断该怎么写。
       const day = state.metrics.day;
+
+      /** 存的是 ISO（UTC），显示要本地时间 —— 否则东八区会看到八小时前的钟点。 */
+      const clockOf = (iso) => {
+        const at = new Date(iso);
+        if (Number.isNaN(at.getTime())) return '';
+        return `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
+      };
+
+      /** 落盘：只发动过的那几题 —— 按题合并，定时器那次与失焦那次不会互相吃掉。 */
+      const flush = useCallback(async (patch) => {
+        if (Object.keys(patch).length === 0) return;
+        for (const id of Object.keys(patch)) delete pending.current[id];
+        const reply = await post('/draft', { key, answers: patch });
+        if (reply.ok === true) {
+          setDirty((current) => {
+            const next = { ...current };
+            for (const id of Object.keys(patch)) delete next[id];
+            return next;
+          });
+          setSavedAt(new Date().toISOString());
+        }
+      }, [post, key]);
+
+      const record = (id, text) => {
+        setAnswers((current) => ({ ...current, [id]: text }));
+        pending.current[id] = text;
+        setDirty((current) => ({ ...current, [id]: text }));
+      };
+
+      // 15 秒补一次：用户可能一直待在输入框里，那样"失焦即存"就不会发生。
+      useEffect(() => {
+        const timer = setInterval(() => { void flush({ ...pending.current }); }, 15000);
+        return () => clearInterval(timer);
+      }, [flush]);
+
+      // 关掉（Esc / 点遮罩 / 关闭按钮）也先把没存的存掉 —— 关掉不等于丢掉。
+      const close = useCallback(() => {
+        void flush({ ...pending.current });
+        onClose();
+      }, [flush, onClose]);
 
       const send = async () => {
         if (!ready || phase === 'sent') return;
@@ -2069,80 +2159,51 @@ window.__ModuleLoader__.load({
           `我的回答：${answers[entry.question.id]}`,
         ].join('\n'));
         try {
-          await askAgent(`我的考核作答（${day === null || day === undefined ? '计划还没开始' : `计划第 ${String(day)} 天`}，${state.metrics.phaseName || '未进入阶段'}）—— 本次是${tier === 'phase' ? '阶段大考' : '节点小考'}，coverage 请用「${tier === 'phase' ? '全量' : '定向'}」：\n\n${lines.join('\n\n')}\n\n请按 rubric 打四维分，并用 growth_save_assessment 把这一轮写进历史。`);
+          await askAgent(`我的考核作答（${day === null || day === undefined ? '计划还没开始' : `计划第 ${String(day)} 天`}，${state.metrics.phaseName || '未进入阶段'}）—— 本次是${slot.tier === 'phase' ? '阶段大考' : '节点小考'}（${slot.scope}），coverage 请用「${slot.tier === 'phase' ? '全量' : '定向'}」：\n\n${lines.join('\n\n')}\n\n请按 rubric 打四维分，并用 growth_save_assessment 把这一轮写进历史。`);
+          // 交出去了：草稿清掉，目录上不要再留一个「继续作答」。
+          await post('/draft', { key, clear: true });
         } catch (failure) {
           setPhase('idle');
         }
       };
 
-      // 计划还没开始时没有可考的节点 —— 那就别摆一张卷子。原先页头写「考核 · 计划还没开始」，
-      // 下面却摊着三张答题纸，自相矛盾。说清什么时候才有，比给一张空卷子有用。
-      // 注意这个提前返回在所有 hook 之后 —— hook 不能有条件。
-      if (state.metrics.day === null || state.metrics.day < 1) {
-        const left = state.metrics.day === null ? null : 1 - state.metrics.day;
-        return h('div', { key: 'notyet', style: S.card }, [
-          h('h3', { key: 't', style: S.h3 }, '还没有可考的节点'),
-          h('div', { key: 'n', style: S.meta }, left === null
-            ? '还没设第 1 天 —— 去「计划」页设定之后，这里会出现第一场考核。'
-            : `计划还有 ${String(left)} 天开始。到那天这里会出现第一张考卷（第 1 周那个节点的小考）。`),
-        ]);
-      }
-
-      return h('div', { className: 'gw-paper', style: { ...S.card, padding: '30px 34px 26px' } }, [
-        h('div', { key: 'mast', className: 'gw-masthead' }, [
-          h('div', { key: 't', className: 't' }, dayInfo(state.metrics.day).started ? `考核 · 第 ${String(day)} 天` : '考核 · 计划还没开始'),
+      return h(Modal, { label: '考核考卷', onClose: close, className: 'gw-paper-modal' }, [
+        h('div', { key: 'mast', className: 'gw-masthead', style: { padding: '24px 32px 0' } }, [
+          h('div', { key: 't', className: 't' }, slot.tier === 'phase' ? '阶段大考' : '节点小考'),
           h('div', { key: 'right', style: { display: 'flex', alignItems: 'baseline', gap: '16px' } }, [
             // 刊头印的是**计划第 N 天对应的日期**（动态算），不是"今天"：这张卷子属于哪一段，
             // 由进度天决定。真实日期在记录里（考核历史那一栏），两者回答的不是同一个问题。
             h('div', { key: 'd', className: 'd' }, state.planDate || state.today),
-            h('button', {
-              key: 'swap',
-              className: 'swap',
-              type: 'button',
-              onClick: () => { setOffset((value) => (value + 1) % windows); },
-            }, '换一张考卷'),
           ]),
         ]),
-        h('div', { key: 'strap', className: 'gw-strap' }, [
+        h('div', { key: 'strap', className: 'gw-strap', style: { margin: '14px 32px 0' } }, [
+          h('span', { key: 'scope' }, slot.scope),
           h('span', { key: 'role' }, `方向 ${state.plan.role || '—'}`),
-          h('span', { key: 'scope' }, scope),
-          // 两档都在这一页上，差别只是出题排序的依据：小考按缺口，大考按高权重项。
-          // 切换时把「第几组」归零 —— 池子换了，原来的窗口号没有意义。
-          h('span', { key: 'tier', style: { display: 'inline-flex', gap: '6px' } }, [
-            h('button', {
-              key: 'node',
-              type: 'button',
-              onClick: () => { setTier('node'); setOffset(0); },
-              style: { ...S.chipPlain, fontFamily: 'inherit', cursor: 'pointer', ...(tier === 'node' ? { color: '#fff', background: 'var(--gw-coral, #e56b55)', borderColor: 'var(--gw-coral, #e56b55)' } : {}) },
-            }, '节点小考'),
-            h('button', {
-              key: 'phase',
-              type: 'button',
-              onClick: () => { setTier('phase'); setOffset(0); },
-              style: { ...S.chipPlain, fontFamily: 'inherit', cursor: 'pointer', ...(tier === 'phase' ? { color: '#fff', background: 'var(--gw-coral, #e56b55)', borderColor: 'var(--gw-coral, #e56b55)' } : {}) },
-            }, '阶段大考'),
-          ]),
-          h('span', { key: 'n' }, `共 ${String(take.length)} 题 · 第 ${String(offset + 1)} / ${String(windows)} 组`),
-          h('span', { key: 'draft' }, '草稿只在页面上，刷新会丢'),
+          h('span', { key: 'n' }, `共 ${String(take.length)} 题`),
+          // 草稿存在哪儿、什么时候存的 —— 用户要能确认"我写的东西没丢"。
+          h('span', { key: 'saved' }, savedAt.length > 0 ? `草稿已保存 · ${clockOf(savedAt)}` : '草稿会自动保存'),
         ]),
-        ...take.map((entry, index) => h('div', { key: entry.question.id, className: 'gw-eq' }, [
-          h('div', { key: 'head', className: 'head' }, [
-            h('span', { key: 'no', className: 'no' }, String(index + 1)),
-            h('span', { key: 'text', className: 'text' }, entry.question.question),
-            h('span', { key: 'cap', className: 'cap' }, `${entry.item.id}${entry.item.name === '' ? '' : ` ${entry.item.name}`}`),
-          ]),
-          h('div', { key: 'why', className: 'why' },
-            `阶段「${entry.question.phase}」的自查题 · 当前自评 ${String(entry.item.score)} 分`
-            + (entry.item.shortfall === null ? '' : ` · 缺口 ${String(entry.item.shortfall)}`)
-            + (entry.item.weight === null ? '' : `（权重 ${String(entry.item.weight)}）`)),
-          h('textarea', {
-            key: 'a',
-            placeholder: '在这里作答 —— 用具体判断，不要只写概念',
-            value: answers[entry.question.id] ?? '',
-            onChange: (event) => setAnswers({ ...answers, [entry.question.id]: event.target.value }),
-          }),
-        ])),
-        h('div', { key: 'foot', className: 'foot' }, [
+        h('div', { key: 'body', style: { flex: '1 1 auto', overflowY: 'auto', minHeight: '0', padding: '18px 32px 6px', display: 'flex', flexDirection: 'column' } },
+          take.map((entry, index) => h('div', { key: entry.question.id, className: 'gw-eq' }, [
+            h('div', { key: 'head', className: 'head' }, [
+              h('span', { key: 'no', className: 'no' }, String(index + 1)),
+              h('span', { key: 'text', className: 'text' }, entry.question.question),
+              h('span', { key: 'cap', className: 'cap' }, `${entry.item.id}${entry.item.name === '' ? '' : ` ${entry.item.name}`}`),
+            ]),
+            h('div', { key: 'why', className: 'why' },
+              `阶段「${entry.question.phase}」的自查题 · 当前自评 ${String(entry.item.score)} 分`
+              + (entry.item.shortfall === null ? '' : ` · 缺口 ${String(entry.item.shortfall)}`)
+              + (entry.item.weight === null ? '' : `（权重 ${String(entry.item.weight)}）`)),
+            h('textarea', {
+              key: 'a',
+              placeholder: '在这里作答 —— 用具体判断，不要只写概念',
+              value: answers[entry.question.id] ?? '',
+              onChange: (event) => record(entry.question.id, event.target.value),
+              // 失焦就存这一题：点别处、切页签、直接关掉，答案都不会丢。
+              onBlur: () => { void flush({ [entry.question.id]: answers[entry.question.id] ?? '' }); },
+            }),
+          ]))),
+        h('div', { key: 'foot', className: 'foot', style: { padding: '10px 32px 20px', borderTop: '1px solid var(--gw-line-soft, #efeae2)', display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' } }, [
           h('button', {
             key: 'send',
             type: 'button',
@@ -2150,11 +2211,11 @@ window.__ModuleLoader__.load({
             style: { ...S.button, ...S.buttonOn, ...(ready && phase !== 'sent' ? {} : { opacity: '.45', cursor: 'default' }) },
             onClick: () => { void send(); },
           }, phase === 'sent' ? '已交卷 · 等 AI 打分' : '交卷 · 交给 AI 打分'),
-          h('span', { key: 'note', style: S.meta }, phase === 'sent'
+          h('span', { key: 'note', style: { ...S.meta, flex: '1 1 260px' } }, phase === 'sent'
             ? '已交卷 —— AI 正在你当前的对话里打分，结果会自动写回这一页。'
             : ready
-              ? `${String(take.length)} 题都答完了。交卷后 AI 会在你当前的对话里打分 —— 你写的每一个字它都看得见。`
-              : `还差 ${String(take.length - filled)} 题没答。答完交卷，AI 按 rubric 打四维分，并把结果与接下来 7 天的调整版任务写回这一页。`),
+              ? `${String(take.length)} 题都答完了。交卷后 AI 会在「成长工作台」那个对话里打分 —— 你写的每一个字它都看得见。`
+              : `还差 ${String(take.length - filled)} 题没答。中途关掉没关系：草稿存着，回来接着答。`),
         ]),
       ]);
     }
@@ -2169,57 +2230,110 @@ window.__ModuleLoader__.load({
      *   · 未解锁 —— 还没走到那一段
      * 阶段自己那一行看的是**全量轮**（阶段大考），节点看的是任意轮（小考）。
      */
-    function ExamSyllabus({ state }) {
+    /**
+     * 把 Agent 写的那份报告排出行读的层次。
+     *
+     * 它以「一、二、三、」分节、用 `-` 起条目。原先整段 `<pre>` 摊在页面上 —— 用户的原话是
+     * 「这个也是没有重点，一大片」。这里不做 markdown（这个仓库没有依赖），只认它自己的写法：
+     * 小节行加粗、`-` 条目成列、行长收在 68 个字符左右（超过这个宽度眼睛要来回找行首）。
+     */
+    function ReportBody({ text }) {
+      const lines = String(text ?? '').split('\n');
+      return h('div', { style: { maxWidth: '68ch', display: 'flex', flexDirection: 'column' } },
+        lines.map((line, index) => {
+          const trimmed = line.trim();
+          const key = String(index);
+          if (trimmed.length === 0) return h('div', { key, style: { height: '7px' } });
+          if (/^[一二三四五六七八九十]+、/.test(trimmed)) {
+            return h('div', { key, style: { fontSize: '13.5px', fontWeight: '700', marginTop: '10px', color: 'var(--gw-ink, #1f2933)' } }, trimmed);
+          }
+          if (trimmed.startsWith('-')) {
+            return h('div', { key, style: { display: 'flex', gap: '9px', fontSize: '13px', lineHeight: '1.8', color: 'var(--gw-ink-2, #3d4a54)' } }, [
+              h('span', { key: 'b', style: { flex: '0 0 auto', color: 'var(--gw-muted-2, #9aa7b1)' } }, '·'),
+              h('span', { key: 't', style: { flex: '1 1 auto', minWidth: '0' } }, trimmed.replace(/^-\s*/, '')),
+            ]);
+          }
+          return h('div', { key, style: { fontSize: '13px', lineHeight: '1.85', color: 'var(--gw-ink-2, #3d4a54)' } }, trimmed);
+        }));
+    }
+
+    /**
+     * 考核目录：阶段 → 节点（阶段里的周），每一行说清「考过没有」，**能考的直接给一个入口**。
+     *
+     * 这一页的主角就是它（用户：「考核页面是不是直接展示考核目录，不直接展示考卷」）——
+     * 考卷是点按钮才打开的弹窗；要考的小考/大考在这里显示成「打开考卷 / 补考 / 继续作答」。
+     * 状态全部由 `examSlots` 算出来，不另存。
+     */
+    function ExamSyllabus({ state, onOpen }) {
       const phases = state.plan.phases;
       if (phases.length === 0) return null;
+      const slots = examSlots(state);
       const rounds = (state.history ?? []).filter((entry) => entry.kind === 'review');
-      const currentIndex = state.metrics.phaseIndex;
-      const day = state.metrics.day;
+
+      /** 这一行的右端：考过就给日期，能考就给按钮，其余的如实说为什么不能考。 */
+      const actionFor = (slot) => {
+        if (slot.state === 'done') {
+          return h('span', { key: 'st', style: { flex: '0 0 auto', fontSize: '12px', fontWeight: '600', color: 'var(--gw-teal, #2f7d74)', whiteSpace: 'nowrap' } }, `已考 ${slot.takenAt}`);
+        }
+        if (slot.state === 'locked') {
+          return h('span', { key: 'st', style: { flex: '0 0 auto', fontSize: '12px', color: 'var(--gw-muted-2, #9aa7b1)', whiteSpace: 'nowrap' } }, '未解锁');
+        }
+        if (slot.state === 'upcoming') {
+          return h('span', { key: 'st', style: { flex: '0 0 auto', fontSize: '12px', color: 'var(--gw-muted-2, #9aa7b1)', whiteSpace: 'nowrap' } }, '阶段走完再考');
+        }
+        const drafted = (state.drafts ?? {})[slot.key] !== undefined;
+        return h('button', {
+          key: 'go',
+          type: 'button',
+          style: { ...S.button, ...S.buttonOn, flex: '0 0 auto', padding: '6px 12px', minHeight: '34px', fontSize: '12.5px' },
+          onClick: () => onOpen(slot),
+        }, slot.state === 'missed' ? '补考' : (drafted ? '继续作答' : '打开考卷'));
+      };
+
+      const row = (slot, label, theme) => h('div', { key: slot.key, style: { display: 'flex', alignItems: 'center', gap: '10px', padding: '7px 0 7px 26px', borderTop: '1px solid var(--gw-line-soft, #efeae2)' } }, [
+        h('span', { key: 'k', style: { ...S.chipPlain, flex: '0 0 auto', fontFamily: 'var(--gw-mono, monospace)' } }, label),
+        h('span', { key: 'th', style: { flex: '1 1 auto', minWidth: '0', fontSize: '13px', color: slot.state === 'locked' ? 'var(--gw-muted-2, #9aa7b1)' : 'inherit' } }, theme),
+        actionFor(slot),
+      ]);
+
       const kids = [
         h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '14px', flexWrap: 'wrap' } }, [
           h('h3', { key: 't', style: S.h3 }, '考核目录'),
-          h('span', { key: 'n', style: S.meta }, `阶段 ${String(phases.length)} 个 · 节点 ${String(phases.reduce((sum, phase) => sum + ((phase.weeks ?? []).length), 0))} 个 · 已考 ${String(rounds.length)} 轮`),
-          // 这张表和上面的卷子是什么关系 —— 不写出来，读者只能自己猜。
-          h('div', { key: 'note', style: { ...S.meta, flexBasis: '100%' } }, '上面那张是「现在能考的这一场」；这张表是「一共几场、考过哪些、还欠哪几场」。'),
+          h('span', { key: 'n', style: S.meta }, `阶段 ${String(phases.length)} 个 · 节点 ${String(slots.filter((slot) => slot.tier === 'node').length)} 个 · 已考 ${String(rounds.length)} 轮`),
+          // 这张表和下面那叠记录是什么关系 —— 不写出来，读者只能自己猜。
+          h('div', { key: 'note', style: { ...S.meta, flexBasis: '100%' } }, '这张表回答「一共几场、考过哪些、还欠哪几场」；点「打开考卷」当场作答，交卷后 AI 打分，记��落在下面「考核历史」里。'),
         ]),
       ];
+
       phases.forEach((phase, index) => {
-        const locked = currentIndex < 0 || index > currentIndex;
-        // 这里不摆段位章：段位是「计划」页那套语义（做完一个阶段拿一段），
-        // 目录只回答「考过哪些、还欠哪几场」—— 混在一起只会多一层噪音。
-        const bigExam = rounds.some((entry) => entry.coverage === '全量' && entry.day >= phase.days[0] && entry.day <= phase.days[1]);
-        const rows = [];
-        (phase.weeks ?? []).forEach((week) => {
-          // 节点落在哪一周：按计划自己的周编号算，和节点的验收标准是同一把尺子。
-          const weekStart = (week.week - 1) * 7 + 1;
-          const weekEnd = weekStart + 6;
-          const taken = rounds.find((entry) => entry.day >= weekStart && entry.day <= weekEnd);
-          const state$ = taken !== undefined ? 'done' : (locked ? 'locked' : (day !== null && day > weekEnd ? 'missed' : 'open'));
-          rows.push(h('div', { key: `w${String(week.week)}`, style: { display: 'flex', alignItems: 'baseline', gap: '10px', padding: '7px 0 7px 26px', borderTop: '1px solid var(--gw-line-soft, #efeae2)' } }, [
-            h('span', { key: 'k', style: { ...S.chipPlain, flex: '0 0 auto', fontFamily: 'var(--gw-mono, monospace)' } }, `第 ${String(week.week)} 周`),
-            h('span', { key: 'th', style: { flex: '1 1 auto', minWidth: '0', fontSize: '13px', color: state$ === 'locked' ? 'var(--gw-muted-2, #9aa7b1)' : 'inherit' } }, week.theme ?? ''),
-            h('span', { key: 'st', style: { flex: '0 0 auto', fontSize: '12px', fontWeight: '600', color: state$ === 'done' ? 'var(--gw-teal, #2f7d74)' : (state$ === 'missed' ? '#8a5a1f' : 'var(--gw-muted-2, #9aa7b1)'), whiteSpace: 'nowrap' } },
-              state$ === 'done' ? `已考 ${String(taken.date ?? '')}` : (state$ === 'missed' ? '待补考' : (state$ === 'locked' ? '未解锁' : '待完成'))),
-          ]));
-        });
+        const phaseSlot = slots.find((slot) => slot.phaseIndex === index && slot.tier === 'phase');
+        const weekSlots = slots.filter((slot) => slot.phaseIndex === index && slot.tier === 'node');
         kids.push(h('div', { key: phase.name, style: { marginTop: '14px' } }, [
           h('div', { key: 'p', style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' } }, [
-            h('span', { key: 'n', style: { fontSize: '14px', fontWeight: '600', color: locked ? 'var(--gw-muted-2, #9aa7b1)' : 'inherit' } }, `阶段${String(index + 1)} ${phase.name}`),
+            h('span', { key: 'n', style: { fontSize: '14px', fontWeight: '600', color: phaseSlot.state === 'locked' ? 'var(--gw-muted-2, #9aa7b1)' : 'inherit' } }, `阶段${String(index + 1)} ${phase.name}`),
             h('span', { key: 'd', style: { fontFamily: 'var(--gw-mono, monospace)', fontSize: '11.5px', color: 'var(--gw-muted-2, #9aa7b1)' } }, `${String(phase.days[0])}–${String(phase.days[1])} 天`),
-            h('span', { key: 'big', style: { marginLeft: 'auto', fontSize: '12px', fontWeight: '600', color: bigExam ? 'var(--gw-teal, #2f7d74)' : (locked ? 'var(--gw-muted-2, #9aa7b1)' : '#8a5a1f'), whiteSpace: 'nowrap' } },
-              bigExam ? '大考已做（全量）' : (locked ? '大考未解锁' : '大考待完成')),
+            h('span', { key: 'big', style: { marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', gap: '10px' } }, [
+              h('span', { key: 'l', style: { fontSize: '12px', color: 'var(--gw-muted-2, #9aa7b1)' } }, '大考'),
+              actionFor(phaseSlot),
+            ]),
           ]),
-          rows.length === 0 ? null : h('div', { key: 'weeks' }, rows),
+          weekSlots.length === 0 ? null : h('div', { key: 'weeks' }, weekSlots.map((slot) => row(slot, `第 ${String(slot.week)} 周`, slot.theme))),
         ]));
       });
       return h('div', { style: S.card }, kids);
     }
 
-    /** The review tab: history and trend from what the agent wrote. The page never scores. */
-    function ReviewTabBody({ state }) {
+    /** The review tab: 目录 → 考卷（弹窗）→ 历史与趋势。The page never scores. */
+    function ReviewTabBody({ state, post }) {
+      const [openSlot, setOpenSlot] = useState(null);
       const history = state.history;
       const reviews = history.filter((entry) => entry.kind === 'review');
       const curve = state.curve;
+      const slots = examSlots(state);
+      // 「要答的」= 现在能考的和欠着的。顶部只回答这一件事（用户：「顶部 完成今天的最小动作
+      // 这些不在考核这里显示，可以改成 有多少个考卷要答，或者暂无需要考的」）。
+      const owed = slots.filter((slot) => slot.state === 'open' || slot.state === 'missed');
+      const notYet = slots.filter((slot) => slot.state === 'locked' || slot.state === 'upcoming').length;
 
 
       const entryCard = (entry, key) => {
@@ -2251,7 +2365,9 @@ window.__ModuleLoader__.load({
         }
         if (entry.gradeAction) lines.push(h('div', { key: 'action', style: S.meta }, `定级动作：${entry.gradeAction}`));
         if (entry.attribution) lines.push(h('div', { key: 'attr', style: S.meta }, `归因：${entry.attribution}（只有「计划问题」允许改任务定义）`));
-        if (entry.report) lines.push(h('pre', { key: 'report', style: S.pre }, entry.report));
+        // 报告按行分节排（见 `ReportBody`）—— 原先整段 `<pre>` 摊着，用户的原话是
+        // 「这个也是没有重点，一大片」。
+        if (entry.report) lines.push(h('div', { key: 'report', style: { marginTop: '10px' } }, [h(ReportBody, { key: 'b', text: entry.report })]));
         if ((entry.adjustments ?? []).length > 0) {
           lines.push(h('div', { key: 'adj', style: { fontSize: '13px' } }, [
             h('div', { key: 'label', style: S.meta }, '接下来 7 天的调整版任务：'),
@@ -2259,19 +2375,40 @@ window.__ModuleLoader__.load({
               `${item['任务标识'] ?? item.id ?? '—'}　${item['一句话动作'] ?? item.action ?? ''}　→ ${item['改了什么'] ?? item.why ?? ''}`)),
           ]));
         }
-        return h('div', { key, style: { ...S.row, gap: '18px', alignItems: 'flex-start' } }, [
-          h('div', { key: 'body', style: { flex: '1 1 auto', minWidth: '0' } }, lines),
-          seal,
+        // 一轮 = 一行（日期 · 第几天 · 档位 · 总分），**点开才摊出细节** —— 原先每轮都把四维、
+        // 归因、整篇报告和调整项全铺在页面上，一屏读不完也找不到重点。
+        return h('details', { key, style: { borderTop: '1px solid var(--gw-line-soft, #efeae2)' } }, [
+          h('summary', { key: 's', style: { cursor: 'pointer', padding: '10px 0', display: 'flex', gap: '10px', alignItems: 'baseline', flexWrap: 'wrap', fontSize: '13.5px' } }, [
+            h('span', { key: 'd', style: { fontFamily: 'var(--gw-mono, monospace)', fontSize: '12.5px', color: 'var(--gw-muted-2, #9aa7b1)' } }, `${entry.date} · 第 ${String(entry.day)} 天`),
+            h('span', { key: 'k', style: { ...S.chipPlain, fontSize: '11.5px' } }, entry.kind === 'review' ? (entry.coverage === '全量' ? '考核 · 全量' : '考核 · 定向') : '自评'),
+            ...head.slice(2),
+          ]),
+          h('div', { key: 'body', style: { padding: '2px 0 16px', display: 'flex', gap: '18px', alignItems: 'flex-start' } }, [
+            h('div', { key: 'lines', style: { flex: '1 1 auto', minWidth: '0' } }, lines.slice(1)),
+            seal,
+          ]),
         ]);
       };
 
       return h('div', { style: S.stack }, [
-        h(Paper, { key: 'paper', state }),
-        // 卷子在上面（现在要做的事），目录在下面（整张地图）—— 目录回答的是「还差哪几次」。
-        h(ExamSyllabus, { key: 'syllabus', state }),
+        // 顶部只回答一件事：**现在有几张卷子要答**（或暂无）。
+        h('div', { key: 'owed', style: S.card }, [
+          h('h3', { key: 't', style: S.h3 }, owed.length > 0 ? `有 ${String(owed.length)} 张卷子要答` : '暂无需要考的'),
+          h('div', { key: 'list', style: { ...S.meta, marginTop: '6px' } }, owed.length > 0
+            ? owed.map((slot) => slot.scope).join('　·　')
+            : (notYet > 0 ? '后面还有没解锁的场次 —— 下面「考核目录」里看得到全部。' : '全部考完了。')),
+          owed.length === 0 ? null : h('div', { key: 'act', style: { ...S.inline, marginTop: '13px' } },
+            owed.slice(0, 2).map((slot) => h('button', {
+              key: slot.key,
+              type: 'button',
+              style: { ...S.button, ...S.buttonOn },
+              onClick: () => setOpenSlot(slot),
+            }, slot.tier === 'phase' ? '打开大考' : `打开小考 · 第 ${String(slot.week)} 周`))),
+        ]),
+        h(ExamSyllabus, { key: 'syllabus', state, onOpen: setOpenSlot }),
         h('div', { key: 'trend', style: S.card }, [
-          h('h3', { key: 't', style: S.h3 }, '趋势'),
-          h('div', { key: 'counts', style: S.meta }, `历史 ${String(history.length)} 轮（其中考核 ${String(reviews.length)} 轮）`),
+          h('h3', { key: 't', style: S.h3 }, '考核历史与趋势'),
+          h('div', { key: 'counts', style: S.meta }, `历史 ${String(history.length)} 轮（其中考核 ${String(reviews.length)} 轮）· 点任意一行看那一轮的细节`),
           h(TrendChart, { key: 'chart', rounds: reviews }),
           reviews.length === 0 ? null : h('div', { key: 'chartNote', style: S.meta }, '四维得分，各 0-25。自评轮读的是缺口，量纲不同，不进这张图。'),
           h('div', { key: 'note', style: S.meta }, `逐项曲线点 ${String(curve.length)} 个：能力项各自的自评读数，和上面那张四维图不是一回事。`),
@@ -2279,6 +2416,7 @@ window.__ModuleLoader__.load({
             ? [h('div', { key: 'empty', style: S.empty }, '还没有记录。')]
             : history.slice().reverse().map((entry, index) => entryCard(entry, `${entry.date}-${String(index)}`))),
         ]),
+        openSlot === null ? null : h(PaperModal, { key: 'paper', state, post, slot: openSlot, onClose: () => setOpenSlot(null) }),
       ]);
     }
 
@@ -2851,7 +2989,7 @@ window.__ModuleLoader__.load({
       const bodies = {
         today: () => h(TodayBody, { state, post, reload, compact: false }),
         plan: () => h(PlanTabBody, { state, post }),
-        review: () => h(ReviewTabBody, { state }),
+        review: () => h(ReviewTabBody, { state, post }),
         profile: () => h(ProfileFlow, { key: 'profile-flow', state, post, onNavigate: navigate, focusAnchor }),
       };
 
@@ -2864,7 +3002,7 @@ window.__ModuleLoader__.load({
         }, entry.label))),
          h('div', { key: 'body', style: S.body }, h('div', { style: S.inner }, [
            error.length > 0 ? h('div', { key: 'error', style: S.error }, error) : null,
-           h(WorkbenchHeader, { key: 'header', state, post, onNavigate: navigate, hideNext: tab === 'profile', currentTab: tab }),
+           h(WorkbenchHeader, { key: 'header', state, post, onNavigate: navigate, hideNext: tab === 'profile' || tab === 'review', currentTab: tab }),
            bodies[tab](),
            // 状态与设置放最下面 —— 顶部留给"我现在要做什么"。
            h(WorkbenchFoot, { key: 'foot', state, post }),
