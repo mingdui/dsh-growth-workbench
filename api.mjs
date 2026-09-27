@@ -189,7 +189,7 @@ export function buildState() {
       activeRole: role ?? null,
       roleStatus: ROLE_STATUS,
       /**
-       * 能力模型从哪来：`preset` 是随版本发布、人工写的；`generated` 是 Agent 为本方向
+       * 能力模型从哪来：`preset` 是随版本发布、自带模型的；`generated` 是 Agent 为本方向
        * 生成的。页面按这个标签决定说不说"锚点未经行业校准"。
        */
       activeRoleSource: resolveRoleStatus(profile),
@@ -299,7 +299,9 @@ function saveIntake(body) {
   }
   const route = ROUTES.some((entry) => entry.name === body.route) ? body.route : ROUTES[0].name
   const targetRole = choice?.name ?? customName
-  const status = choice?.status ?? 'beta'
+  // 自己填的方向没有模型可依：按现在的档位词汇是 building（旧数据里可能存着 beta，
+  // ROLE_STATUS 里留着那一档就是为了读得懂它们）。
+  const status = choice?.status ?? 'building'
   const positioning = choice?.positioning ?? `你自定义的方向`
 
   // 当前状态换了，追问就换了一整套 —— 旧答案留着（切回去不用重填），但已生成的

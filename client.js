@@ -1584,11 +1584,13 @@ window.__ModuleLoader__.load({
         ]),
       ];
 
+      // 这一行必须说**实际情况**：方向有没有模型、模型是谁给的，catalog.activeRoleSource
+      // 一并带过来了。曾经这里给「自己填的方向」硬写 beta 的说明 —— 于是 AI 已经把模型建好、
+      // 自评都能逐项打分了，这一屏还在说「还没有能力模型」。
+      const pickNote = catalog.roleStatus[catalog.activeRoleSource]?.note ?? '';
       kids.push(h('div', { key: 'note2', style: S.meta }, active === undefined && !isCustom
         ? '还没选方向。'
-        : isCustom
-          ? catalog.roleStatus.beta.note
-          : `${catalog.roleStatus[active.status]?.note ?? ''}`));
+        : pickNote));
       if (isCustom && profile.positioning.length > 0) {
         kids.push(h('div', { key: 'pos', style: S.meta }, profile.positioning));
       }

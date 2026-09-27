@@ -485,7 +485,7 @@ export const growthSaveProfile = {
       currentRole: { type: 'string', description: '当前身份（在职同方向 / 在职想转行 / 在校应届 / 自由副业）。' },
       targetRole: { type: 'string', description: '目标方向名。' },
       targetRoleSlug: { type: 'string', description: '方向 slug：必须是页面目录里的一个，或 custom。' },
-      targetRoleStatus: { type: 'string', enum: ['preset', 'generated', 'building', 'beta'], description: '方向的质量档。' },
+      targetRoleStatus: { type: 'string', enum: ['preset', 'generated', 'building'], description: '方向的质量档。' },
       positioning: { type: 'string', description: '方向的一句话定位。' },
       route: { type: 'string', description: '路线名。' },
       timePerDay: { type: 'string', description: '每天可投入时长。' },

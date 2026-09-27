@@ -42,9 +42,9 @@ export function tierRank(tier) {
  * the product must say so rather than imply they were reviewed.
  */
 export const ROLES = {
-  // 三个新方向。与 data-ops 同一形状：2 组、各 5 项、权重合计 100、每项三条 1/3/5 锚点。
-  // status 一律 `draft` —— 这是**人写的草稿**，不是行业校准过的模型；这个区分必须活着，
-  // 否则由它推出来的每个分数都会显得权威，而它们并不是。
+  // 十一个方向同一形状：2 组、各 5 项、权重合计 100、每项三条 1/3/5 锚点。
+  // status 一律 `draft` —— 这是**随版本发布的草稿**，不是行业校准过的模型；这个区分必须活着，
+  // 否则由它推出来的每个分数都会显得权威，而它们并不是。`preset` 那个档位留给真正校准过的模型。
   'fde': {
     slug: 'fde',
     name: 'FDE工程师',
@@ -302,46 +302,59 @@ export const ROLES = {
 }
 
 /**
- * Where a target role sits on the quality ladder (question-bank.md), plus the
- * one rung this build adds.
+ * Where a target role sits on the model ladder.
  *
- * `preset` has a shipped, human-authored capability model, so the
- * self-assessment and the gap can land item by item. `generated` is a model the
- * agent produced for a direction nothing shipped — it is structurally validated
- * (see {@link capabilityModelProblems}) but **not industry-calibrated**, and the
- * product says so rather than letting it pass for a preset one. The last two are
- * honestly coarser still.
+ * `preset` 有随版本发布的能力模型，自评与加权缺口能逐项落点。但 **「有模型」和
+ * 「模型被校准过」是两件事**：随版本发布的模型自己的 `status` 都是 `draft`（见
+ * {@link ROLES}），所以这条说明必须把「未经行业校准」说出来，否则由它推出来的每个
+ * 分数都会显得权威，而它们并不是。`generated` 是 Agent 为目录里没有的方向生成的一份：
+ * 结构过校验器，但同样未经校准。`building` 才是**确实还没有模型** —— 只有这一档，
+ * 页面才该说「可以让 AI 生成一份」。`beta` 是历史档位：改这一版之前，自己填的方向
+ * 存进 profile 的就是它，留着只为读得懂旧数据。
  */
 export const ROLE_STATUS = {
-  preset: { label: '预置方向', note: '有完整能力模型，可以逐项自评。' },
+  preset: { label: '预置方向', note: '有完整能力模型，可以逐项自评 —— 锚点随版本发布，未经行业校准。' },
   generated: { label: 'AI 生成的能力模型', note: '锚点由 AI 生成、未经人工校准，打分时按自己的判断来。' },
-  building: { label: '模型建设中', note: '还没有能力模型，可以让 AI 生成一份。' },
+  building: { label: '模型建设中', note: '这个方向还没有能力模型，可以让 AI 生成一份。' },
   beta: { label: 'Beta 岗位', note: '这个方向还没有能力模型，可以让 AI 生成一份。' },
 }
 
-/** The 方向 the intake offers, with the status each one honestly carries. */
-export const ROLE_CHOICES = [
-  { slug: 'data-ops', name: '数据运营', status: 'preset', positioning: '通过监控和分析数据，为业务决策、产品迭代和运营策略提供依据。' },
-  { slug: 'product-ops', name: '产品运营', status: 'building', positioning: '提升产品核心指标。' },
-  { slug: 'user-ops', name: '用户运营', status: 'building', positioning: '经营用户生命周期。' },
-  { slug: 'qa-agent', name: 'Agent 应用开发', status: 'building', positioning: '用 AI Agent 的形式构建可运行、可验证、可维护的智能应用。' },
-  { slug: 'ai-pm', name: 'AI产品经理', status: 'beta', positioning: '用AI能力定义产品方向、写PRD、推进落地，重需求理解+AI工具链。' },
-  { slug: 'data-analysis', name: '数据分析·商业分析', status: 'beta', positioning: '用SQL/Excel/Python把业务数据变成可决策的洞察与报告。' },
-  { slug: 'growth', name: '互联网运营·增长', status: 'beta', positioning: '围绕拉新-留存-转化做内容和活动，用数据驱动增长。' },
-  { slug: 'fullstack', name: '全栈工程师', status: 'beta', positioning: '贯通前端、后端与数据链路，独立交付可上线的完整业务功能。' },
-  // 三个新方向：它们**已经有模型**（见上面的 ROLES），所以状态是 preset 而不是 beta ——
-  // beta 的说明是「还没有能力模型，可以让 AI 生成一份」，对它们已经不成立了。
-  { slug: 'fde', name: 'FDE工程师', status: 'preset', positioning: '驻到客户的业务里，把 AI 能力落成能用起来的东西：先弄懂流程，再决定做什么、怎么接、怎么验证。' },
-  { slug: 'ai-qa', name: 'AI测试', status: 'preset', positioning: '为 AI 功能建一套可信的质量判断：失败类型、样本集、评分规则、回归与上线门槛。' },
-  { slug: 'ai-delivery', name: 'AI交付工程师', status: 'preset', positioning: '把 AI 方案从「能演示」推到「能交付」：环境、数据、接口、权限、成本、运维，一样都不能少。' },
+/**
+ * 目录里列出的方向。
+ *
+ * `status` **不在这里写第二遍** —— 它从 ROLES 推出来：只要有模型，这个方向就能直接
+ * 逐项自评（preset），没有模型才是 building（「可以让 AI 生成一份」）。
+ *
+ * 曾经这里每个方向各写一份 status，于是十个方向的模型补上之后，目录里还挂着
+ * building / beta，用户点上去看到的仍是「还没有能力模型，可以让 AI 生成一份」——
+ * 页面说的话和模型层的事实分了家。一件事写两遍就会漂第二次，所以改成推导。
+ */
+const DIRECTIONS = [
+  { slug: 'data-ops', name: '数据运营', positioning: '通过监控和分析数据，为业务决策、产品迭代和运营策略提供依据。' },
+  { slug: 'product-ops', name: '产品运营', positioning: '提升产品核心指标。' },
+  { slug: 'user-ops', name: '用户运营', positioning: '经营用户生命周期。' },
+  { slug: 'qa-agent', name: 'Agent 应用开发', positioning: '用 AI Agent 的形式构建可运行、可验证、可维护的智能应用。' },
+  { slug: 'ai-pm', name: 'AI产品经理', positioning: '用AI能力定义产品方向、写PRD、推进落地，重需求理解+AI工具链。' },
+  { slug: 'data-analysis', name: '数据分析·商业分析', positioning: '用SQL/Excel/Python把业务数据变成可决策的洞察与报告。' },
+  { slug: 'growth', name: '互联网运营·增长', positioning: '围绕拉新-留存-转化做内容和活动，用数据驱动增长。' },
+  { slug: 'fullstack', name: '全栈工程师', positioning: '贯通前端、后端与数据链路，独立交付可上线的完整业务功能。' },
+  { slug: 'fde', name: 'FDE工程师', positioning: '驻到客户的业务里，把 AI 能力落成能用起来的东西：先弄懂流程，再决定做什么、怎么接、怎么验证。' },
+  { slug: 'ai-qa', name: 'AI测试', positioning: '为 AI 功能建一套可信的质量判断：失败类型、样本集、评分规则、回归与上线门槛。' },
+  { slug: 'ai-delivery', name: 'AI交付工程师', positioning: '把 AI 方案从「能演示」推到「能交付」：环境、数据、接口、权限、成本、运维，一样都不能少。' },
 ]
+
+export const ROLE_CHOICES = DIRECTIONS.map((entry) => ({
+  ...entry,
+  status: ROLES[entry.slug] === undefined ? 'building' : 'preset',
+}))
 
 /**
  * The custom direction: everything the目录 does not list.
  *
- * A custom name is allowed, and it always starts as `beta` — there is no way to
- * know how well a self-declared direction matches what employers mean by it, so
- * the product says `beta` until a capability model exists for it.
+ * A custom name is allowed, and it starts as `building` — there is no way to know
+ * how well a self-declared direction matches what employers mean by it, and until
+ * a capability model exists for it the page has nothing to score item by item.
+ * 自己填的方向不该借目录里任何一档的说明：它要么还没有模型，要么有一份 Agent 生成的。
  */
 export const CUSTOM_SLUG = 'custom'
 

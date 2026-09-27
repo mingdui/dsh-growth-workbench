@@ -446,9 +446,8 @@ await check('every host file imports nothing from the Harness', () => {
 const model = await import(new URL('./model.mjs', import.meta.url).href)
 
 await check('三个新方向自带能力模型，且状态诚实', () => {
-  // 新方向一进目录就带着模型，所以目录里的状态是 preset 而不是 beta —— beta 的说明是
-  // 「还没有能力模型，可以让 AI 生成一份」，对它们不成立。模型过的是同一个校验器，
-  // 而它自己的 status 是 draft：人写的草稿，不是行业校准过的。
+  // 新方向一进目录就带着模型，所以目录里的状态是 preset —— 而模型过的是同一个校验器，
+  // 它自己的 status 是 draft：随版本发布的草稿，不是行业校准过的。
   for (const slug of ['fde', 'ai-qa', 'ai-delivery']) {
     const role = model.ROLES[slug]
     assert.ok(role !== undefined, `${slug} 要有模型`)
@@ -460,6 +459,31 @@ await check('三个新方向自带能力模型，且状态诚实', () => {
     assert.ok(choice.positioning.length > 0, `${slug} 要有定位句`)
   }
 })
+
+await check('目录里的档位从模型推出来，不再各写一遍', () => {
+  // 用户报过这件事：目录里的方向都补上模型了，点上去还写着「还没有能力模型，可以让
+  // AI 生成一份」。原因不是漏改一处，而是 status 在 ROLE_CHOICES 里又手写了一份 ——
+  // 补模型时没跟着改。所以这里钉的是规则，不是某一版的数据快照。
+  for (const entry of model.ROLE_CHOICES) {
+    const role = model.ROLES[entry.slug]
+    assert.ok(role !== undefined, `${entry.slug} 在目录里却没有模型`)
+    assert.equal(entry.status, 'preset', `${entry.slug} 有模型，目录里就该是 preset`)
+    assert.equal(model.resolveRoleStatus({ targetRoleSlug: entry.slug }), entry.status,
+      `${entry.slug}: 页面读到的档位（activeRoleSource）要和目录里的一致`)
+    assert.doesNotMatch(model.ROLE_STATUS[entry.status]?.note ?? '', /还没有能力模型/,
+      `${entry.slug} 有模型，说明里就不该再说「还没有能力模型」`)
+  }
+  // 反方向也钉住：确实没有模型的方向才是 building，说明里要请 AI 生成一份。
+  assert.equal(model.resolveRoleStatus({ targetRoleSlug: 'no-such-direction' }), 'building')
+  assert.match(model.ROLE_STATUS.building.note, /还没有能力模型/)
+  // 「有模型」不等于「模型被校准过」：随版本发布的模型自己的 status 还是 draft，那么
+  // preset 那条说明就必须把未经校准说出来。哪天有模型真被校准了，这条会失败 —— 那正是
+  // 回来改说明的时候，而不是让页面一直替一份已经校准过的模型道歉。
+  if (Object.values(model.ROLES).some((role) => role.status === 'draft')) {
+    assert.match(model.ROLE_STATUS.preset.note, /未经行业校准/)
+  }
+})
+
 const store = await import(new URL('./store.mjs', import.meta.url).href)
 const tools = await import(new URL('./tools.mjs', import.meta.url).href)
 const validate = await import(new URL('./validate.mjs', import.meta.url).href)
@@ -1198,7 +1222,8 @@ await check('POST /intake 支持自定义方向', async () => {
   const profile = store.read('profile')
   assert.equal(profile.targetRole, '数据分析师')
   assert.equal(profile.targetRoleSlug, model.CUSTOM_SLUG)
-  assert.equal(profile.targetRoleStatus, 'beta')
+  // 自己填的方向没有模型可依 —— 落库的是 building，不是历史档位 beta。
+  assert.equal(profile.targetRoleStatus, 'building')
   assert.match(profile.positioning, /自定义/)
 })
 
