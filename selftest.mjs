@@ -423,7 +423,8 @@ await check('完成的反馈是真的，且 gap 不再被当成分数印', () =>
   assert.match(source, /cap: '已超达标线'/, '高于达标线时标签跟着变，不让负号自己解释自己')
   assert.match(source, /value: Math\.abs\(gap\)\.toFixed\(2\), unit: '分'/, '报的是分，不是百分比')
   assert.doesNotMatch(source, /Math\.round\(gap \* 100\)/, '不许再把分值当百分比印')
-  assert.ok((source.match(/gapLabel\(/g) ?? []).length >= 4, '读数条 / 自评卡 / 考核历史共用同一个读法')
+  // 一处定义、多处共用（读数条 + 画像的自评卡；考核历史现在只列考核轮，不再显示 gap）。
+  assert.ok((source.match(/gapLabel\(/g) ?? []).length >= 3, '读数条与自评卡共用同一个读法')
 })
 
 await check('计划页的层次：总目标是一整句，路径与能力块各自成层', () => {

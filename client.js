@@ -2082,7 +2082,16 @@ window.__ModuleLoader__.load({
           state: bigRound !== undefined ? 'done' : (finished ? 'open' : (locked ? 'locked' : 'upcoming')),
           takenAt: bigRound?.date ?? '',
         });
-        (phase.weeks ?? []).forEach((week, weekIndex) => {
+        // **只排到天的阶段没有 `weeks`** —— 但节点不是"写了周主题的阶段才有"：阶段里每 7 天一个。
+        // 少了这一步，正在走的那一段（通常正是排到天的第一段）在目录上一条节点都看不到 ——
+        // 用户就是这么发现的：「阶段1 … 1–14 天，目录没有看到第二周」。
+        const weeks = (phase.weeks ?? []).length > 0
+          ? phase.weeks
+          : Array.from(
+            { length: Math.max(1, Math.ceil((phase.days[1] - phase.days[0] + 1) / 7)) },
+            (_, offset) => ({ week: Math.floor((phase.days[0] - 1) / 7) + 1 + offset, theme: '' }),
+          );
+        weeks.forEach((week, weekIndex) => {
           const number = weekNumberOf(week, weekIndex + 1);
           const weekStart = (number - 1) * 7 + 1;
           const weekEnd = weekStart + 6;
@@ -2338,6 +2347,20 @@ window.__ModuleLoader__.load({
       return h('div', { style: S.card }, kids);
     }
 
+    /**
+     * 一轮考核考的是哪一段：小考按周、大考按阶段 —— **与目录同一套说法**。
+     *
+     * 原先历史里写的是「第 7 天」，而目录里说的是「第 1 周」：同一件事两种叫法，读者要自己换算
+     * （用户的疑问就是「第 7 天 这个不是第一周？」）。
+     */
+    function roundScope(entry, plan) {
+      if (entry.coverage === '全量') {
+        const phase = (plan.phases ?? []).find((item) => entry.day >= item.days[0] && entry.day <= item.days[1]);
+        return phase === undefined ? '阶段大考' : `阶段${String((plan.phases ?? []).indexOf(phase) + 1)}「${phase.name}」`;
+      }
+      return `节点 第 ${String(Math.floor((entry.day - 1) / 7) + 1)} 周`;
+    }
+
     /** The review tab: 目录 → 考卷（弹窗）→ 历史与趋势。The page never scores. */
     function ReviewTabBody({ state, post }) {
       const [openSlot, setOpenSlot] = useState(null);
@@ -2353,18 +2376,17 @@ window.__ModuleLoader__.load({
 
       const entryCard = (entry, key) => {
         const head = [
-          `${entry.date}（第 ${String(entry.day)} 天）`,
-          h('span', { key: 'kind', style: { ...S.chip, marginLeft: '8px' } }, entry.kind === 'review' ? '考核' : '自评'),
+          // 「考的是哪一段」用目录那套说法（节点 第 N 周 / 阶段N），日期另说 —— 原先写「第 7 天」，
+          // 与目录里的「第 1 周」是同一件事的两种叫法，读者得自己换算。
+          h('span', { key: 'date', style: { fontFamily: 'var(--gw-mono, monospace)', fontSize: '12.5px', color: 'var(--gw-muted-2, #9aa7b1)' } }, entry.date),
+          h('span', { key: 'scope', style: { ...S.chip, marginLeft: '8px' } }, roundScope(entry, state.plan)),
+          h('span', { key: 'cov', style: { ...S.fine, marginLeft: '8px' } }, entry.coverage === '全量' ? '全量' : '定向'),
         ];
-        if (entry.scores === null || entry.scores === undefined) {
-          head.push(h('span', { key: 'gap', style: { ...S.fine, marginLeft: '8px' } },
-            entry.gap === null || entry.gap === undefined
-              ? `已评 ${String(entry.answered ?? 0)} 项`
-              : (() => { const label = gapLabel(Number(entry.gap)); return `${label.cap} ${label.value} ${label.unit} · 已评 ${String(entry.answered ?? 0)} 项`; })()));
-        } else {
-          head.push(h('span', { key: 'scores', style: { marginLeft: '8px' } },
-            Object.entries(entry.scores).map(([dimension, value]) => `${dimension} ${String(value)}`).join(' / ')));
-        }
+        // 自评轮**不进这张表**：它没有四维分、量纲也不同（它回答的是"你自己觉得差多少"），
+        // 列在这里只会让人问"这行有啥意义"（用户的原话）。自评的读数在「画像 → 能力自评」那一步
+        // 是活的（gap 与补强优先级）—— 这一页的历史 = **考核轮**（`reviews`，下面 map 的就是它）。
+        head.push(h('span', { key: 'scores', style: { marginLeft: '8px' } },
+          Object.entries(entry.scores ?? {}).map(([dimension, value]) => `${dimension} ${String(value)}`).join(' / ')));
         if (entry.total !== undefined && entry.total !== null) {
           head.push(h('span', { key: 'total', style: { marginLeft: '8px', fontWeight: '600' } }, `总分 ${String(entry.total)}（${entry.grade}）`));
         }
@@ -2390,14 +2412,10 @@ window.__ModuleLoader__.load({
               `${item['任务标识'] ?? item.id ?? '—'}　${item['一句话动作'] ?? item.action ?? ''}　→ ${item['改了什么'] ?? item.why ?? ''}`)),
           ]));
         }
-        // 一轮 = 一行（日期 · 第几天 · 档位 · 总分），**点开才摊出细节** —— 原先每轮都把四维、
-        // 归因、整篇报告和调整项全铺在页面上，一屏读不完也找不到重点。
+        // 一轮 = 一行（日期 · 考的是哪一段 · 四维 · 总分），**点开才摊出细节** —— 原先每轮都把
+        // 四维、归因、整篇报告和调整项全铺在页面上，一屏读不完也找不到重点。
         return h('details', { key, style: { borderTop: '1px solid var(--gw-line-soft, #efeae2)' } }, [
-          h('summary', { key: 's', style: { cursor: 'pointer', padding: '10px 0', display: 'flex', gap: '10px', alignItems: 'baseline', flexWrap: 'wrap', fontSize: '13.5px' } }, [
-            h('span', { key: 'd', style: { fontFamily: 'var(--gw-mono, monospace)', fontSize: '12.5px', color: 'var(--gw-muted-2, #9aa7b1)' } }, `${entry.date} · 第 ${String(entry.day)} 天`),
-            h('span', { key: 'k', style: { ...S.chipPlain, fontSize: '11.5px' } }, entry.kind === 'review' ? (entry.coverage === '全量' ? '考核 · 全量' : '考核 · 定向') : '自评'),
-            ...head.slice(2),
-          ]),
+          h('summary', { key: 's', style: { cursor: 'pointer', padding: '10px 0', display: 'flex', gap: '10px', alignItems: 'baseline', flexWrap: 'wrap', fontSize: '13.5px' } }, head),
           h('div', { key: 'body', style: { padding: '2px 0 16px', display: 'flex', gap: '18px', alignItems: 'flex-start' } }, [
             h('div', { key: 'lines', style: { flex: '1 1 auto', minWidth: '0' } }, lines.slice(1)),
             seal,
@@ -2423,13 +2441,14 @@ window.__ModuleLoader__.load({
         h(ExamSyllabus, { key: 'syllabus', state, onOpen: setOpenSlot }),
         h('div', { key: 'trend', style: S.card }, [
           h('h3', { key: 't', style: S.h3 }, '考核历史与趋势'),
-          h('div', { key: 'counts', style: S.meta }, `历史 ${String(history.length)} 轮（其中考核 ${String(reviews.length)} 轮）· 点任意一行看那一轮的细节`),
+          h('div', { key: 'counts', style: S.meta }, `考核 ${String(reviews.length)} 轮 · 点任意一行看那一轮的细节`),
           h(TrendChart, { key: 'chart', rounds: reviews }),
           reviews.length === 0 ? null : h('div', { key: 'chartNote', style: S.meta }, '四维得分，各 0-25。自评轮读的是缺口，量纲不同，不进这张图。'),
           h('div', { key: 'note', style: S.meta }, `逐项曲线点 ${String(curve.length)} 个：能力项各自的自评读数，和上面那张四维图不是一回事。`),
-          ...(history.length === 0
-            ? [h('div', { key: 'empty', style: S.empty }, '还没有记录。')]
-            : history.slice().reverse().map((entry, index) => entryCard(entry, `${entry.date}-${String(index)}`))),
+          // 这一页的历史 = **考核轮**；自评轮不进这张表（见 `entryCard` 上面那条注释）。
+          ...(reviews.length === 0
+            ? [h('div', { key: 'empty', style: S.empty }, '还没有考核记录 —— 上面目录里点「打开考卷」开始第一场。')]
+            : reviews.slice().reverse().map((entry, index) => entryCard(entry, `${entry.date}-${String(index)}`))),
         ]),
         openSlot === null ? null : h(PaperModal, { key: 'paper', state, post, slot: openSlot, onClose: () => setOpenSlot(null) }),
       ]);
