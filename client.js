@@ -2279,6 +2279,9 @@ window.__ModuleLoader__.load({
             style: { ...S.button, ...S.buttonOn, ...(ready && phase !== 'sent' ? {} : { opacity: '.45', cursor: 'default' }) },
             onClick: () => { void send(); },
           }, phase === 'sent' ? '已交卷 · 等 AI 打分' : '交卷 · 交给 AI 打分'),
+          // **关闭按钮必须有**：撤掉"点遮罩关"之后，如果这里不留一个，这一页就只能靠 Esc 出去了
+          // （用户就是这么发现的：「考卷弹窗没有关闭按钮」）。关掉会先把没存的草稿存下来。
+          h('button', { key: 'close', type: 'button', style: S.button, onClick: close }, '关闭'),
           h('span', { key: 'note', style: { ...S.meta, flex: '1 1 260px' } }, phase === 'sent'
             ? '已交卷 —— AI 正在你当前的对话里打分，结果会自动写回这一页。'
             : ready

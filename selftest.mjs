@@ -305,6 +305,11 @@ await check('三行「说明 + 动作」是同一个样子，弹窗只认关闭�
   const modal = sliceOfComponent(source, 'Modal')
   assert.doesNotMatch(modal, /onMouseDown/, '遮罩不再接点击')
   assert.match(modal, /if \(event\.key === 'Escape'\)/, 'Esc 留着（明确的键盘动作，且关掉也先存）')
+  // 「只认关闭按钮」的前提是**每个弹窗里都得有一个关闭按钮** —— 撤掉遮罩关闭时我漏了考卷那张，
+  // 于是它只能靠 Esc 出去（用户：「考卷弹窗没有关闭按钮」）。三个弹窗逐个查，不靠记得。
+  for (const sheet of ['EvidenceEditor', 'LearningSheet', 'PaperModal']) {
+    assert.match(sliceOfComponent(source, sheet), /'关闭'/, `${sheet} 里要有关闭按钮`)
+  }
 })
 
 await check('画像每一步都能点回收起，标题行就是那个开关', () => {
