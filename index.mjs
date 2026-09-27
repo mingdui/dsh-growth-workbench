@@ -37,21 +37,28 @@ import { TOOLS } from './tools.mjs'
  * @param ctx - 宿主插件上下文。
  * @returns 记下的工作区 id（空串 = 没注册上）。
  */
-async function registerWorkspace(ctx) {
+async function registerWorkspace(ctx, attempt = 0) {
   const registry = typeof ctx?.get === 'function' ? ctx.get('workspaceRegistry') : undefined
-  if (registry === undefined || registry === null || typeof registry.create !== 'function') return ''
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  // 「服务还不存在」也要重试，不能当成"这个 profile 没有"就收工：挂载是异步的，我们这个插件
+  // 可能先被 apply 完，那一刻工作区插件还没把服务挂上去。
+  let failure = ''
+  if (registry === undefined || registry === null || typeof registry.create !== 'function') {
+    failure = '这个 profile 还没挂上工作区服务（workspaceRegistry）'
+  } else {
     try {
       const workspace = await registry.create(workspaceDir(), '成长工作台')
       return rememberWorkspaceId(typeof workspace?.id === 'string' ? workspace.id : '')
-    } catch (failure) {
-      if (attempt === 1) {
-        ctx?.logger?.warn?.(`dsh-growth-workbench: 工作区注册失败，会话会归在「未分组」下：${String(failure)}`)
-      } else {
-        await new Promise((resolve) => { setTimeout(resolve, 1000) })
-      }
+    } catch (error) {
+      failure = String(error)
     }
   }
+  if (attempt < 3) {
+    await new Promise((resolve) => { setTimeout(resolve, 1500) })
+    return await registerWorkspace(ctx, attempt + 1)
+  }
+  // 到这里说明几条路都没成。**页面自己还会再试一次**（`ensureAgentWorkspace` 走 DSH 页面那条
+  // `workspaces` 服务），所以这里只留一行日志：会话多半还是能归对地方。
+  ctx?.logger?.warn?.(`dsh-growth-workbench: 工作区注册失败（页面会自己再试一次）：${failure}`)
   return rememberWorkspaceId('')
 }
 

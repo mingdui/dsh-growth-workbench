@@ -278,16 +278,54 @@ window.__ModuleLoader__.load({
     const AGENT_SESSION_TITLE = '成长工作台';
 
     /**
+     * 确保「成长工作台」这个**工作区**存在，返回它的 id。
+     *
+     * 为什么非有不可：侧栏的分组读的是**工作区注册表**（"这个目录注册成工作区了吗"），不是会话的
+     * `cwd`。只给 `cwd` 建出来的会话，文件确实落在那个目录里（会话日志的 `cwd` 字段可以作证），
+     * 侧栏照样把它归进「未分组」—— 用户撞上过。
+     *
+     * 宿主挂载时也会注册一次（省一次往返，见 `index.mjs`），但**页面不能指望它**：成不成取决于
+     * 那个 profile 挂没挂工作区服务。所以这里走 DSH 页面自己那条路 —— `workspaces` 服务，
+     * 用户在侧栏「新建工作区」走的就是它；成功之后侧栏立刻就有这个分组，不用重开。
+     *
+     * 幂等：同一个路径重复创建会返回已有的那个（宿主侧同样）。哪一步拿不到就返回空串，
+     * 调用方退回只带 `cwd`（能用，只是分组差一点）。
+     *
+     * @param path - 工作区目录（宿主发下来的 `agentWorkspace`）。
+     * @param knownId - 宿主已经注册好的 id；有就直接用，不再往返一次。
+     * @returns 工作区 id，失败时是空串。
+     */
+    async function ensureAgentWorkspace(path, knownId) {
+      if (typeof knownId === 'string' && knownId.length > 0) return knownId;
+      if (typeof path !== 'string' || path.length === 0) return '';
+      const workspaces = typeof rootCtx?.get === 'function' ? rootCtx.get('workspaces') : undefined;
+      if (workspaces === undefined || workspaces === null || typeof workspaces.create !== 'function') return '';
+      try {
+        const workspace = await workspaces.create({ path });
+        const id = typeof workspace?.workspaceId === 'string' ? workspace.workspaceId : '';
+        // 新建出来的标题默认是**目录名**（basename = 「workspace」）。换成看得懂的那个名字。
+        if (id.length > 0 && workspace?.title !== AGENT_SESSION_TITLE) {
+          try {
+            await workspaces.rename?.(id, AGENT_SESSION_TITLE);
+          } catch { /* 名字是次要的：分组先成立 */ }
+        }
+        return id;
+      } catch {
+        return '';
+      }
+    }
+
+    /**
      * 新建一个专用对话（并给它起名），**不落盘**。
      *
-     * `cwd` = 宿主的空工作区目录：带上它，这个会话就归在**那个工作区**下面，不再挂在 DSH
-     * 侧栏的「未分组」里。注意它**不是**数据目录 —— 会话的 cwd 就是 Agent 的默认工作目录，
-     * 指向数据目录等于把那四份 JSON 摆在它手边（随手一次直接编辑就绕过了工具那边的门禁）。
+     * `cwd` = 宿主的空工作区目录。注意它**不是**数据目录 —— 会话的 cwd 就是 Agent 的默认工作
+     * 目录，指向数据目录等于把那四份 JSON 摆在它手边（随手一次直接编辑就绕过了工具那边的门禁）。
      *
      * 落盘由调用方决定用哪条路：`askAgent` 用 `call`（它不需要页面重渲染，跑完的轮询会带上），
      * 页头那两个动作走 `post`（写完要让这一行自己更新）。
      */
-    async function createAgentSession(sessions, cwd, workspaceId) {
+    async function createAgentSession(sessions, cwd, knownWorkspaceId) {
+      const workspaceId = await ensureAgentWorkspace(cwd, knownWorkspaceId);
       // **归属优先走工作区 id，其次才是 cwd**：侧栏分组读的是工作区注册表，只给 cwd 的会话
       // 会挂在「未分组」下（用户撞上过）。两者不能同时传 —— 宿主的 `session.create` 会直接拒。
       const hasCwd = typeof cwd === 'string' && cwd.length > 0;
@@ -331,7 +369,7 @@ window.__ModuleLoader__.load({
           reason = messageOf(failure);
         }
       }
-      return { id, named, reason };
+      return { id, named, reason, workspaceId };
     }
 
     /**
@@ -1652,9 +1690,16 @@ window.__ModuleLoader__.load({
         // **要有回声**：点了按钮什么都不说，用户读到的是"没啥反应"（他的原话）。
         // 改名失败时**把原因一起说出来** —— 我上一版只回了个 true/false，于是用户报了两次，
         // 我两次都只能猜。名字没改成不是灾难，说不清为什么才是。
+        // 回声三句，都是用户看得见的现象，一句不猜：
+        //  ① 建好了、名字也改上了 —— 但**空对话在侧栏里一律显示「新会话」**（DSH 的规矩：
+        //     `displayTitle` 对 `blank` 的行一律用那个标签，不看标题）。第一条消息发出去，
+        //     那一行就会变成「成长工作台」。用户为此报过两次，所以这句话得说。
+        //  ② 名字没改上 —— 把原因带上。
+        //  ③ 没能归到工作区 —— 直说它会挂在「未分组」下。
+        const where = created.workspaceId.length > 0 ? '' : '没能归到工作区 —— 侧栏里挂在「未分组」下。';
         setOk(created.named
-          ? `新建了对话「${AGENT_SESSION_TITLE}」，之后的运行都发进它。`
-          : `对话建好了，但没能改成「成长工作台」${created.reason.length > 0 ? `（${created.reason}）` : ''} —— 它在侧栏里可能叫「新会话」。`);
+          ? `新建了对话「${AGENT_SESSION_TITLE}」，之后的运行都发进它。（空对话在侧栏里显示成「新会话」，你发出第一条就变过来。）${where}`
+          : `对话建好了，但没能改成「成长工作台」${created.reason.length > 0 ? `（${created.reason}）` : ''}。${where}`);
       });
 
       // 没有会话服务（预览里就是这样，别的宿主也可能）：这一行只剩说明 —— 两个动作都要

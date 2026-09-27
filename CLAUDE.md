@@ -142,6 +142,17 @@ node selftest.mjs
 
 - **装完必须重启 DSH 进程。** 插件清单与包元数据不热更新；只有用户自己的
   `cordis.patch.yml` 是热重载的。改完看不到效果，先怀疑没重启。
+  （判断有没有重启：`GET /gw/api/state` 里有没有你新加的字段 —— 宿主半边的代码旧了，
+  它会直接缺席。）
+- **侧栏对"没有消息的空会话"一律显示「新会话」，不看标题。** 这是
+  `dsh-client-ui-workspace` 的 `displayTitle` 写死的规矩（`node.blank ? t('session.new') : node.title`）。
+  所以**判断改名成没成，别看侧栏** —— 看 `~/.dsh/storages/session_projcache/sessions/<id>.json`
+  里的 `rows.title.val`（那才是真相）。我为此查错过一次：会话日志里没有 `session/title` 事件，
+  我据此断定改名失败，其实标题一直是对的。第一条消息发出去，那一行自己就会变。
+- **会话归属看工作区注册表，不看 `cwd`。** 只带 `cwd` 建出来的会话在侧栏挂「未分组」——
+  注册表（`~/.dsh/storages/workspace.json`）问的是"这个目录注册成工作区了吗"。两处都要做：
+  宿主挂载时 `ctx.get('workspaceRegistry').create(path, title)`（异步挂载，服务可能还没上，
+  要重试），页面再用 `rootCtx.get('workspaces').create({path})` 确保一次。
 - **`dsh plugin --profile web --dump-config`** 是看层栈是否正确的第一手段：应出现
   `# == dsh-growth-workbench` 层且无 duplicate 告警。
 - **不要手写 profile 的 `package.json`。** `dsh plugin` 子命令负责维护它。

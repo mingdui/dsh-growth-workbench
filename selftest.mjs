@@ -2071,6 +2071,30 @@ await check('专属会话的工作区：宿主侧的**空**目录，不是数据
   // 工作区 id 失效（用户把那个工作区删了）时退回 cwd —— 建不出会话才是真的挡住用户。
   assert.match(source, /if \(where\.workspaceId !== undefined && hasCwd\)/, '失效要退回 cwd 再试一次')
   assert.match(source, /id = await sessions\.create\(\{ cwd \}\);/, '退回的那次带的是 cwd')
+  // **页面自己也要能把工作区建出来**：宿主那次注册成不成取决于那个 profile 挂没挂服务
+  // （实测撞上过：宿主注册后 `/state` 里的 id 还是空串，侧栏照旧「未分组」）。所以页面走
+  // DSH 自己那条路 —— `workspaces` 服务，用户在侧栏「新建工作区」用的就是它。
+  const ensure = sliceOfComponent(source, 'ensureAgentWorkspace');
+  assert.match(ensure, /rootCtx\.get\('workspaces'\)/, '要拿 DSH 页面自己的 workspaces 服务')
+  assert.match(ensure, /await workspaces\.create\(\{ path \}\)/, '同一个路径重复创建是幂等的')
+  assert.match(ensure, /workspaces\.rename\?\.\(id, AGENT_SESSION_TITLE\)/, '目录名当标题不好看，改成「成长工作台」')
+  assert.match(source, /const workspaceId = await ensureAgentWorkspace\(cwd, knownWorkspaceId\)/, '建会话前先把工作区确保下来')
+  assert.match(source, /return \{ id, named, reason, workspaceId \};/, '建出来的会话要带上"归到哪个工作区"')
+  // 空对话在侧栏里显示「新会话」是 **DSH 的规矩**（`displayTitle`：blank 的行一律用那个标签，
+  // 不看标题）—— 用户为此报过两次，所以回声里要把这件事说清楚，别再让人以为是没改上名。
+  assert.match(source, /空对话在侧栏里显示成「新会话」/, '空对话的显示规矩要说出来')
+  assert.match(source, /没能归到工作区 —— 侧栏里挂在「未分组」下/, '没归上就说没归上')
+
+  // 宿主侧：注册走 `ctx.get`（拿不到就退回 cwd），**不能写进 inject** —— 某些 profile 不挂工作区
+  // 服务，写进 inject 会让整个插件静默不挂载（离线自检里根本没有 Harness）。
+  const host = readFileSync(join(ROOT, 'index.mjs'), 'utf8')
+  assert.match(host, /ctx\.get\('workspaceRegistry'\)/)
+  assert.doesNotMatch(host, /export const inject = \[[^\]]*workspace/, 'inject 里不许出现工作区服务')
+  assert.match(host, /registry\.create\(workspaceDir\(\), '成长工作台'\)/, '注册时把标题定成「成长工作台」')
+  assert.match(host, /void registerWorkspace\(ctx\)/, '挂载时注册（不 await：拿不到也不该卡住挂载）')
+  // 「服务还没挂上」也要重试 —— 挂载是异步的，我们可能先被 apply。
+  assert.match(host, /if \(attempt < 3\) \{/, '注册要重试几次')
+  assert.match(host, /registerWorkspace\(ctx, attempt \+ 1\)/, '重试要真的再调一次')
   // **改名的返回值要检查**：`rename` 失败时返回 `{ ok: false }` 而**不抛** —— 只 try/catch
   // 会把失败静默吃掉（用户建出来的对话就叫「新会话」，而页面说"运行都在「成长工作台」里"）。
   assert.match(source, /const renamed = await binding\?\.session\?\.rename\?\.\(AGENT_SESSION_TITLE\)/)
@@ -2091,13 +2115,6 @@ await check('专属会话的工作区：宿主侧的**空**目录，不是数据
     (source.match(/createAgentSession\(sessions, state\?\.agentWorkspace, state\?\.agentWorkspaceId\)/g) ?? []).length >= 2,
     'askAgent 与「重建一个」两处新建都要带上路径与工作区 id',
   )
-  // 宿主侧：注册走 `ctx.get`（拿不到就退回 cwd），**不能写进 inject** —— 某些 profile 不挂工作区
-  // 服务，写进 inject 会让整个插件静默不挂载（离线自检里根本没有 Harness）。
-  const host = readFileSync(join(ROOT, 'index.mjs'), 'utf8')
-  assert.match(host, /ctx\.get\('workspaceRegistry'\)/)
-  assert.doesNotMatch(host, /export const inject = \[[^\]]*workspace/, 'inject 里不许出现工作区服务')
-  assert.match(host, /registry\.create\(workspaceDir\(\), '成长工作台'\)/, '注册时把标题定成「成长工作台」')
-  assert.match(host, /void registerWorkspace\(ctx\)/, '挂载时注册（不 await：拿不到也不该卡住挂载）')
 })
 
 await check('未知路由是 404', async () => {
