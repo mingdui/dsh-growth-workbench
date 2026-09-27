@@ -1809,35 +1809,49 @@ window.__ModuleLoader__.load({
         } else {
           // 十个字列排下来每列只剩一百来像素，而「一句话动作 / 完成标准 / 可接受证据」装的是整句话。
           // 改成每个任务四行：动作在前，元数据与两条标准各一行小字 —— 横向滚的表格读不了句子。
-          body.push(h('div', { key: 'tasks', style: { display: 'flex', flexDirection: 'column' } },
-            phase.tasks.map((task) => h('div', { key: task.id, className: 'gw-plan-task', style: { ...S.row, flexDirection: 'column', alignItems: 'stretch', gap: '4px' } }, [
-              h('div', { key: 'head', style: { display: 'flex', gap: '9px', alignItems: 'baseline' } }, [
-                // 标识这枚小签顺便把"做完了没有"说掉：计划页原先对完成状态**一个字都没有**，
-                // 于是"哪些已经做了"只能回今日页一条条对。已完成就换成青色 + 一个勾 ——
-                // 它是状态，不是入口：打卡只在今日页（入口唯一）。
-                h('span', {
-                  key: 'id',
-                  title: state.progress.tasks?.[task.id]?.done === true ? '已完成' : '还没做',
-                  style: {
-                    ...S.chip, flex: '0 0 auto',
-                    ...(state.progress.tasks?.[task.id]?.done === true
-                      ? { color: 'var(--gw-teal, #2f7d74)', background: 'var(--gw-teal-soft, rgba(47,125,116,.12))', borderColor: 'rgba(47,125,116,.3)' }
-                      : {}),
-                  },
-                }, state.progress.tasks?.[task.id]?.done === true ? `${task.id} ✓` : task.id),
-                h('span', { key: 'action', style: { fontSize: '14px', fontWeight: '600', opacity: state.progress.tasks?.[task.id]?.done === true ? '.62' : '1' } }, task.action),
-              ]),
-              h('div', { key: 'meta', style: S.fine }, [
-                task.ref ? `引用 ${task.ref}` : '',
-                Number.isInteger(task.day) ? `第 ${String(task.day)} 天` : '',
-                `能力项 ${task.capability}`,
-                `预计 ${String(task.minutes)} 分钟`,
-                `最低版本：${task.minimumVersion}`,
-                task.dependsOn && task.dependsOn !== '无' ? `依赖 ${task.dependsOn}` : '',
-              ].filter(Boolean).join('　·　')),
-              h('div', { key: 'criteria', style: S.fine }, `完成标准：${task.doneCriteria}`),
-              h('div', { key: 'evidence', style: S.fine }, `可接受证据：${task.acceptableEvidence}`),
-            ]))));
+          const oneTask = (task) => h('div', { key: task.id, className: 'gw-plan-task', style: { ...S.row, flexDirection: 'column', alignItems: 'stretch', gap: '4px' } }, [
+            h('div', { key: 'head', style: { display: 'flex', gap: '9px', alignItems: 'baseline' } }, [
+              // 标识这枚小签顺便把"做完了没有"说掉：计划页原先对完成状态**一个字都没有**，
+              // 于是"哪些已经做了"只能回今日页一条条对。已完成就换成青色 + 一个勾 ——
+              // 它是状态，不是入口：打卡只在今日页（入口唯一）。
+              h('span', {
+                key: 'id',
+                title: state.progress.tasks?.[task.id]?.done === true ? '已完成' : '还没做',
+                style: {
+                  ...S.chip, flex: '0 0 auto',
+                  ...(state.progress.tasks?.[task.id]?.done === true
+                    ? { color: 'var(--gw-teal, #2f7d74)', background: 'var(--gw-teal-soft, rgba(47,125,116,.12))', borderColor: 'rgba(47,125,116,.3)' }
+                    : {}),
+                },
+              }, state.progress.tasks?.[task.id]?.done === true ? `${task.id} ✓` : task.id),
+              h('span', { key: 'action', style: { fontSize: '14px', fontWeight: '600', opacity: state.progress.tasks?.[task.id]?.done === true ? '.62' : '1' } }, task.action),
+            ]),
+            h('div', { key: 'meta', style: S.fine }, [
+              task.ref ? `引用 ${task.ref}` : '',
+              Number.isInteger(task.day) ? `第 ${String(task.day)} 天` : '',
+              `能力项 ${task.capability}`,
+              `预计 ${String(task.minutes)} 分钟`,
+              `最低版本：${task.minimumVersion}`,
+              task.dependsOn && task.dependsOn !== '无' ? `依赖 ${task.dependsOn}` : '',
+            ].filter(Boolean).join('　·　')),
+            h('div', { key: 'criteria', style: S.fine }, `完成标准：${task.doneCriteria}`),
+            h('div', { key: 'evidence', style: S.fine }, `可接受证据：${task.acceptableEvidence}`),
+          ]);
+
+          const isDone = (task) => state.progress.tasks?.[task.id]?.done === true;
+          const open = phase.tasks.filter((task) => !isDone(task));
+          const finished = phase.tasks.filter(isDone);
+          // **没做完的在前，做完的折到后面**（用户：「已完成的放该阶段模块的后面折叠起来，
+          // 其他未完成的像现在这样放前面」）。理由和考核页那边一样：这一段还剩什么是这一屏的重点，
+          // 做完的那些只需要"还查得到"，不需要一直占着版面。
+          body.push(h('div', { key: 'tasks', style: { display: 'flex', flexDirection: 'column' } }, open.map(oneTask)));
+          if (finished.length > 0) {
+            body.push(h('details', { key: 'done-tasks', style: { borderTop: '1px solid var(--gw-line-soft, #efeae2)', marginTop: '4px' } }, [
+              h('summary', { key: 's', style: { ...S.fine, cursor: 'pointer', padding: '8px 0' } },
+                `已完成 ${String(finished.length)} 项${open.length > 0 ? '（折起来，点开看）' : ''}`),
+              h('div', { key: 'body', style: { display: 'flex', flexDirection: 'column', paddingBottom: '6px' } }, finished.map(oneTask)),
+            ]));
+          }
         }
         kids.push(h('div', { key: `phase-${String(index)}`, style: S.card }, body));
       });

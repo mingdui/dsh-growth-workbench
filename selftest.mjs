@@ -438,6 +438,12 @@ await check('计划页的层次：总目标是一整句，路径与能力块各�
   assert.match(source, /currentIndex: state\.metrics\.phaseIndex/, '「你在这」用现成的 phaseIndex，不另存状态')
   assert.match(source, /function GroupRows\(\{ role, scores \}\)/)
   assert.match(source, /scores: state\.profile\.selfAssessment\?\.scores/, '能力块进度按已打分的项算')
+  // 阶段里的任务：**没做完的在前，做完的折到后面**（用户：「已完成的放该阶段模块的后面折叠起来，
+  // 其他未完成的像现在这样放前面」）—— 这一屏的重点是"这一段还剩什么"。
+  assert.match(source, /const open = phase\.tasks\.filter\(\(task\) => !isDone\(task\)\)/)
+  assert.match(source, /const finished = phase\.tasks\.filter\(isDone\)/, '两类都要算出来，顺序才排得住')
+  assert.match(source, /key: 'done-tasks'/, '已完成的折在一条 details 里')
+  assert.match(source, /已完成 \$\{String\(finished\.length\)\} 项/, '折叠条的标题要说清折了几项')
   assert.match(source, /gw-gchip/, '能力组要有字母章')
   assert.match(source, /S\.chipPlain/, '身份标签用灰章，别和珊瑚色抢')
 })
