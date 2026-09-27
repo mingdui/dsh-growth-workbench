@@ -1071,12 +1071,7 @@ window.__ModuleLoader__.load({
         return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '5px' } }, [
           h('span', { key: 'none' }, '还没有学习资料（只有要求，没有方法）'),
           h('span', { key: 'act', style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' } }, [
-            h(AskButton, {
-              key: 'go',
-              text: `给 ${task.id} 找学习资料`,
-              label: '让 AI 汇总资料',
-              hint: '它会检索/抓官方文档，把「怎么上手」和来源汇总到这道题下面。',
-            }),
+            h(AskButton, { key: 'go', text: `给 ${task.id} 找学习资料`, label: '让 AI 汇总资料' }),
           ]),
         ]);
       }
@@ -1084,11 +1079,12 @@ window.__ModuleLoader__.load({
         learn.method.length > 0
           ? h('div', { key: 'method', style: { color: 'var(--gw-ink-2, #3d4a54)', lineHeight: '1.7' } }, `怎么上手：${learn.method}`)
           : null,
+        // 任务行只放**入口与"里面有什么"**：来源日期、「重新找」、以及那句提示都收进弹窗
+        // （用户：「弹窗里面保留即可，外面不用显示」）—— 行里越少，越看得清这道题要做什么。
         h('div', { key: 'row', style: { display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' } }, [
           h('button', { key: 'open', type: 'button', className: 'gw-quiet', style: { ...S.fine, ...S.quiet }, onClick: () => setOpen(true) }, '打开学习资料 →'),
           h('span', { key: 'meta', style: { color: 'var(--gw-muted-2, #9aa7b1)' } },
-            `${learn.digest.length > 0 ? `汇总 ${String(learn.digest.length)} 字` : '没有汇总'}${learn.links.length > 0 ? ` · ${String(learn.links.length)} 条来源` : ' · 无可引用来源'}　AI 找的 · ${learn.foundAt}`),
-          h(AskButton, { key: 'again', text: `给 ${task.id} 重新找一遍学习资料`, label: '重新找', hint: '链接会过期 —— 重新找就是重新检索。' }),
+            `${learn.digest.length > 0 ? `汇总 ${String(learn.digest.length)} 字` : '没有汇总'}${learn.links.length > 0 ? ` · ${String(learn.links.length)} 条来源` : ' · 无可引用来源'}`),
         ]),
         open ? h(LearningSheet, { task, onClose: () => setOpen(false) }) : null,
       ]);

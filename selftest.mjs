@@ -236,6 +236,26 @@ await check('学习资料在弹窗里读：任务行只放引子，方法/汇总
   // 任务行只放引子与入口 —— 汇总可能上百字，挤在行里既读不下去也把那一行压垮。
   assert.match(source, /'打开学习资料 →'/)
   assert.doesNotMatch(source, /h\('details', \{ key: 'digest' \}\)/, '汇总不再挤在任务行里（那个折叠块已撤）')
+  // 来源日期、「重新找」、那句提示都收进弹窗（用户：「弹窗里面保留即可，外面不用显示」）。
+  // 判据：任务行那一段里不许再出现这三样 —— 它们只该在 `LearningSheet` 里。
+  // 取片段要按「下一个组件开始」切，不能按某个具体函数名切 —— 组件顺序会变，那样切出来的
+  // 可能是空串（于是断言永远通过，等于没有）。
+  const sliceOf = (name) => {
+    const start = source.indexOf(`function ${name}(`)
+    const rest = source.slice(start + 1)
+    const end = rest.indexOf('\n    function ')
+    return rest.slice(0, end === -1 ? undefined : end)
+  }
+  const learnRow = sliceOf('TaskLearnLine')
+  // **只看代码，不看注释** —— 注释里正当地写着"这些东西收进弹窗了"，那不该算违规
+  //（否则注释一变，断言就红，而它想拦的是"又长回界面上"）。
+  const codeOnly = (text) => text.split('\n').filter((line) => !line.trim().startsWith('//')).join('\n')
+  assert.doesNotMatch(codeOnly(learnRow), /AI 找的/, '任务行不显示来源日期')
+  assert.doesNotMatch(codeOnly(learnRow), /重新找/, '任务行不摆「重新找」')
+  assert.doesNotMatch(codeOnly(learnRow), /链接会过期/, '任务行不显示那句提示')
+  const sheet = sliceOf('LearningSheet')
+  assert.match(sheet, /AI 找的 · \$\{learn\.foundAt\}/, '弹窗里保留来源日期')
+  assert.match(sheet, /label: '重新找一遍'/, '弹窗里保留「重新找」')
   // 那张纸上的三段，以及"没有来源"时要说清这是通识。
   assert.match(source, /'怎么上手'/)
   assert.match(source, /'AI 汇总'/)
