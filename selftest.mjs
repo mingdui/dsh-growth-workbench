@@ -551,8 +551,11 @@ await check('resolveRole prefers a generated model, but only for its own directi
   assert.equal(model.resolveRole({ targetRoleSlug: 'custom', capabilityModel: generated })?.name, '数据分析师')
   assert.equal(model.resolveRoleStatus({ targetRoleSlug: 'custom', capabilityModel: generated }), 'generated')
   assert.equal(model.resolveRoleStatus({ targetRoleSlug: 'data-ops', capabilityModel: generated }), 'preset')
-  assert.equal(model.resolveRole({ targetRoleSlug: 'fullstack' }), undefined)
-  assert.equal(model.resolveRoleStatus({ targetRoleSlug: 'fullstack' }), 'beta')
+  // 现在目录里每个方向都有模型了，所以「没有模型时是什么表现」只能用一个人为的 slug 来验。
+  // 注意不能用 'custom' —— 那是自定义方向的保留 slug，走的是另一条分支。
+  // 未知 slug 的状态是 building（「模型建设中：还没有能力模型，可以让 AI 生成一份」）。
+  assert.equal(model.resolveRole({ targetRoleSlug: 'no-such-direction' }), undefined)
+  assert.equal(model.resolveRoleStatus({ targetRoleSlug: 'no-such-direction' }), 'building')
 })
 
 await check('generated models validate through canonicalCapabilityModel', () => {
