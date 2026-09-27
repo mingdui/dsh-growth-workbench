@@ -43,9 +43,34 @@ export function dshHome() {
   return configured && configured.length > 0 ? configured : join(homedir(), '.dsh')
 }
 
-/** The plugin's own directory inside the DSH home. */
+/**
+ * The plugin's own directory inside the DSH home.
+ *
+ * 除了四份文档与 `evidence/`，这里还有一个 `workspace/` —— **给 Agent 用的空工作区**（见
+ * {@link workspaceDir}），它不属于用户数据，但放在同一个目录下：备份 = 拷这一处。
+ */
 export function dataDir() {
   return join(dshHome(), 'growth-workbench')
+}
+
+/**
+ * The empty directory the workbench's own conversation uses as its **workspace**.
+ *
+ * 为什么单开一个、而不是直接把数据目录当工作区：会话的 `cwd` 就是 Agent 的默认工作目录 ——
+ * 指向数据目录等于把 `plan.json` / `progress.json` 摆在它手边，随手一次直接编辑就**绕过了
+ * 那 7 个工具的门禁**（8 字段合同、天区间、能力项校验、标识永不复用……），而那套门禁是整个
+ * 产品读数可信的依据。指向一个空目录：侧栏分组干净，数据仍只在工具那边。
+ *
+ * 建目录这件事由宿主做（`index.mjs` 挂载时），页面只拿到路径 —— 页面不碰磁盘。
+ */
+export function workspaceDir() {
+  return join(dataDir(), 'workspace')
+}
+
+/** 幂等：目录在就返回，不在就建（含父目录）。宿主挂载时叫一次。 */
+export function ensureWorkspaceDir() {
+  mkdirSync(workspaceDir(), { recursive: true })
+  return workspaceDir()
 }
 
 /**

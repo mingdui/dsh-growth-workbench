@@ -273,13 +273,17 @@ window.__ModuleLoader__.load({
     /**
      * 新建一个专用对话（并给它起名），**不落盘**。
      *
+     * `cwd` = 宿主的空工作区目录：带上它，这个会话就归在**那个工作区**下面，不再挂在 DSH
+     * 侧栏的「未分组」里。注意它**不是**数据目录 —— 会话的 cwd 就是 Agent 的默认工作目录，
+     * 指向数据目录等于把那四份 JSON 摆在它手边（随手一次直接编辑就绕过了工具那边的门禁）。
+     *
      * 落盘由调用方决定用哪条路：`askAgent` 用 `call`（它不需要页面重渲染，跑完的轮询会带上），
      * 页头那两个动作走 `post`（写完要让这一行自己更新）。
      */
-    async function createAgentSession(sessions) {
+    async function createAgentSession(sessions, cwd) {
       let id;
       try {
-        id = await sessions.create({});
+        id = await sessions.create(typeof cwd === 'string' && cwd.length > 0 ? { cwd } : {});
       } catch (failure) {
         throw new Error(`没法新建专用对话：${messageOf(failure)}`);
       }
@@ -335,7 +339,7 @@ window.__ModuleLoader__.load({
         return { id: pinnedId, binding, created: false, revision };
       }
 
-      const id = await createAgentSession(sessions);
+      const id = await createAgentSession(sessions, state?.agentWorkspace);
       // **先落盘再发**：落盘失败就不发，否则会出现"消息发了、下次又新建一个"的重复对话。
       await call('/agent-session', { sessionId: id, title: AGENT_SESSION_TITLE });
       const binding = await waitForBinding(sessions, id);
@@ -1476,7 +1480,7 @@ window.__ModuleLoader__.load({
         if (reply.ok !== true) throw new Error(reply.error ?? '改绑失败');
       });
       const rebuild = act('重建一个', async () => {
-        const id = await createAgentSession(sessions);
+        const id = await createAgentSession(sessions, state?.agentWorkspace);
         const reply = await post('/agent-session', { sessionId: id, title: AGENT_SESSION_TITLE });
         if (reply.ok !== true) throw new Error(reply.error ?? '固定失败');
         sessions.open(id);

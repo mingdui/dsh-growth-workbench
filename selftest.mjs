@@ -1878,6 +1878,23 @@ await check('考卷草稿：按题合并、答完清掉，不碰考核成绩', a
   assert.equal(store.read('assessments').history.length, store.read('assessments').history.length)
 })
 
+await check('专属会话的工作区：宿主侧的**空**目录，不是数据目录', async () => {
+  // 目录由宿主挂载时建出来（幂等）—— 页面只拿到路径，它不碰磁盘。
+  assert.ok(existsSync(store.workspaceDir()), '挂载时要把工作区目录建出来')
+  assert.equal(store.workspaceDir(), join(store.dataDir(), 'workspace'))
+  // **不是数据目录本身**：会话的 cwd 就是 Agent 的默认工作目录，指向数据目录等于把那四份 JSON
+  // 摆在它手边（随手一次直接编辑就绕过了工具那边的门禁）。
+  assert.notEqual(store.workspaceDir(), store.dataDir())
+  const state = (await callApi('GET', `${api.API_PREFIX}/state`)).body
+  assert.equal(state.agentWorkspace, store.workspaceDir(), '/state 要把路径发下来')
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  assert.match(source, /sessions\.create\(typeof cwd === 'string' && cwd\.length > 0 \? \{ cwd \} : \{\}\)/)
+  assert.ok(
+    (source.match(/createAgentSession\(sessions, state\?\.agentWorkspace\)/g) ?? []).length >= 2,
+    'askAgent 与「重建一个」两处新建都要带上工作区',
+  )
+})
+
 await check('未知路由是 404', async () => {
   const reply = await callApi('GET', `${api.API_PREFIX}/nope`)
   assert.equal(reply.status, 404)

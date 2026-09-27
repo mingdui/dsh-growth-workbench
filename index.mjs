@@ -16,6 +16,7 @@
  * @module dsh-growth-workbench
  */
 import { API_PREFIX, handleApi } from './api.mjs'
+import { ensureWorkspaceDir } from './store.mjs'
 import { TOOLS } from './tools.mjs'
 
 /**
@@ -35,6 +36,12 @@ export const inject = ['tools', 'webServer']
  * @param ctx - the context carrying the tool registry and the web server.
  */
 export function apply(ctx) {
+  // 那个专属会话要把这里当工作区（`cwd`），所以先把它建出来 —— 幂等，重复挂载也不会出错。
+  // 建目录是**宿主**的事：页面只拿到路径，它不碰磁盘。
+  ctx.effect(
+    () => { ensureWorkspaceDir(); return () => {} },
+    'dsh-growth-workbench: workspace dir',
+  )
   ctx.effect(
     () => ctx.webServer.register({ kind: 'prefix', path: API_PREFIX, handler: handleApi }),
     'dsh-growth-workbench: JSON endpoint',

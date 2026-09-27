@@ -73,6 +73,7 @@ import {
   today,
   updatePlan,
   updateProfile,
+  workspaceDir,
   write,
 } from './store.mjs'
 
@@ -208,6 +209,14 @@ export function buildState() {
     history,
     /** 考卷草稿（没交卷的答案）—— 页面按 `drafts[key]` 接着答。 */
     drafts: assessments.drafts ?? {},
+    /**
+     * 「成长工作台」那个专属会话的**工作区**（宿主侧的空目录）。
+     *
+     * 页面自己不知道盘上路径，但它建会话时要把它当 `cwd` 传下去 —— 于是那一行不再挂在
+     * DSH 侧栏的「未分组」下面。**不指向数据目录本身**：那等于把四份 JSON 摆在 Agent 手边，
+     * 随手一次直接编辑就绕过了工具那边的门禁（见 store.workspaceDir）。
+     */
+    agentWorkspace: workspaceDir(),
     curve: curvePoints(history),
     metrics: {
       day,
