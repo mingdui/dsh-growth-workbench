@@ -12,7 +12,7 @@
  */
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -1263,20 +1263,31 @@ await check('写入是原子的：不留临时文件', () => {
 // ---------------------------------------------------------------- 6. HTTP
 
 /** Install a fake request/response pair and run the handler against it. */
-async function callApi(method, url, body) {
-  const chunks = body === undefined ? [] : [Buffer.from(JSON.stringify(body), 'utf8')]
+async function callApi(method, url, body, contentType = 'application/json') {
+  // body 可以是 JSON 对象，也可以是裸字节（证据图片走的就是裸字节那条路）。
+  const chunks = body === undefined ? []
+    : [Buffer.isBuffer(body) ? body : Buffer.from(JSON.stringify(body), 'utf8')]
   const req = {
     method,
     url,
+    headers: { 'content-type': contentType },
     async *[Symbol.asyncIterator]() { for (const chunk of chunks) yield chunk },
   }
   let status
-  let payload = ''
-  const res = { writeHead(code) { status = code; return this }, end(text) { payload = text ?? ''; return this } }
+  let headers = {}
+  let payload = Buffer.alloc(0)
+  const res = {
+    writeHead(code, extra) { status = code; headers = extra ?? {}; return this },
+    end(chunk) {
+      payload = chunk === undefined ? Buffer.alloc(0)
+        : (Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), 'utf8'))
+      return this
+    },
+  }
   await api.handleApi(req, res)
   let parsed
-  try { parsed = JSON.parse(payload) } catch { parsed = { raw: payload } }
-  return { status, body: parsed }
+  try { parsed = JSON.parse(payload.toString('utf8')) } catch { parsed = { raw: payload.toString('utf8') } }
+  return { status, headers, body: parsed, bytes: payload }
 }
 
 await check('GET /state 一次给全页面需要的东西', async () => {
@@ -1447,6 +1458,48 @@ await check('POST /assessment 登记四维成绩', async () => {
   assert.equal(reply.status, 200)
   assert.equal(reply.body.entry.total, 75)
   assert.equal(reply.body.entry.grade, '良')
+})
+
+await check('证据图片：上传、原路读回、拒绝越界与非法类型、只有用户那一下会删', async () => {
+  // 一张最小的 PNG 头 —— 这条验的是通路（字节进、字节出、名字由宿主生成），不是解码。
+  const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex')
+  const taskId = model.planTasks(store.read('plan'))[0].id
+
+  const up = await callApi('POST', `${api.API_PREFIX}/evidence-image?task=${taskId}`, png, 'image/png')
+  assert.equal(up.status, 200)
+  const entry = store.read('progress').tasks[taskId]
+  assert.equal(entry.images.length, 1)
+  const file = entry.images[0].file
+  assert.match(file, /^T\d+-\d{14}-[a-z0-9]{4}\.png$/, '文件名由宿主生成，不用上传方给的名字')
+  assert.ok(existsSync(join(store.evidenceDir(), file)), '字节真的落盘了')
+  assert.equal(entry.images[0].bytes, png.length)
+
+  // 原路读回：同样的字节、同样的类型（页面用它显示缩略图）。
+  const back = await callApi('GET', `${api.API_PREFIX}/evidence-image?file=${file}`)
+  assert.equal(back.status, 200)
+  assert.equal(back.headers['content-type'], 'image/png')
+  assert.ok(back.bytes.equals(png))
+
+  // 路径穿越：名字必须是宿主生成的那个形状 —— `?file=../profile.json` 不该把画像吐出来。
+  const escape = await callApi('GET', `${api.API_PREFIX}/evidence-image?file=${encodeURIComponent('../profile.json')}`)
+  assert.equal(escape.status, 404)
+
+  // 只收四种图片；空的也不收。
+  const badType = await callApi('POST', `${api.API_PREFIX}/evidence-image?task=${taskId}`, Buffer.from('<html>'), 'text/html')
+  assert.equal(badType.status, 400)
+  assert.match(badType.body.error, /只收 png/)
+  const empty = await callApi('POST', `${api.API_PREFIX}/evidence-image?task=${taskId}`, Buffer.alloc(0), 'image/png')
+  assert.equal(empty.status, 400)
+
+  // 删：只有用户点那个 × 会走到这条路由，文件与记录一起清掉。
+  const gone = await callApi('POST', `${api.API_PREFIX}/evidence-image-remove`, { taskId, file })
+  assert.equal(gone.status, 200)
+  assert.deepEqual(store.read('progress').tasks[taskId].images, [])
+  assert.ok(!existsSync(join(store.evidenceDir(), file)), '文件跟着删了')
+
+  // 再删一次要说清楚，而不是静默成功。
+  const twice = await callApi('POST', `${api.API_PREFIX}/evidence-image-remove`, { taskId, file })
+  assert.equal(twice.status, 400)
 })
 
 await check('POST /reset 只清指定分区', async () => {

@@ -24,7 +24,7 @@
  */
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 
 /**
  * Document shape version, so a future migration has something to read.
@@ -216,7 +216,9 @@ export function readAll() {
 export function progressEntry(progress, taskId) {
   const existing = progress.tasks?.[taskId]
   if (existing !== undefined) return existing
-  return { done: false, evidence: '', tier: null, checkInDates: [], lastDate: '' }
+  // `images` 是后加的字段：旧文档里没有它，`{ ...empty, ...parsed }` 那一套不管这个（进度
+  // 条目不是整份文档），所以读取处一律写 `entry.images ?? []` —— 见 addEvidenceImage / 页面。
+  return { done: false, evidence: '', tier: null, checkInDates: [], lastDate: '', images: [] }
 }
 
 /**
@@ -255,7 +257,12 @@ export function checkIn(taskId, patch = {}, date = today()) {
   return entry
 }
 
-/** Remove one task's progress (used when a task is deleted from the plan). */
+/**
+ * Remove one task's progress (used when a task is deleted from the plan).
+ *
+ * 它只解除引用：这个任务挂过的**图片文件留在磁盘上**。证据是用户的东西，不是缓存 ——
+ * 宁可留一个孤儿文件，也不替他删掉一张他可能唯一的截图。
+ */
 export function clearCheckIn(taskId) {
   const progress = read('progress')
   if (progress.tasks?.[taskId] === undefined) return false
@@ -264,6 +271,101 @@ export function clearCheckIn(taskId) {
   progress.tasks = tasks
   progress.updated = new Date().toISOString()
   write('progress', progress)
+  return true
+}
+
+// ---------------------------------------------------------------- 证据图片
+
+/** 证据图片的目录：`$DSH_HOME/growth-workbench/evidence/`。 */
+export function evidenceDir() {
+  return join(dataDir(), 'evidence')
+}
+
+/** 收哪些图片，各用什么扩展名落盘 —— 只收浏览器能直接显示的这四种。 */
+const IMAGE_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' }
+
+/** 文件名只能是本插件自己生成的那种形状 —— 它同时就是路径穿越的闸门。 */
+const IMAGE_FILE = /^T\d+-\d{14}-[a-z0-9]{4}\.(png|jpg|webp|gif)$/
+
+/**
+ * 一张证据图片的绝对路径。
+ *
+ * 名字必须是我们生成的形状，而且解析出来仍在 `evidence/` 里：这个值是从 query string
+ * 进来的（`GET /gw/api/evidence-image?file=…`），不校验就是路径穿越 ——
+ * `?file=../profile.json` 能把用户画像当图片吐出去。
+ */
+export function evidenceImagePath(file) {
+  const name = typeof file === 'string' ? file : ''
+  if (!IMAGE_FILE.test(name)) throw new Error(`不是本插件生成的证据图片名：${JSON.stringify(name)}`)
+  const directory = evidenceDir()
+  const full = resolve(directory, name)
+  if (!full.startsWith(`${directory}${sep}`)) throw new Error('证据图片路径越界')
+  return full
+}
+
+/** 读一张证据图片的字节，原路交回给页面显示。 */
+export function readEvidenceImage(file) {
+  return readFileSync(evidenceImagePath(file))
+}
+
+/**
+ * 把一张图片挂到某个任务的证据上。
+ *
+ * 文件名由**这里**生成（任务标识 + 本地时间 + 四个随机字符），永不使用上传方给的文件名：
+ * 那是路径穿越的入口，而"两张截图叫同一个名字"本来就是常态。
+ *
+ * 先落盘、再写记录：反过来的话，记录会指向一个不存在的文件。
+ */
+export function addEvidenceImage(taskId, bytes, mime) {
+  if (typeof taskId !== 'string' || !/^T\d+$/.test(taskId)) {
+    throw new Error(`growth-workbench: task id must look like T<n>, got ${JSON.stringify(taskId)}`)
+  }
+  const type = String(mime ?? '').split(';')[0].trim().toLowerCase()
+  const ext = IMAGE_TYPES[type]
+  if (ext === undefined) throw new Error('只收 png / jpeg / webp / gif 四种图片')
+  if (!Buffer.isBuffer(bytes) || bytes.length === 0) throw new Error('这张图是空的')
+
+  const now = new Date()
+  const stamp = [
+    String(now.getFullYear()),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+    String(now.getHours()).padStart(2, '0'),
+    String(now.getMinutes()).padStart(2, '0'),
+    String(now.getSeconds()).padStart(2, '0'),
+  ].join('')
+  const file = `${taskId}-${stamp}-${Math.random().toString(36).slice(2, 6)}.${ext}`
+  mkdirSync(evidenceDir(), { recursive: true })
+  writeFileSync(evidenceImagePath(file), bytes, { flag: 'wx' })
+
+  const progress = read('progress')
+  const entry = { ...progressEntry(progress, taskId) }
+  entry.images = [...(entry.images ?? []), { file, mime: type, bytes: bytes.length, at: now.toISOString() }]
+  progress.tasks = { ...progress.tasks, [taskId]: entry }
+  progress.updated = new Date().toISOString()
+  write('progress', progress)
+  return entry
+}
+
+/**
+ * 摘掉一张证据图片 —— **只有用户点缩略图上那个 × 才会走到这里**。
+ * 计划重写、任务被删都不会动它（见 {@link clearCheckIn}）。
+ */
+export function removeEvidenceImage(taskId, file) {
+  const path = evidenceImagePath(file)
+  const progress = read('progress')
+  const existing = progress.tasks?.[taskId]
+  if (existing === undefined) return false
+  const images = (existing.images ?? []).filter((image) => image.file !== file)
+  if (images.length === (existing.images ?? []).length) return false
+  progress.tasks = { ...progress.tasks, [taskId]: { ...existing, images } }
+  progress.updated = new Date().toISOString()
+  write('progress', progress)
+  try {
+    unlinkSync(path)
+  } catch {
+    // 文件已经不在了：记录清掉就够了（用户要的是"这张图别再跟着这个任务"）。
+  }
   return true
 }
 

@@ -102,6 +102,10 @@ window.__ModuleLoader__.load({
         // 文字链式的按钮（页头那两个「改绑 / 重建」）：通用 hover 会给它们加位移与投影，
         // 而它们既没有边框也没有底色 —— 那套反馈落在纯文字上就是一团脏影子。只换颜色。
         + '.gw-root .gw-quiet:not(:disabled):hover{transform:none;box-shadow:none;border-color:transparent;color:var(--gw-coral,#e56b55)}'
+        // 「＋ 加一张图」是个 label（它包着 file input），通用那条按钮 hover 管不到它 ——
+        // 可点的东西必须有可见反馈，所以它自己一条，键盘聚焦（focus-within）也算数。
+        + '.gw-root .gw-shot-add:hover{border-color:var(--gw-coral,#e56b55);color:var(--gw-coral-deep,#a64132)}'
+        + '.gw-root .gw-shot-add:focus-within{outline:2px solid var(--gw-coral,#e56b55);outline-offset:3px}'
         + '.gw-root input:focus,.gw-root select:focus,.gw-root textarea:focus{border-color:var(--gw-coral,#e56b55);box-shadow:0 0 0 4px var(--gw-coral-soft,rgba(229,107,85,.10))}'
         // The section label's coral dash. It cannot be an inline style, and it is what
         // makes a card read as labelled tiers instead of one grey block.
@@ -550,7 +554,7 @@ window.__ModuleLoader__.load({
         }
       }, [load]);
 
-      return { state, error, post };
+      return { state, error, post, reload: load };
     }
 
     // ---------------------------------------------------------------- styles
@@ -671,10 +675,18 @@ window.__ModuleLoader__.load({
       成果: '做出了能给别人看的东西：文件、链接、成品',
     };
 
+    /** 证据图片的上限，与宿主那条路由一致（超过它宿主也会拒，这里先拦是为了省一次往返）。 */
+    const MAX_SHOT_BYTES = 8 * 1024 * 1024;
+
+    /** 一张证据图片的地址。文件名是宿主生成的，这里只做一次编码。 */
+    const shotUrl = (file) => `${API}/evidence-image?file=${encodeURIComponent(file)}`;
+
     /** One task row: check it off, then say what evidence came out of it. */
-    function TaskRow({ task, entry, post, tiers }) {
+    function TaskRow({ task, entry, post, reload, tiers }) {
       const [evidence, setEvidence] = useState(entry?.evidence ?? '');
       const [tier, setTier] = useState(entry?.tier ?? '');
+      const [note, setNote] = useState('');
+      const [busyShot, setBusyShot] = useState(false);
 
       // A reload wipes local edits only when the server value actually changed.
       useEffect(() => { setEvidence(entry?.evidence ?? ''); }, [entry?.evidence]);
@@ -690,6 +702,46 @@ window.__ModuleLoader__.load({
       const done = entry?.done === true;
       const days = (entry?.checkInDates ?? []).length;
       const save = (patch) => post('/checkin', { taskId: task.id, ...patch });
+
+      /**
+       * 传一张（或几张）图。
+       *
+       * 走的是**裸字节**：把 `File` 直接当 body 交给 `/evidence-image` —— 不走 JSON，也不走
+       * multipart（这个仓库没有 dependencies，而 multipart 解析器就是一个依赖）。文件名由
+       * 宿主生成，这里只负责把字节送到。
+       */
+      const upload = async (files) => {
+        if (files.length === 0) return;
+        setBusyShot(true);
+        setNote('');
+        try {
+          for (const file of files) {
+            if (!file.type.startsWith('image/')) throw new Error(`「${file.name}」不是图片`);
+            if (file.size > MAX_SHOT_BYTES) throw new Error(`「${file.name}」超过 8 MB —— 截图一般几百 KB，先压一下`);
+            const response = await fetch(`${API}/evidence-image?task=${encodeURIComponent(task.id)}`, {
+              method: 'POST',
+              headers: { 'content-type': file.type },
+              body: file,
+            });
+            const text = await response.text();
+            let parsed;
+            try { parsed = text.length > 0 ? JSON.parse(text) : {}; } catch { parsed = {}; }
+            if (parsed.ok !== true) throw new Error(parsed.error ?? `上传失败（${String(response.status)}）`);
+          }
+          if (typeof reload === 'function') await reload();
+        } catch (failure) {
+          setNote(messageOf(failure));
+        } finally {
+          setBusyShot(false);
+        }
+      };
+
+      /** 删掉一张图。**这是唯一会删图片文件的入口** —— 见 store 里那条注释。 */
+      const dropShot = async (file) => {
+        setNote('');
+        const reply = await post('/evidence-image-remove', { taskId: task.id, file });
+        if (reply.ok !== true) setNote(reply.error ?? '删不掉');
+      };
 
       return h('div', { 'data-task-id': task.id, style: { ...S.row, flexDirection: 'column', alignItems: 'stretch', gap: '6px' } }, [
         h('div', { key: 'head', style: { display: 'flex', alignItems: 'flex-start', gap: '8px' } }, [
@@ -767,6 +819,47 @@ window.__ModuleLoader__.load({
               onClick: () => { setTier(value); void save({ tier: value, evidence }); },
             }, value))),
             h('span', { key: 'gloss', style: { ...S.fine, flex: '1 1 220px' } }, tierGloss),
+          ]),
+          // 图片证据：一行缩略图 + 一个「加一张图」。它和文字证据是**同一条证据的两半**，
+          // 所以不另起一个框，就长在这条下面。删图只走缩略图右上角那个 × —— 别处不删。
+          h('div', { key: 'shots', style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' } }, [
+            ...(entry?.images ?? []).map((image) => h('span', { key: image.file, className: 'gw-shot', style: { position: 'relative', display: 'inline-flex' } }, [
+              h('a', {
+                key: 'open',
+                href: shotUrl(image.file),
+                target: '_blank',
+                rel: 'noreferrer',
+                title: `${String(Math.max(1, Math.round(image.bytes / 1024)))} KB　点开看原图`,
+                style: { display: 'block', lineHeight: '0' },
+              }, [h('img', {
+                key: 'img',
+                src: shotUrl(image.file),
+                alt: '证据图片',
+                style: { width: '58px', height: '58px', objectFit: 'cover', borderRadius: '10px', border: '1px solid var(--gw-line, #e5dfd5)', background: '#fff' },
+              })]),
+              h('button', {
+                key: 'drop',
+                type: 'button',
+                'aria-label': '删掉这张图',
+                title: '删掉这张图',
+                style: { position: 'absolute', top: '-6px', right: '-6px', width: '20px', height: '20px', minHeight: '0', padding: '0', display: 'grid', placeItems: 'center', borderRadius: '999px', border: '1px solid var(--gw-line, #e5dfd5)', background: '#fffdf9', color: 'var(--gw-muted, #6f7c87)', fontSize: '12px', lineHeight: '1', cursor: 'pointer' },
+                onClick: () => { void dropShot(image.file); },
+              }, '×'),
+            ])),
+            h('label', { key: 'add', className: 'gw-shot-add', style: { ...S.chipPlain, display: 'inline-flex', alignItems: 'center', gap: '6px', minHeight: '34px', padding: '6px 13px', cursor: busyShot ? 'default' : 'pointer' } }, [
+              busyShot ? '正在传…' : '＋ 加一张图',
+              // 用 1px + opacity 而不是 display:none —— 后者连键盘都聚焦不到，
+              // 而这个仓库的规矩是可点的东西必须有可见的 hover / focus。
+              h('input', {
+                key: 'file',
+                type: 'file',
+                accept: 'image/png,image/jpeg,image/webp,image/gif',
+                multiple: true,
+                style: { position: 'absolute', width: '1px', height: '1px', opacity: '0' },
+                onChange: (event) => { void upload([...(event.target.files ?? [])]); event.target.value = ''; },
+              }),
+            ]),
+            note.length === 0 ? null : h('span', { key: 'note', style: { ...S.fine, color: '#b33a2d' } }, note),
           ]),
         ]),
       ]);
@@ -857,7 +950,7 @@ window.__ModuleLoader__.load({
     }
 
     /** Today's body, shared by the page tab and the right-sidebar tab. */
-    function TodayBody({ state, post, compact }) {
+    function TodayBody({ state, post, reload, compact }) {
       const kids = [];
       if (!compact) kids.push(h(Metrics, { key: 'metrics', state }));
       // 空状态要说清「为什么空、下一步怎么办」。原先只有一句「计划里没有待办任务」，
@@ -869,7 +962,7 @@ window.__ModuleLoader__.load({
           : taskTotal === 0
             ? '计划目前只排到周，还没有排到天的任务 —— 让 AI 把它细化到天，这里就会出现今天该做的事。'
             : '计划里的任务都做完了 —— 该做一次考核，把成果沉淀下来。')]
-        : state.focus.tasks.slice(0, 1).map((task) => h(TaskRow, { key: task.id, task, entry: state.progress.tasks?.[task.id], post, tiers: state.catalog.tiers }));
+        : state.focus.tasks.slice(0, 1).map((task) => h(TaskRow, { key: task.id, task, entry: state.progress.tasks?.[task.id], post, reload, tiers: state.catalog.tiers }));
       kids.push(h('div', { key: 'card', style: S.card }, [
         h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '14px', flexWrap: 'wrap' } }, [
           h('h3', { key: 'title', style: S.h3 }, state.focus.scheduled ? '今天要做' : '接下来要做'),
@@ -2338,7 +2431,7 @@ window.__ModuleLoader__.load({
 
     /** The left page: a tab bar over the four bodies. */
     function Panel() {
-      const { state, error, post } = useWorkbench();
+      const { state, error, post, reload } = useWorkbench();
        const [tab, setTab] = useState('today');
        // 深链落到画像时先让那一步展开 —— 折叠状态下锚点不在 DOM 里，滚动会扑空。
        // 存对象而不是字符串：连点同一个目标时也要能重新触发。
@@ -2364,7 +2457,7 @@ window.__ModuleLoader__.load({
       }
 
       const bodies = {
-        today: () => h(TodayBody, { state, post, compact: false }),
+        today: () => h(TodayBody, { state, post, reload, compact: false }),
         plan: () => h(PlanTabBody, { state, post }),
         review: () => h(ReviewTabBody, { state }),
         profile: () => h(ProfileFlow, { key: 'profile-flow', state, post, onNavigate: navigate, focusAnchor }),

@@ -170,6 +170,12 @@ After restarting, open the left sidebar -> 成长工作台 -> **画像**:
 5. Day to day, the 今日 tab and the right 今日 tab are the only place to check in and
    record evidence. For a review, the **让 AI 现在考核** button says "考核我"
 
+Evidence can be a line of text or **a picture** (a screenshot, a whiteboard photo, a run's
+output): hit **＋ 加一张图** and the thumbnail sits under the evidence line. Images live in
+the plugin's data directory (`$DSH_HOME/growth-workbench/evidence/`) and **only the × on
+the thumbnail deletes one** — rewriting the plan or dropping a task never touches them:
+your evidence is yours, not a cache.
+
 A button is **a shortcut for typing, not a hidden worker**: the phrase is delivered as an
 **ordinary user turn**, so you watch it read, you can interrupt it, and you can correct it
 mid-flight. And nothing that is *your* call gets generated at all — which abilities you
