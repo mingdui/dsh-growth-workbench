@@ -226,6 +226,23 @@ await check('写证据是一个弹窗：能写、能改、关掉不等于丢掉'
   assert.match(readFileSync(join(ROOT, 'store.mjs'), 'utf8'), /if \(entry\.evidence === ''\) entry\.tier = null/)
 })
 
+await check('学习资料在弹窗里读：任务行只放引子，方法/汇总/来源都在那张纸上', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  // 弹窗外壳只有**一份**：Esc、点遮罩关、锁背景滚动都在 `Modal` 里，两个弹窗都走它。
+  assert.match(source, /function Modal\(\{ label, onClose, children, className \}\)/)
+  assert.match(source, /h\(Modal, \{ label: '写证据', onClose: close \}, run\)/, '写证据走同一个外壳')
+  assert.match(source, /h\(Modal, \{ label: '学习资料', onClose, className: 'gw-learn-sheet' \}/, '学习资料也走同一个外壳')
+  assert.match(source, /if \(event\.key === 'Escape'\) \{ event\.preventDefault\(\); onClose\(\); \}/, 'Esc 由外壳统一管，不在两个弹窗里各写一遍')
+  // 任务行只放引子与入口 —— 汇总可能上百字，挤在行里既读不下去也把那一行压垮。
+  assert.match(source, /'打开学习资料 →'/)
+  assert.doesNotMatch(source, /h\('details', \{ key: 'digest' \}\)/, '汇总不再挤在任务行里（那个折叠块已撤）')
+  // 那张纸上的三段，以及"没有来源"时要说清这是通识。
+  assert.match(source, /'怎么上手'/)
+  assert.match(source, /'AI 汇总'/)
+  assert.match(source, /links\.length > 0 \? '来源' : '来源（没有找到可引用的）'/)
+  assert.match(source, /这次的汇总来自模型自己的通识，没有可引用的来源/)
+})
+
 await check('画像每一步都能点回收起，标题行就是那个开关', () => {
   const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
   // 展开态原先只有表单和确认按钮，没有任何可点的标题 —— 撑开以后就收不回去。

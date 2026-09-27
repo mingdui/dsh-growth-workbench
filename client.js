@@ -755,22 +755,19 @@ window.__ModuleLoader__.load({
         onClose();
       }, [dirty, text, tier, post, task.id, onClose]);
 
-      // 快捷键挂在 window 上：焦点在正文里时也管用。
+      // ⌘/Ctrl + Enter 保存（Esc 由 `Modal` 统一管：它调 onClose，而这里的 onClose 就是
+      // `close` —— 有关键改动时先落盘）。
       useEffect(() => {
         const onKey = (event) => {
-          if (event.key === 'Escape') { event.preventDefault(); close(); }
           if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); void save(); }
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-      }, [close, save]);
+      }, [save]);
 
-      // 打开时把焦点放进正文，并锁住背景滚动 —— 弹窗不该让底下的页面跟着滚。
+      // 打开时把焦点放进正文。背景滚动由 `Modal` 锁。
       useEffect(() => {
         body.current?.focus();
-        const previous = document.body.style.overflow;
-        document.body.style.overflow = 'hidden';
-        return () => { document.body.style.overflow = previous; };
       }, []);
 
       /** 传一张（或几张）图：裸字节直传，文件名由宿主生成（见 api.mjs 那条路由）。 */
@@ -895,14 +892,92 @@ window.__ModuleLoader__.load({
         ]),
       ];
 
+      return h(Modal, { label: '写证据', onClose: close }, run);
+    }
+
+    /**
+     * 弹窗的**外壳**：遮罩、卡片、Esc、点遮罩关、锁背景滚动。
+     *
+     * 抽出来是因为**出现了第二个弹窗**（学习资料）。上一次"两个座位各写一份"的教训还热着：
+     * 外壳一旦复制就一定会分叉（一个支持 Esc、另一个忘了），而这类差异只有用户会撞上。
+     * 内容与"关的时候要不要先存"由调用方决定 —— `onClose` 是它们的入口。
+     */
+    function Modal({ label, onClose, children, className }) {
+      useEffect(() => {
+        const onKey = (event) => {
+          if (event.key === 'Escape') { event.preventDefault(); onClose(); }
+        };
+        window.addEventListener('keydown', onKey);
+        // 打开时锁住背景滚动 —— 弹窗不该让底下的页面跟着滚。
+        const previous = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        return () => {
+          window.removeEventListener('keydown', onKey);
+          document.body.style.overflow = previous;
+        };
+      }, [onClose]);
       return h('div', {
         className: 'gw-modal',
         role: 'dialog',
         'aria-modal': 'true',
-        'aria-label': '写证据',
+        'aria-label': label,
         // 点遮罩关（按在卡片内部拖出去不算 —— 所以比的是事件源本身）。
-        onMouseDown: (event) => { if (event.target === event.currentTarget) close(); },
-      }, [h('div', { key: 'card', className: 'gw-modal-card' }, run)]);
+        onMouseDown: (event) => { if (event.target === event.currentTarget) onClose(); },
+      }, [h('div', { key: 'card', className: `gw-modal-card${className === undefined ? '' : ` ${className}`}` }, children)]);
+    }
+
+    /**
+     * 学习资料：一张**用来读的**纸。
+     *
+     * 任务卡上那一行只放"怎么上手"当引子；方法、AI 汇总、来源都在这张纸上 —— 汇总可能上百字，
+     * 挤在任务行里既读不下去、也把那一行压垮。排版按"读"来：正文放大到 15.5px、行高 1.95、
+     * 保留原文换行（汇总里常是 ①②③ 的分条），来源单列一行一行，标出域名和"什么时候找的"。
+     */
+    function LearningSheet({ task, onClose }) {
+      const learn = task.learn;
+      const links = learn.links ?? [];
+      return h(Modal, { label: '学习资料', onClose, className: 'gw-learn-sheet' }, [
+        h('div', { key: 'head', style: { padding: '24px 30px 14px' } }, [
+          h('div', { key: 'kicker', style: S.subhead }, Number.isInteger(task.day) ? `第 ${String(task.day)} 天 · 学习资料` : '学习资料'),
+          h('div', { key: 'action', style: { fontFamily: 'var(--gw-display, Calistoga, Georgia, serif)', fontSize: '21px', lineHeight: '1.55', marginTop: '10px' } }, task.action),
+          h('div', { key: 'task', style: { ...S.fine, marginTop: '8px' } }, `${task.id} · 引用 ${task.ref} · 能力项 ${task.capability}`),
+        ]),
+        h('div', { key: 'rule', style: { height: '1px', background: 'var(--gw-line-soft, #efeae2)', margin: '0 30px' } }),
+        h('div', { key: 'body', style: { flex: '1 1 auto', overflowY: 'auto', padding: '20px 30px 8px', display: 'flex', flexDirection: 'column', gap: '20px' } }, [
+          learn.method.length > 0 ? h('div', { key: 'method' }, [
+            h('div', { key: 'h', style: S.subhead }, '怎么上手'),
+            h('div', { key: 'p', style: { fontSize: '15px', lineHeight: '1.9', marginTop: '8px', color: 'var(--gw-ink, #1f2933)' } }, learn.method),
+          ]) : null,
+          learn.digest.length > 0 ? h('div', { key: 'digest' }, [
+            h('div', { key: 'h', style: S.subhead }, 'AI 汇总'),
+            h('div', {
+              key: 'p',
+              style: { fontSize: '15.5px', lineHeight: '1.95', marginTop: '8px', whiteSpace: 'pre-wrap', color: 'var(--gw-ink-2, #3d4a54)' },
+            }, learn.digest),
+          ]) : null,
+          h('div', { key: 'links' }, [
+            h('div', { key: 'h', style: S.subhead }, links.length > 0 ? '来源' : '来源（没有找到可引用的）'),
+            ...(links.length > 0
+              ? links.map((link, index) => h('a', {
+                key: link.url,
+                href: link.url,
+                target: '_blank',
+                rel: 'noreferrer',
+                style: { display: 'block', marginTop: '8px', color: 'var(--gw-ink, #1f2933)', textDecoration: 'none' },
+              }, [
+                h('div', { key: 't', style: { fontSize: '14.5px', color: 'var(--gw-coral-deep, #a64132)', textDecoration: 'underline' } }, `${String(index + 1)}. ${link.title}`),
+                h('div', { key: 'u', style: { ...S.fine, marginTop: '2px', wordBreak: 'break-all' } }, `${hostOf(link.url)}${link.source.length > 0 ? `　·　${link.source}` : ''}`),
+              ]))
+              : [h('div', { key: 'none', style: { ...S.fine, marginTop: '8px' } },
+                '这次的汇总来自模型自己的通识，没有可引用的来源 —— 按自己的判断用。')]),
+          ]),
+        ]),
+        h('div', { key: 'foot', style: { padding: '14px 30px 20px', display: 'flex', alignItems: 'center', gap: '12px', borderTop: '1px solid var(--gw-line-soft, #efeae2)' } }, [
+          h('span', { key: 'when', style: { ...S.fine, marginRight: 'auto' } }, `AI 找的 · ${learn.foundAt}`),
+          h(AskButton, { key: 'again', text: `给 ${task.id} 重新找一遍学习资料`, label: '重新找一遍', hint: '链接会过期 —— 重新找就是重新检索。' }),
+          h('button', { key: 'close', type: 'button', style: S.button, onClick: onClose }, '关闭'),
+        ]),
+      ]);
     }
 
     /**
@@ -983,6 +1058,43 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * 学习资料那一行：**引子 + 入口**。
+     *
+     * 任务行里只放"怎么上手"一句（它是引子，看一眼就知道要不要打开），方法与汇总在
+     * `LearningSheet` 那张纸上读 —— 汇总可能上百字，挤在任务行里既读不下去也把这一行压垮。
+     * 还没有资料时给一个入口（`AskButton`），它会把「找资料 → 汇总 → 写回」跑一遍。
+     */
+    function TaskLearnLine({ task }) {
+      const [open, setOpen] = useState(false);
+      const learn = task.learn;
+      if (learn === undefined) {
+        return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '5px' } }, [
+          h('span', { key: 'none' }, '还没有学习资料（只有要求，没有方法）'),
+          h('span', { key: 'act', style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' } }, [
+            h(AskButton, {
+              key: 'go',
+              text: `给 ${task.id} 找学习资料`,
+              label: '让 AI 汇总资料',
+              hint: '它会检索/抓官方文档，把「怎么上手」和来源汇总到这道题下面。',
+            }),
+          ]),
+        ]);
+      }
+      return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '5px' } }, [
+        learn.method.length > 0
+          ? h('div', { key: 'method', style: { color: 'var(--gw-ink-2, #3d4a54)', lineHeight: '1.7' } }, `怎么上手：${learn.method}`)
+          : null,
+        h('div', { key: 'row', style: { display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' } }, [
+          h('button', { key: 'open', type: 'button', className: 'gw-quiet', style: { ...S.fine, ...S.quiet }, onClick: () => setOpen(true) }, '打开学习资料 →'),
+          h('span', { key: 'meta', style: { color: 'var(--gw-muted-2, #9aa7b1)' } },
+            `${learn.digest.length > 0 ? `汇总 ${String(learn.digest.length)} 字` : '没有汇总'}${learn.links.length > 0 ? ` · ${String(learn.links.length)} 条来源` : ' · 无可引用来源'}　AI 找的 · ${learn.foundAt}`),
+          h(AskButton, { key: 'again', text: `给 ${task.id} 重新找一遍学习资料`, label: '重新找', hint: '链接会过期 —— 重新找就是重新检索。' }),
+        ]),
+        open ? h(LearningSheet, { task, onClose: () => setOpen(false) }) : null,
+      ]);
+    }
+
+    /**
      * 「下一步」那张深色卡 —— 页头与右栏共用同一份文案与骨架。
      *
      * 两边不一样的是"接下来那一下"：左页给「现在去做 →」（把你送到那一页），右栏给一句指路
@@ -1036,45 +1148,10 @@ window.__ModuleLoader__.load({
           done ? h(Seal, { key: 'mark', tone: 'teal', label: '已完成', stamp: true }) : null,
         ]),
         // 学习资料：这道题**怎么学**。计划只给要求是不够的 —— 没有方法，做题的人第一步就卡住。
-        // 没有资料时给一个入口；有资料时把方法、AI 汇总、来源摆出来，并标出"什么时候找的、
-        // 从哪个站" —— 链接会过期，用户得能自己判断。
-        h('div', { key: 'learn', className: 'gw-learn', style: { ...S.fine, paddingLeft: '22px', display: 'flex', flexDirection: 'column', gap: '5px' } },
-          task.learn === undefined
-            ? [
-              h('span', { key: 'none' }, '还没有学习资料（只有要求，没有方法）'),
-              h('span', { key: 'act', style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' } }, [
-                h(AskButton, {
-                  key: 'go',
-                  text: `给 ${task.id} 找学习资料`,
-                  label: '让 AI 汇总资料',
-                  hint: '它会联网检索，把「怎么上手」和来源汇总到这道题下面。',
-                }),
-              ]),
-            ]
-            : [
-              task.learn.method.length > 0
-                ? h('div', { key: 'method', style: { color: 'var(--gw-ink-2, #3d4a54)', lineHeight: '1.7' } }, `怎么上手：${task.learn.method}`)
-                : null,
-              task.learn.digest.length > 0
-                ? h('details', { key: 'digest' }, [
-                  h('summary', { key: 's', style: { cursor: 'pointer', color: 'var(--gw-coral-deep, #a64132)' } }, `AI 汇总（${String(task.learn.digest.length)} 字）`),
-                  h('div', { key: 'body', style: { marginTop: '6px', whiteSpace: 'pre-wrap', lineHeight: '1.8', color: 'var(--gw-ink-2, #3d4a54)' } }, task.learn.digest),
-                ])
-                : null,
-              h('div', { key: 'links', style: { display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'baseline' } }, [
-                ...task.learn.links.map((link) => h('a', {
-                  key: link.url,
-                  href: link.url,
-                  target: '_blank',
-                  rel: 'noreferrer',
-                  title: link.url,
-                  style: { color: 'var(--gw-coral-deep, #a64132)', textDecoration: 'underline' },
-                }, `${link.title}（${hostOf(link.url)}）`)),
-                h('span', { key: 'when', style: { color: 'var(--gw-muted-2, #9aa7b1)' } },
-                  `AI 找的 · ${task.learn.foundAt}${task.learn.links.length === 0 ? ' · 没找到可引用的来源' : ''}`),
-                h(AskButton, { key: 'again', text: `给 ${task.id} 重新找一遍学习资料`, label: '重新找', hint: '链接会过期 —— 重新找一遍就是重新检索。' }),
-              ]),
-            ]),
+        // 这一行只放引子与入口，方法与汇总在 `LearningSheet` 那张纸上读。
+        h('div', { key: 'learn', className: 'gw-learn', style: { ...S.fine, paddingLeft: '22px' } }, [
+          h(TaskLearnLine, { task }),
+        ]),
         // 证据：**阅读态 + 写作弹窗**，两边共用（`TaskEvidenceLine`）。左页这里只负责把缩进
         // 让给勾选框那一列 —— 版式在这一层，交互件在共用组件里。
         h('div', { key: 'evidence', style: { paddingLeft: '22px' } }, [
