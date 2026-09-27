@@ -364,7 +364,9 @@ await check('状态文案跟着真实状态：没开始的计划不说「第 1 �
 await check('段位：七段等距挂在阶段上，达成的才填色', () => {
   const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
   // 七个段位都有名字与颜色 —— 颜色是有意压过饱和度的，这条断言防的是「顺手加一个高饱和色」。
-  const ranks = source.slice(source.indexOf('const RANKS = ['), source.indexOf('const RANKS = [') + 700)
+  // 只看 RANKS 这个数组本身 —— 木牌（START_RANK）在它后面，不该被数进来。
+  const from = source.indexOf('const RANKS = [')
+  const ranks = source.slice(from, source.indexOf('\n    ];', from))
   for (const name of ['黄铜', '白银', '黄金', '铂金', '钻石', '超凡大师', '王者']) {
     assert.match(ranks, new RegExp(`name: '${name}'`), `段位表里要有 ${name}`)
   }

@@ -852,6 +852,19 @@ window.__ModuleLoader__.load({
       return Math.round((index * (RANKS.length - 1)) / (count - 1));
     }
 
+    /**
+     * 起点那一格：木牌。它**不在 RANKS 里** —— RANKS 是阶段对应得上的七段（等距取），
+     * 而木牌是"一段都还没走完"的样子：计划刚开始时你手里就是这块牌子。
+     */
+    const START_RANK = { name: '木牌', color: '#9c7b52' };
+
+    /** 当前段位：走完几个阶段就到第几段；一段都没走完时是木牌。 */
+    function currentRank(state, phaseCount) {
+      const index = state.metrics.phaseIndex;
+      if (index === null || index === undefined || index <= 0 || phaseCount <= 0) return START_RANK;
+      return RANKS[rankIndexForPhase(Math.min(index - 1, phaseCount - 1), phaseCount)];
+    }
+
     /** 段位名（没有名字时给一个空串，供只有图形的地方用）。 */
     function rankOf(index, count) {
       return RANKS[rankIndexForPhase(index, count)];
@@ -972,7 +985,12 @@ window.__ModuleLoader__.load({
       const kids = [];
 
       kids.push(h('div', { key: 'goal', style: S.card }, [
-        h('div', { key: 'kicker', style: S.subhead }, '总目标'),
+        // 当前段位摆在总目标的右边：那是「你现在手里是什么牌子」，一眼看得到该往哪换。
+        // 层标那条珊瑚短线跟着「总目标」走 —— 所以 subhead 类挂在内层的 span 上，不挂在这一行。
+        h('div', { key: 'kicker', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '14px' } }, [
+          h('span', { key: 't', className: 'gw-subhead', style: S.subhead }, '总目标'),
+          h(RankBadge, { key: 'rank', rank: currentRank(state, plan.phases.length), achieved: true, size: 30 }),
+        ]),
         // 总目标是 Agent 写的一整句。保持它完整、让它当这张卡上唯一的大字块 —— 周围那些
         // 结构（阶段、能力组、作品集）各自从自己的字段渲染，不去拆这句话。
         h('div', { key: 'quote', style: { fontFamily: 'var(--gw-display, Calistoga, Georgia, serif)', fontSize: '23px', lineHeight: '1.65', letterSpacing: '-.012em' } }, plan.goal || '（未写总目标）'),
