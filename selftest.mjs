@@ -182,6 +182,27 @@ await check('「已返回结果」要等会话真的不跑了才说', () => {
   assert.match(source, /sessionId: target\.id, startedRevision: target\.revision/)
 })
 
+await check('证据区：档位有解释、未交不再是按钮、空证据选不了档位', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  // 档位的词汇只有一个来源：按钮从 `state.catalog.tiers`（= model 的 EVIDENCE_TIERS）渲染。
+  assert.match(source, /tiers: state\.catalog\.tiers/, '档位名从 model 来，不在 client 里再写一份')
+  // 「未交」不是一枚按钮 —— 它是"证据是空的"这一种状态，清空文本框就是它。
+  assert.doesNotMatch(source, /\['', '未交'\]/)
+  assert.doesNotMatch(source, /链接 \/ 文件路径 \/ 一段心得（可留空）/, '那句「（可留空）」等于劝人别写')
+  // 三个词各带一句解释，否则用户无从知道「自述」和「过程」差在哪。
+  assert.match(source, /const TIER_GLOSS = \{[\s\S]{0,320}?自述:[\s\S]{0,140}?过程:[\s\S]{0,180}?成果:/)
+  assert.match(source, /TIER_GLOSS\[tier\]/, '选中的那一档要说清它算什么')
+  // 多行输入：一行 input 装不下「客户支持——电商订单退款申请处理…」这种真实证据。
+  assert.match(source, /h\('textarea', \{\n\s+key: 'input',\n\s+rows: 2,/)
+  // 空证据时档位不可点：服务端有这条规则（证据空 → 档位退回），页面原先照样让你点。
+  assert.match(source, /const canPickTier = evidence\.trim\(\)\.length > 0/)
+  assert.match(source, /disabled: !canPickTier/)
+  // 档位与证据**一起**交：只交档位的话，服务端读到的还是空证据，会把它退回 —— 那就是"点了没反应"。
+  assert.match(source, /void save\(\{ tier: value, evidence \}\)/)
+  // 反方向也钉住：服务端那条规则还在。
+  assert.match(readFileSync(join(ROOT, 'store.mjs'), 'utf8'), /if \(entry\.evidence === ''\) entry\.tier = null/)
+})
+
 await check('画像每一步都能点回收起，标题行就是那个开关', () => {
   const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
   // 展开态原先只有表单和确认按钮，没有任何可点的标题 —— 撑开以后就收不回去。

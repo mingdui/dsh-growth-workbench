@@ -658,14 +658,34 @@ window.__ModuleLoader__.load({
       ]);
     }
 
+    /**
+     * 「这份证据算什么」的三种答案各指什么。
+     *
+     * **只加解释，不加词汇** —— 档位名来自 `EVIDENCE_TIERS`（页面从 `state.catalog.tiers`
+     * 拿），这里只是把这三个词讲清楚。原先它们只是三枚没有解释的按钮：用户没有任何地方能
+     * 知道「自述」和「过程」差在哪，于是要么乱选、要么干脆不填。
+     */
+    const TIER_GLOSS = {
+      自述: '只有我的说法 —— 算辅证，不计成果',
+      过程: '留下了过程中的东西：笔记、草稿、截图、日志',
+      成果: '做出了能给别人看的东西：文件、链接、成品',
+    };
+
     /** One task row: check it off, then say what evidence came out of it. */
-    function TaskRow({ task, entry, post }) {
+    function TaskRow({ task, entry, post, tiers }) {
       const [evidence, setEvidence] = useState(entry?.evidence ?? '');
       const [tier, setTier] = useState(entry?.tier ?? '');
 
       // A reload wipes local edits only when the server value actually changed.
       useEffect(() => { setEvidence(entry?.evidence ?? ''); }, [entry?.evidence]);
       useEffect(() => { setTier(entry?.tier ?? ''); }, [entry?.tier]);
+
+      // 空证据选不了档位：服务端本来就有这条规则（证据为空 → 档位退回未交），而页面上原先
+      // 照样让你点 —— 点下去看着选中了，刷新就没了，读起来就是"点了没反应"。
+      const canPickTier = evidence.trim().length > 0;
+      const tierGloss = !canPickTier
+        ? '先写下留下了什么，再选它算什么 —— 空着就是「未交」'
+        : (TIER_GLOSS[tier] ?? '选一个：它决定这条证据算多重');
 
       const done = entry?.done === true;
       const days = (entry?.checkInDates ?? []).length;
@@ -711,31 +731,43 @@ window.__ModuleLoader__.load({
           // 「盖上去」的那一下；取消再勾会重来一次。
           done ? h(Seal, { key: 'mark', tone: 'teal', label: '已完成', stamp: true }) : null,
         ]),
-        h('div', { key: 'evidence', style: { ...S.inline, paddingLeft: '22px' } }, [
-          h('input', {
+        // 证据区：文本框换成**多行**，档位从"一排没有解释的按钮"改成"一句问话 + 三个答案 +
+        // 一句解释"。
+        //
+        // 原先是一行 input：像「客户支持——电商订单退款申请处理 参与角色 客户一线客服 客服主管
+        // 财务 输入:」这种真实证据根本装不下，字被截在框外 —— 看着就不想写；而 placeholder 里
+        // 那句「（可留空）」等于劝人别写。四枚按钮里「未交」也不是一枚按钮：它是"证据空着"这
+        // 一种状态，清空文本框就是它。
+        h('div', { key: 'evidence', className: 'gw-evidence', style: { display: 'flex', flexDirection: 'column', gap: '9px', paddingLeft: '22px' } }, [
+          h('textarea', {
             key: 'input',
-            style: { ...S.input, fontSize: '13px' },
-            placeholder: '证据：链接 / 文件路径 / 一段心得（可留空）',
+            rows: 2,
+            style: { ...S.input, fontSize: '13.5px', lineHeight: '1.7', width: '100%', boxSizing: 'border-box', minHeight: '62px', resize: 'vertical', fontFamily: 'inherit' },
+            placeholder: '今天这件事留下了什么？一段笔记、一个链接、一张图、或者做出来的那个东西',
             value: evidence,
             onChange: (event) => setEvidence(event.target.value),
             onBlur: () => { if (evidence !== (entry?.evidence ?? '')) void save({ evidence }); },
           }),
-          h('div', {
-            key: 'tier',
-            role: 'group',
-            'aria-label': '证据档位',
-            style: { display: 'inline-flex', border: '1px solid var(--gw-line, #e5dfd5)', borderRadius: '12px', overflow: 'hidden', background: '#fffdf9', flex: '0 0 auto' },
-          }, [['', '未交'], ['自述', '自述'], ['过程', '过程'], ['成果', '成果']].map(([value, label], index) => h('button', {
-            key: value === '' ? 'none' : value,
-            type: 'button',
-            'aria-pressed': tier === value,
-            // 四格一眼看完，比下拉框少一次点击 —— 而档位是三档里选一个，本来就该看见全部选项。
-            style: { appearance: 'none', font: 'inherit', fontSize: '12.5px', fontWeight: '500', padding: '8px 13px', border: '0', borderLeft: index === 0 ? '0' : '1px solid var(--gw-line, #e5dfd5)', background: tier === value ? 'var(--gw-teal-soft, rgba(47,125,116,.12))' : 'transparent', color: tier === value ? 'var(--gw-teal, #2f7d74)' : 'var(--gw-muted, #6f7c87)', cursor: 'pointer', transition: 'background 140ms ease, color 140ms ease' },
-            onClick: () => {
-              setTier(value);
-              void save({ tier: value === '' ? null : value });
-            },
-          }, label))),
+          h('div', { key: 'tierRow', style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' } }, [
+            h('span', { key: 'ask', style: S.fine }, '这份证据算什么？'),
+            h('div', {
+              key: 'tier',
+              role: 'group',
+              'aria-label': '证据档位',
+              style: { display: 'inline-flex', border: '1px solid var(--gw-line, #e5dfd5)', borderRadius: '12px', overflow: 'hidden', background: '#fffdf9', flex: '0 0 auto', opacity: canPickTier ? '1' : '.55' },
+            }, tiers.map((value, index) => h('button', {
+              key: value,
+              type: 'button',
+              disabled: !canPickTier,
+              'aria-pressed': tier === value,
+              // 三格一眼看完，比下拉框少一次点击 —— 档位是三档里选一个，本来就该看见全部选项。
+              style: { appearance: 'none', font: 'inherit', fontSize: '12.5px', fontWeight: '500', padding: '8px 13px', border: '0', borderLeft: index === 0 ? '0' : '1px solid var(--gw-line, #e5dfd5)', background: tier === value ? 'var(--gw-teal-soft, rgba(47,125,116,.12))' : 'transparent', color: tier === value ? 'var(--gw-teal, #2f7d74)' : 'var(--gw-muted, #6f7c87)', cursor: canPickTier ? 'pointer' : 'default', transition: 'background 140ms ease, color 140ms ease' },
+              // 档位与证据**一起**交。只交档位的话，服务端读到的还是空证据，会按规则把档位退回
+              //「未交」—— 那正是"点了没反应"的另一半来源。
+              onClick: () => { setTier(value); void save({ tier: value, evidence }); },
+            }, value))),
+            h('span', { key: 'gloss', style: { ...S.fine, flex: '1 1 220px' } }, tierGloss),
+          ]),
         ]),
       ]);
     }
@@ -837,7 +869,7 @@ window.__ModuleLoader__.load({
           : taskTotal === 0
             ? '计划目前只排到周，还没有排到天的任务 —— 让 AI 把它细化到天，这里就会出现今天该做的事。'
             : '计划里的任务都做完了 —— 该做一次考核，把成果沉淀下来。')]
-        : state.focus.tasks.slice(0, 1).map((task) => h(TaskRow, { key: task.id, task, entry: state.progress.tasks?.[task.id], post }));
+        : state.focus.tasks.slice(0, 1).map((task) => h(TaskRow, { key: task.id, task, entry: state.progress.tasks?.[task.id], post, tiers: state.catalog.tiers }));
       kids.push(h('div', { key: 'card', style: S.card }, [
         h('div', { key: 'head', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '14px', flexWrap: 'wrap' } }, [
           h('h3', { key: 'title', style: S.h3 }, state.focus.scheduled ? '今天要做' : '接下来要做'),
