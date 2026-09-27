@@ -2128,7 +2128,8 @@ window.__ModuleLoader__.load({
           ]),
           h('span', { key: 'text', style: { fontSize: '15px', fontWeight: '600', lineHeight: '1.45', textDecoration: done ? 'line-through' : 'none', opacity: done ? '.6' : '1', cursor: 'pointer' }, onClick: () => { void save({ done: !done }); } }, task.action),
         ]),
-        done ? h(Seal, { key: 'mark', tone: 'teal', label: '已完成', stamp: true }) : null,
+        // 印章放在一行里 —— 直接挂在列容器下会被拉伸成通栏大框（窄栏里尤其明显）。
+        done ? h('div', { key: 'markRow', style: { display: 'flex' } }, [h(Seal, { key: 'mark', tone: 'teal', label: '已完成', stamp: true })]) : null,
         h('div', { key: 'minimum', style: { padding: '10px 11px', borderRadius: '10px', background: '#f3efe8', fontSize: '13px', lineHeight: '1.55', color: '#59645f' } }, [
           h('strong', { key: 'label', style: { color: '#253b39' } }, '最低完成版本'),
           ` ${task.minimumVersion}`,
@@ -2168,7 +2169,7 @@ window.__ModuleLoader__.load({
             h(Readout, { key: 'done', first: true, value: String(done), unit: '%', cap: '完成' }),
             h(Readout, { key: 'streak', value: String(state.metrics.streak), cap: '连续打卡' }),
           ]),
-          state.metrics.streak > 0 ? h(Seal, { key: 'seal', tone: 'teal', label: `连续 ${String(state.metrics.streak)} 天`, sub: '不间断' }) : null,
+          state.metrics.streak > 0 ? h('div', { key: 'sealRow', style: { display: 'flex' } }, [h(Seal, { key: 'seal', tone: 'teal', label: `连续 ${String(state.metrics.streak)} 天`, sub: '不间断' })]) : null,
           h('div', { key: 'phase', style: S.fine }, state.metrics.phaseName || '尚未开始'),
         ]),
         activity === null ? null : h('div', { key: 'activity', role: 'status', 'aria-live': 'polite', style: { padding: '11px 12px', borderRadius: '12px', fontSize: '13px', lineHeight: '1.5', background: activity.status === 'completed' ? 'var(--gw-teal-soft, rgba(47,125,116,.12))' : activity.status === 'error' ? '#fff0ed' : '#eef2f0', border: `1px solid ${activity.status === 'completed' ? 'rgba(47,125,116,.28)' : activity.status === 'error' ? '#f3c5be' : '#d5e0da'}` } }, activity.status === 'completed' ? 'AI 已返回，今日面板已自动更新。' : activity.status === 'error' ? `AI 处理失败：${activity.error}` : 'AI 正在处理，完成后这里会自动更新。'),
