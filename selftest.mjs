@@ -1548,7 +1548,7 @@ await check('提前的入口长在需求出现的地方：今日页做完之后�
   // 文案在、元素也造出来了，就是没进那棵树（渲染出来什么都没有）。
   assert.match(source, /kids\.push\(h\('div', \{ key: 'ahead', className: 'gw-nextday'/)
   assert.match(source, /今天排的做完了 —— 接下来是第 \$\{String\(nextDay\)\} 天。/)
-  assert.match(source, /继续做第 \$\{String\(nextDay\)\} 天 →/)
+  assert.match(source, /}, '继续做下一天 →'\)/, '按钮说"下一天"，不点具体天号 —— 用户关心的是"再来一道"')
   // 推到"下一道真实存在的任务"那一天，而不是无脑 +1（第 3 天之后可能第 5 天才排任务）。
   assert.match(source, /post\('\/ahead', \{ days: nextDay - pointer \+ aheadDays \}\)/)
   // 计划页那条设置撤掉了：入口只有一处。计划页的任务签只是状态 —— 不带 onClick。

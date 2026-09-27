@@ -1000,7 +1000,7 @@ window.__ModuleLoader__.load({
             style: { ...S.fine, ...S.quiet },
             // 推到"那一天"，而不是无脑 +1：第 3 天之后可能第 5 天才排了任务。
             onClick: () => { void post('/ahead', { days: nextDay - pointer + aheadDays }); },
-          }, `继续做第 ${String(nextDay)} 天 →`),
+          }, '继续做下一天 →'),
         ]));
       }
       return h('div', { style: { display: 'flex', flexDirection: 'column', gap: compact ? '8px' : '18px' } }, kids);
