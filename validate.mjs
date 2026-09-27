@@ -19,7 +19,7 @@
  *
  * @module dsh-growth-workbench/validate
  */
-import { LEVEL_COEF, capabilityModelProblems, planTasks } from './model.mjs'
+import { LEVEL_COEF, PLACEHOLDER, capabilityModelProblems, planTasks } from './model.mjs'
 
 /** 任务合同 8 字段—— 缺任何一个，任务就是"没拆够"。 */
 export const TASK_FIELDS = [
@@ -37,6 +37,56 @@ const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 const TASK_ID = /^T\d+$/
 /** 任务引用格式 `<阶段>.<序号>`，给人读、会移位。 */
 const TASK_REF = /^\d+\.\d+$/
+
+/** 学习资料（`learn`）的尺寸上限 —— 再多就没人看了。 */
+export const LEARNING_LIMITS = { links: 4, method: 240, digest: 900 }
+
+/**
+ * 一道题的**学习资料**（可选）：怎么上手、AI 汇总、来源链接。
+ *
+ * 三件事说清楚：
+ *  1. **不强制**。8 字段合同管的是"这道题拆够了没有"；没找到资料不该把计划拦下来 ——
+ *     否则模型会为了过门禁编一条链接出来，那比没有更糟。
+ *  2. **链接必须是真地址**（http(s)://…），而且要带标题。编出来的链接是这个功能唯一
+ *     真正的风险，所以门禁从形状上先拦一道。
+ *  3. **不许占位**。「待补」「暂无」这类词写进来就等于骗人，直接拒。
+ *
+ * @returns 规范化后的 `learn`，没有就给 `undefined`。
+ */
+export function canonicalLearning(input, label = '任务') {
+  if (input === undefined || input === null) return undefined
+  const problems = []
+  if (typeof input !== 'object' || Array.isArray(input)) {
+    throw new Error(`${label}: learn 必须是一个对象（{ method, digest, links }）`)
+  }
+  const method = String(input.method ?? '').trim()
+  const digest = String(input.digest ?? '').trim()
+  const rawLinks = Array.isArray(input.links) ? input.links : []
+  if (method.length === 0 && digest.length === 0 && rawLinks.length === 0) {
+    throw new Error(`${label}: learn 里什么都没有 —— 要么给点东西，要么别写这个字段`)
+  }
+  if (method.length > LEARNING_LIMITS.method) problems.push(`method 太长（${String(method.length)} > ${String(LEARNING_LIMITS.method)}）`)
+  if (digest.length > LEARNING_LIMITS.digest) problems.push(`digest 太长（${String(digest.length)} > ${String(LEARNING_LIMITS.digest)}）`)
+  if (PLACEHOLDER.test(method) || PLACEHOLDER.test(digest)) {
+    problems.push('method / digest 里不许出现「待补」这类占位 —— 写不出来就别写这个字段')
+  }
+  if (rawLinks.length > LEARNING_LIMITS.links) {
+    problems.push(`链接最多 ${String(LEARNING_LIMITS.links)} 条（收到 ${String(rawLinks.length)} 条），再多就不看了`)
+  }
+  const links = []
+  for (const [index, link] of rawLinks.entries()) {
+    const url = String(link?.url ?? '').trim()
+    const title = String(link?.title ?? '').trim()
+    if (!/^https?:\/\/[^\s]+$/.test(url)) {
+      problems.push(`第 ${String(index + 1)} 条链接不是 http(s):// 开头的真实地址（收到 ${JSON.stringify(url)}）—— 打不开的链接比没有更糟`)
+      continue
+    }
+    if (title.length === 0) problems.push(`第 ${String(index + 1)} 条链接没有标题`)
+    links.push({ title, url, source: String(link?.source ?? '').trim() })
+  }
+  if (problems.length > 0) throw new Error(`${label}的学习资料不合格：\n- ${problems.join('\n- ')}`)
+  return { method, digest, links, foundAt: new Date().toISOString().slice(0, 10) }
+}
 
 /** Turn one complaint into a refusal the caller can act on. */
 function fail(problems) {
@@ -113,6 +163,8 @@ export function canonicalPlan(input, existing = undefined, role = undefined) {
 
   // ---- 任务标识分配 ----
   const reserved = new Set(planTasks(existing ?? { phases: [] }).map((task) => task.id))
+  /** 磁盘上已有的任务（按标识）—— 重写计划时用它把 `learn` 这类"调用方不必复述"的字段接住。 */
+  const existingTasks = new Map(planTasks(existing ?? { phases: [] }).map((task) => [task.id, task]))
   const highestOnDisk = [...reserved].reduce((max, id) => Math.max(max, Number(id.slice(1))), 0)
   // 「下一个可用编号」：磁盘上记过的，否则磁盘最大值 + 1。低于它的号段已经退休。
   const previousNext = Number.isInteger(existing?.nextTaskNumber) && existing.nextTaskNumber > 0
@@ -191,6 +243,13 @@ export function canonicalPlan(input, existing = undefined, role = undefined) {
       }
       used.add(id)
 
+      // 学习资料：可选，且**不参与**上面那 8 个字段的判据（没找到资料不该把计划拦下来 ——
+      // 否则模型会为了过门禁编一条链接出来）。调用方没带时沿用磁盘上同一标识那一份：
+      // 重写计划不该把查过的资料弄丢；真要清空，就显式写 `learn: null`。
+      const supplied = task?.learn
+      const inherited = supplied === undefined ? existingTasks.get(id)?.learn : undefined
+      const learn = supplied === null ? undefined : canonicalLearning(supplied ?? inherited, label)
+
       return {
         id,
         ref,
@@ -204,6 +263,7 @@ export function canonicalPlan(input, existing = undefined, role = undefined) {
         acceptableEvidence: String(task?.acceptableEvidence ?? '').trim(),
         dependsOn,
         phase: String(phase?.name ?? '').trim(),
+        ...(learn === undefined ? {} : { learn }),
       }
     })
 

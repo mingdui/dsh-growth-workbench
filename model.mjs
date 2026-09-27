@@ -898,7 +898,7 @@ export function resolveRoleStatus(profile) {
 }
 
 /** 会被当成"占位符"的锚点写法 —— 一个字都没写的刻度不是刻度。 */
-const PLACEHOLDER = /^(待补|待定|待完善|暂无|不详|todo|tbd|n\/a|…+|\.{2,}|[-—–]|无)$/i
+export const PLACEHOLDER = /^(待补|待定|待完善|暂无|不详|todo|tbd|n\/a|…+|\.{2,}|[-—–]|无)$/i
 
 /**
  * Structural problems in a capability model, whoever wrote it.

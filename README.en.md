@@ -179,6 +179,14 @@ nothing is lost). Images live in the plugin's data directory
 deletes one** — rewriting the plan or dropping a task never touches them: your evidence is
 yours, not a cache.
 
+**Every task should tell you how to learn it.** A task carries a **learning block**: a
+one-line "how to start", a collapsible **AI digest** (the points to grasp and the usual
+pitfalls), and 2-4 source links with their domain and an "AI found · date" stamp. Plan
+generation fills it in for every task of the **first phase**; later ones are on demand —
+hit *让 AI 汇总资料* on the task and the agent **searches the web** and writes it back
+(links rot, hence the *find again* action). When it finds nothing citable it says so
+instead of inventing a link: a broken link is worse than none.
+
 **An extra day spare? A task you already know how to do?** Once today's tasks are done the
 今日 tab offers "继续做下一天 →": the pace is yours, there is no need to wait for the
 calendar. It changes only *which day you are on* — the header then says both ("你已经在做第

@@ -697,6 +697,15 @@ window.__ModuleLoader__.load({
     /** 一张证据图片的地址。文件名是宿主生成的，这里只做一次编码。 */
     const shotUrl = (file) => `${API}/evidence-image?file=${encodeURIComponent(file)}`;
 
+    /** 从 URL 里取出域名 —— 用户靠它判断"这是什么站的链接"，比一长串地址有用。 */
+    const hostOf = (url) => {
+      try {
+        return new URL(url).host.replace(/^www\./, '');
+      } catch {
+        return url;
+      }
+    };
+
     /**
      * 写证据的弹窗 —— 一块安静的写作空间。
      *
@@ -983,6 +992,46 @@ window.__ModuleLoader__.load({
           // 「盖上去」的那一下；取消再勾会重来一次。
           done ? h(Seal, { key: 'mark', tone: 'teal', label: '已完成', stamp: true }) : null,
         ]),
+        // 学习资料：这道题**怎么学**。计划只给要求是不够的 —— 没有方法，做题的人第一步就卡住。
+        // 没有资料时给一个入口；有资料时把方法、AI 汇总、来源摆出来，并标出"什么时候找的、
+        // 从哪个站" —— 链接会过期，用户得能自己判断。
+        h('div', { key: 'learn', className: 'gw-learn', style: { ...S.fine, paddingLeft: '22px', display: 'flex', flexDirection: 'column', gap: '5px' } },
+          task.learn === undefined
+            ? [
+              h('span', { key: 'none' }, '还没有学习资料（只有要求，没有方法）'),
+              h('span', { key: 'act', style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' } }, [
+                h(AskButton, {
+                  key: 'go',
+                  text: `给 ${task.id} 找学习资料`,
+                  label: '让 AI 汇总资料',
+                  hint: '它会联网检索，把「怎么上手」和来源汇总到这道题下面。',
+                }),
+              ]),
+            ]
+            : [
+              task.learn.method.length > 0
+                ? h('div', { key: 'method', style: { color: 'var(--gw-ink-2, #3d4a54)', lineHeight: '1.7' } }, `怎么上手：${task.learn.method}`)
+                : null,
+              task.learn.digest.length > 0
+                ? h('details', { key: 'digest' }, [
+                  h('summary', { key: 's', style: { cursor: 'pointer', color: 'var(--gw-coral-deep, #a64132)' } }, `AI 汇总（${String(task.learn.digest.length)} 字）`),
+                  h('div', { key: 'body', style: { marginTop: '6px', whiteSpace: 'pre-wrap', lineHeight: '1.8', color: 'var(--gw-ink-2, #3d4a54)' } }, task.learn.digest),
+                ])
+                : null,
+              h('div', { key: 'links', style: { display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'baseline' } }, [
+                ...task.learn.links.map((link) => h('a', {
+                  key: link.url,
+                  href: link.url,
+                  target: '_blank',
+                  rel: 'noreferrer',
+                  title: link.url,
+                  style: { color: 'var(--gw-coral-deep, #a64132)', textDecoration: 'underline' },
+                }, `${link.title}（${hostOf(link.url)}）`)),
+                h('span', { key: 'when', style: { color: 'var(--gw-muted-2, #9aa7b1)' } },
+                  `AI 找的 · ${task.learn.foundAt}${task.learn.links.length === 0 ? ' · 没找到可引用的来源' : ''}`),
+                h(AskButton, { key: 'again', text: `给 ${task.id} 重新找一遍学习资料`, label: '重新找', hint: '链接会过期 —— 重新找一遍就是重新检索。' }),
+              ]),
+            ]),
         // 证据区是**阅读态**：写了什么、算哪一档、有没有图 —— 一眼看完。
         // 编辑在弹窗里（点这一块，或点「改写 / 加图」）：那里有整张纸可以写。
         h('div', { key: 'evidence', className: 'gw-evidence', style: { display: 'flex', flexDirection: 'column', gap: '8px', paddingLeft: '22px' } }, [

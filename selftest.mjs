@@ -586,7 +586,7 @@ await check('apply() registers one route and every tool, all disposable', () => 
   assert.equal(routes.length, 1)
   assert.equal(routes[0].route.path, '/gw/api')
   assert.equal(routes[0].route.kind, 'prefix')
-  assert.equal(tools.TOOL_NAMES.length, 6)
+  assert.equal(tools.TOOL_NAMES.length, 7)
   assert.deepEqual(registered.map((entry) => entry.definition.name).sort(), [...tools.TOOL_NAMES].sort())
 })
 
@@ -1241,6 +1241,68 @@ await check('growth_context scope=progress 给出每个任务一行', async () =
   assert.match(text, /任务标识：T1/)
   assert.match(text, /证据档位：null/, '没交证据时档位是字面量 null，不是自述')
 })
+
+await check('学习资料：怎么上手 + 汇总 + 来源，且链接必须是真地址', async () => {
+  const taskId = model.planTasks(store.read('plan'))[0].id
+  const othersBefore = JSON.stringify(model.planTasks(store.read('plan')).slice(1))
+
+  const reply = await tools.growthSaveLearning.execute({
+    taskId,
+    method: '先跑通官方那 5 行示例，再改一个参数看差异',
+    digest: '要掌握三件事：怎么取数、口径怎么定、结论怎么被复核。常见的坑是把相关当成因果。',
+    links: [{ title: '官方快速开始', url: 'https://example.com/quickstart', source: '官方文档' }],
+  })
+  assert.match(reply, /学习资料已写入/)
+  const after = store.read('plan')
+  const saved = model.taskById(after, taskId)
+  assert.equal(saved.learn.method, '先跑通官方那 5 行示例，再改一个参数看差异')
+  assert.equal(saved.learn.links.length, 1)
+  assert.match(saved.learn.foundAt, /^\d{4}-\d{2}-\d{2}$/, '记下什么时候找的 —— 链接会过期')
+  assert.equal(JSON.stringify(model.planTasks(after).slice(1)), othersBefore, '只改这一道题，别的任务一个字不动')
+
+  // 编链接 / 占位 / 超量 / 没有的任务 / 什么都没给 —— 五种都拒。
+  await assert.rejects(() => tools.growthSaveLearning.execute({ taskId, links: [{ title: 'x', url: '不是地址' }] }), /http\(s\)/)
+  await assert.rejects(() => tools.growthSaveLearning.execute({ taskId, method: '待补' }), /占位/)
+  await assert.rejects(() => tools.growthSaveLearning.execute({
+    taskId,
+    links: Array.from({ length: 5 }, (_, index) => ({ title: `t${String(index)}`, url: `https://e.com/${String(index)}` })),
+  }), /最多 4 条/)
+  await assert.rejects(() => tools.growthSaveLearning.execute({ taskId: 'T999', method: 'x' }), /没有 T999/)
+  await assert.rejects(() => tools.growthSaveLearning.execute({ taskId }), /至少要给一样/)
+
+  // **重写计划不该把查过的资料弄丢**：调用方没带 learn 时，沿用磁盘上同一标识那一份。
+  const rewritten = validate.canonicalPlan({
+    planStart: after.planStart,
+    goal: after.goal,
+    phases: after.phases.map((phase) => ({
+      name: phase.name,
+      days: phase.days,
+      goal: phase.goal,
+      project: phase.project,
+      criteria: phase.criteria,
+      weeks: phase.weeks,
+      tasks: (phase.tasks ?? []).map((task) => {
+        const bare = { ...task }
+        delete bare.learn
+        return bare
+      }),
+    })),
+    selfCheck: after.selfCheck,
+  }, after, ROLE)
+  assert.equal(model.taskById(rewritten, taskId).learn.method, saved.learn.method, '重写计划时没带 learn，应沿用磁盘上那份')
+  // 想清空就显式写 null —— 不是靠"忘了带"。
+  const cleared = validate.canonicalPlan({
+    planStart: after.planStart,
+    goal: after.goal,
+    phases: after.phases.map((phase) => ({
+      ...phase,
+      tasks: (phase.tasks ?? []).map((task) => ({ ...task, learn: null })),
+    })),
+    selfCheck: after.selfCheck,
+  }, after, ROLE)
+  assert.equal(model.taskById(cleared, taskId).learn, undefined, '显式 null = 清空')
+})
+
 
 await check('打卡累积打卡日，且证据为空时档位回落 null', async () => {
   store.checkIn('T1', { done: true, evidence: '看了三篇', tier: '过程' }, '2026-09-25')

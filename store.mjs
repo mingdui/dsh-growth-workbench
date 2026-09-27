@@ -310,8 +310,32 @@ export function clearCheckIn(taskId) {
   return true
 }
 
-// ---------------------------------------------------------------- 证据图片
+/**
+ * Patch **one** task in the plan, leaving everything else alone.
+ *
+ * 为什么需要它：给一道题补学习资料，不该要求调用方把整份计划重发一遍 —— 那既容易丢东西
+ * （漏一个字段就是一处拒绝），也会顺带把别的任务一起改写。一个标识、一个补丁，只动一行。
+ *
+ * @returns the updated task, or `undefined` when the id is not in the plan.
+ */
+export function updateTask(taskId, patch = {}) {
+  const plan = read('plan')
+  let updated
+  plan.phases = (plan.phases ?? []).map((phase) => ({
+    ...phase,
+    tasks: (phase.tasks ?? []).map((task) => {
+      if (task.id !== taskId) return task
+      updated = { ...task, ...patch }
+      return updated
+    }),
+  }))
+  if (updated === undefined) return undefined
+  plan.updated = new Date().toISOString()
+  write('plan', plan)
+  return updated
+}
 
+// ---------------------------------------------------------------- 证据图片
 /** 证据图片的目录：`$DSH_HOME/growth-workbench/evidence/`。 */
 export function evidenceDir() {
   return join(dataDir(), 'evidence')

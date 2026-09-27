@@ -45,8 +45,8 @@ import {
   streakDays,
   weekRate,
 } from './model.mjs'
-import { appendAssessment, effectiveToday, readAll, setTransferableSuggestions, today, updatePlan, updateProfile } from './store.mjs'
-import { MODEL_TEMPLATE_NOTE, canonicalCapabilityModel, canonicalNotTransferable, canonicalPlan, canonicalReview, canonicalTransferable } from './validate.mjs'
+import { appendAssessment, effectiveToday, readAll, setTransferableSuggestions, today, updatePlan, updateProfile, updateTask } from './store.mjs'
+import { MODEL_TEMPLATE_NOTE, canonicalCapabilityModel, canonicalLearning, canonicalNotTransferable, canonicalPlan, canonicalReview, canonicalTransferable } from './validate.mjs'
 
 /** Tool names are prefixed so they cannot collide with another plugin's. */
 export const TOOL_NAMES = [
@@ -56,6 +56,7 @@ export const TOOL_NAMES = [
   'growth_save_assessment',
   'growth_propose_transferable',
   'growth_propose_capability_model',
+  'growth_save_learning',
 ]
 
 /** Render a string-valued tool result as one text block. */
@@ -159,6 +160,14 @@ function planBlock(state) {
       lines.push('|---|---|---|---|---|---|---|---|---|---|---|')
       for (const task of phase.tasks) {
         lines.push(`| ${task.id} | ${task.ref} | ${task.day === null ? '—' : String(task.day)} | ${task.action} | ${task.capability} | ${task.reason} | ${String(task.minutes)} | ${task.minimumVersion} | ${task.doneCriteria} | ${task.acceptableEvidence} | ${task.dependsOn} |`)
+        // 学习资料单独一行：它的正文可能很长，塞进表格会把表撑烂；也让人一眼看出**哪几道题
+        // 还只有要求、没有方法** —— 那正是最该先补的一批。
+        const learn = task.learn
+        if (learn === undefined) {
+          lines.push(`  - ${task.id} 的学习资料：还没有（只有要求，没有方法）`)
+        } else {
+          lines.push(`  - ${task.id} 的学习资料：怎么上手「${learn.method || '—'}」　汇总 ${String((learn.digest ?? '').length)} 字　来源 ${String((learn.links ?? []).length)} 条（${(learn.links ?? []).map((link) => link.url).join('　') || '无可引用来源'}）　找于 ${learn.foundAt ?? '—'}`)
+        }
       }
     }
     lines.push('')
@@ -413,7 +422,7 @@ export const growthContext = {
  */
 export const growthSavePlan = {
   name: 'growth_save_plan',
-  description: '写入 90 天成长计划。每个任务必须给全 8 个字段：action 一句话动作 / capability 能力项（必须是能力模型里的编号，评估类任务写全角 —）/ reason 任务理由 / minutes 预计分钟（15-60）/ minimumVersion 最低完成版本 / doneCriteria 完成标准 / acceptableEvidence 可接受证据 / dependsOn 前置依赖（写「阶段.序号」这个引用，如 1.3；没有依赖写「无」—— 它既不是天号也不是任务序号本身）。**阶段1（第一段）必须排到天** —— 它的 tasks 不能是空数组，否则「今日」页一条能执行的任务都没有；后面的阶段可以只排到周（用 weeks 写主题与验收标准）。阶段必须给 days:[起,止] 天区间且不重叠不留缝；planStart 必填。任务标识由系统分配或沿用（永不变、删除的编号不复用）。selfCheck 每题必须挂 1 个能力项编号且不得含答案。',
+  description: '写入 90 天成长计划。每个任务必须给全 8 个字段：action 一句话动作 / capability 能力项（必须是能力模型里的编号，评估类任务写全角 —）/ reason 任务理由 / minutes 预计分钟（15-60）/ minimumVersion 最低完成版本 / doneCriteria 完成标准 / acceptableEvidence 可接受证据 / dependsOn 前置依赖（写「阶段.序号」这个引用，如 1.3；没有依赖写「无」—— 它既不是天号也不是任务序号本身）。另外每个任务可以带 `learn`（学习资料：method 怎么上手 / digest 汇总 / links 来源）—— **第一段（排到天的那一段）的每道题都要带**，只给要求不给方法，做题的人第一步就卡住；后面的段留到用到时用 growth_save_learning 补。**阶段1（第一段）必须排到天** —— 它的 tasks 不能是空数组，否则「今日」页一条能执行的任务都没有；后面的阶段可以只排到周（用 weeks 写主题与验收标准）。阶段必须给 days:[起,止] 天区间且不重叠不留缝；planStart 必填。任务标识由系统分配或沿用（永不变、删除的编号不复用）。selfCheck 每题必须挂 1 个能力项编号且不得含答案。',
   parameters: {
     type: 'object',
     properties: {
@@ -453,6 +462,11 @@ export const growthSavePlan = {
                   acceptableEvidence: { type: 'string', description: '可接受证据：完整版交什么、最低版交什么。' },
                   dependsOn: { type: 'string', description: '前置依赖，写「阶段.序号」这个引用 —— 例如本阶段第 3 个任务写 1.3；没有依赖写「无」。**不是天号，也不是任务序号本身**。' },
                   id: { type: 'string', description: '已存在的任务标识（T 开头）。改已有任务时原样带上（措辞可以改，标识永不变）；新任务留空，由系统分配。' },
+                  learn: {
+                    type: 'object',
+                    additionalProperties: true,
+                    description: '这道题的学习资料（可选）{ method 怎么上手 / digest AI 汇总 / links [{title,url,source}] 最多 4 条 }。**第一段（排到天的那一段）每道题都要带上** —— 只给要求不给方法，做题的人第一步就卡住。没有可引用的来源就只写 method，不许编链接、不许写「待补」。',
+                  },
                 },
               },
             },
@@ -775,6 +789,63 @@ export const growthSaveAssessment = {
 }
 
 /** Every tool this plugin registers, in registration order. */
+/**
+ * `growth_save_learning` — 给**一道**任务补学习资料。
+ *
+ * 这是个写入工具，所以它走同一道门禁：链接必须是真地址、不许占位、最多 4 条。它只改一道题
+ * （`store.updateTask`），不要求调用方重发整份计划 —— 那样才不会顺手把别的任务改坏。
+ *
+ * 最要紧的一条写进了说明里：**只写你真的检索到并读过的东西**。模型编出来的链接比没有更糟，
+ * 所以宁可只给一句方法，也不许凑数。
+ */
+export const growthSaveLearning = {
+  name: 'growth_save_learning',
+  description: `给**一道**任务补学习资料：怎么上手（method）、资料汇总（digest）、来源链接（links，最多 4 条）。用户会在任务卡上看到它，所以三样都写人话。**只写你真的检索到并读过的东西** —— 链接打不开比没有更糟：没搜到就只写 method 并如实说没找到可引用的来源，不许写「待补」这类占位，也不许凭记忆编 URL。digest 是给做题的人看的**汇总**（这道题要掌握的要点、常见的坑），不是资料清单的复述。只改这一道题，计划的其他部分一个字不动。`,
+  parameters: {
+    type: 'object',
+    properties: {
+      taskId: { type: 'string', description: '任务标识，如 T5（任务卡上那枚签）。' },
+      method: { type: 'string', description: '怎么上手：一句话，具体到"先做什么、再做什么"。' },
+      digest: { type: 'string', description: 'AI 汇总：要掌握的要点与常见坑，来自这次读到的来源。' },
+      links: {
+        type: 'array',
+        description: '来源链接，最多 4 条。每条 { title, url, source }；url 必须是 http(s):// 开头的真实地址。',
+        items: { type: 'object', additionalProperties: true },
+      },
+    },
+    required: ['taskId'],
+  },
+  output: { schema: { type: 'string' }, render: asText },
+  async execute(args) {
+    const state = readAll()
+    const task = planTasks(state.plan).find((entry) => entry.id === args?.taskId)
+    if (task === undefined) {
+      throw new Error(`计划里没有 ${String(args?.taskId ?? '')} 这个任务 —— 先调 growth_context scope=plan 看一遍任务标识`)
+    }
+    // 什么都没给的时候，先说清"要给哪几样"，而不是让门禁去说一句更抽象的话。
+    const hasMethod = String(args?.method ?? '').trim().length > 0
+    const hasDigest = String(args?.digest ?? '').trim().length > 0
+    const hasLinks = Array.isArray(args?.links) && args.links.length > 0
+    if (!hasMethod && !hasDigest && !hasLinks) {
+      throw new Error('至少要给一样：method（怎么上手）或 digest（汇总）或 links（来源）')
+    }
+    const learn = canonicalLearning(
+      { method: args?.method, digest: args?.digest, links: args?.links },
+      `任务 ${task.id}`,
+    )
+    if (learn === undefined) throw new Error('至少要给一样：method（怎么上手）或 digest（汇总）或 links（来源）')
+    updateTask(task.id, { learn })
+    return ([
+      `${task.id} 的学习资料已写入。`,
+      `- 怎么上手：${learn.method || '（没给）'}`,
+      `- 汇总：${learn.digest.length > 0 ? `${String(learn.digest.length)} 字` : '（没给）'}`,
+      `- 来源：${learn.links.length === 0 ? '（没有可引用的来源 —— 这没关系，别编）' : learn.links.map((link) => link.url).join('　')}`,
+      `用户现在能在「今日」页那道题下面看到它。`,
+    ].join('\n'))
+  },
+  presentCall: card('Write task learning'),
+}
+
 export const TOOLS = [
   growthContext,
   growthSavePlan,
@@ -782,6 +853,7 @@ export const TOOLS = [
   growthSaveAssessment,
   growthProposeTransferable,
   growthProposeCapabilityModel,
+  growthSaveLearning,
 ]
 
 /** Re-exported so the page's own self-assessment route shares one code path. */
