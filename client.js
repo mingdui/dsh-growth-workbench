@@ -2301,7 +2301,7 @@ window.__ModuleLoader__.load({
           h('h3', { key: 't', style: S.h3 }, '考核目录'),
           h('span', { key: 'n', style: S.meta }, `阶段 ${String(phases.length)} 个 · 节点 ${String(slots.filter((slot) => slot.tier === 'node').length)} 个 · 已考 ${String(rounds.length)} 轮`),
           // 这张表和下面那叠记录是什么关系 —— 不写出来，读者只能自己猜。
-          h('div', { key: 'note', style: { ...S.meta, flexBasis: '100%' } }, '这张表回答「一共几场、考过哪些、还欠哪几场」；点「打开考卷」当场作答，交卷后 AI 打分，记��落在下面「考核历史」里。'),
+          h('div', { key: 'note', style: { ...S.meta, flexBasis: '100%' } }, '这张表回答「一共几场、考过哪些、还欠哪几场」；点「打开考卷」当场作答，交卷后 AI 打分，记录落在下面「考核历史」里。'),
         ]),
       ];
 
