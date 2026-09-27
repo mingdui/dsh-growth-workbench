@@ -26,8 +26,14 @@ import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from '
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-/** Document shape version, so a future migration has something to read. */
-export const DATA_VERSION = 2
+/**
+ * Document shape version, so a future migration has something to read.
+ *
+ * 3 加了 `profile.agentSession`（固定对话）。这是**向后兼容**的新字段：`read()` 会把
+ * 磁盘上的文档盖在 {@link empty} 上，旧文档没有它就取到 `null`，行为与旧版一致 —— 所以
+ * 不需要手工迁移（见 CLAUDE.md 的两条安全路径）。
+ */
+export const DATA_VERSION = 3
 
 /** The DSH home this plugin stores under. A launcher always exports `DSH_HOME`. */
 export function dshHome() {
@@ -161,6 +167,15 @@ export function empty(kind) {
         capabilityModel: null,
         /** 最近一次自评：`{ [能力项]: 1-5 }`。 */
         selfAssessment: null,
+        /**
+         * 「成长工作台」固定的那个对话 `{ id, title, boundAt }`。
+         *
+         * 从 ③ 可迁移能力起，每一次 Agent 运行都发进它 —— 不再跟着"你此刻打开的是哪个
+         * 对话"跑。页面只走 `/gw/api`、不能写盘，所以这个 id 存在宿主侧。`null` = 还没
+         * 固定（第一次需要 Agent 时会新建一个专用对话并固定）。它**不是画像内容**：
+         * 清空画像不会把它一起清掉。
+         */
+        agentSession: null,
         updated: '',
       }
     case 'plan':

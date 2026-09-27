@@ -25,7 +25,13 @@
  * capability model, the 底盘 proposal — used to be copy-this-phrase-and-paste-it
  * buttons, because the wording is not obvious and getting it wrong wastes a turn.
  * They now say it for you: the instruction is delivered as an **ordinary user turn
- * in the conversation you already have open** (`sessions.binding(current).session.prompt`).
+ * in the workbench's own conversation** (`resolveAgentSession` → `session.prompt`).
+ *
+ * **那个对话是固定的。** 从 ③ 可迁移能力起，所有运行都发进同一个专用对话（第一次用时
+ * 自动新建、命名、并把 id 落进 `profile.agentSession`），而不是"你此刻打开的那个" ——
+ * 上一轮的计划、考核、调整因此留在同一个上下文里。发送前会先把那个对话变成当前对话
+ * （`sessions.open`）并等它的窗口装好（`session.open()`）：运行必须看得见、能打断。
+ * 固定的对话被删掉时**明确报错**，绝不静默改投别处。
  *
  * That choice is deliberate. It would be possible to spawn a private one-shot agent
  * and show a progress bar instead, and it would be worse: the run would be
@@ -93,6 +99,9 @@ window.__ModuleLoader__.load({
         + '.gw-root button:not(:disabled):active{transform:translateY(1px)}'
         + '.gw-root button:focus-visible{outline:2px solid var(--gw-coral,#e56b55);outline-offset:3px}'
         + '.gw-root .gw-tabbar button:hover{transform:none;box-shadow:none;border-color:transparent;color:var(--gw-ink,#1f2933)}'
+        // 文字链式的按钮（页头那两个「改绑 / 重建」）：通用 hover 会给它们加位移与投影，
+        // 而它们既没有边框也没有底色 —— 那套反馈落在纯文字上就是一团脏影子。只换颜色。
+        + '.gw-root .gw-quiet:not(:disabled):hover{transform:none;box-shadow:none;border-color:transparent;color:var(--gw-coral,#e56b55)}'
         + '.gw-root input:focus,.gw-root select:focus,.gw-root textarea:focus{border-color:var(--gw-coral,#e56b55);box-shadow:0 0 0 4px var(--gw-coral-soft,rgba(229,107,85,.10))}'
         // The section label's coral dash. It cannot be an inline style, and it is what
         // makes a card read as labelled tiers instead of one grey block.
@@ -234,8 +243,86 @@ window.__ModuleLoader__.load({
     /** One instruction in flight at a time: two clicks must not become two runs. */
     let sendInFlight = false;
 
+    /** 固定对话的标题。一处定义 —— 新建与改名都从这里取，不会各写一份。 */
+    const AGENT_SESSION_TITLE = '成长工作台';
+
     /**
-     * Say one thing to the agent **in the conversation that is already open**.
+     * 新建一个专用对话（并给它起名），**不落盘**。
+     *
+     * 落盘由调用方决定用哪条路：`askAgent` 用 `call`（它不需要页面重渲染，跑完的轮询会带上），
+     * 页头那两个动作走 `post`（写完要让这一行自己更新）。
+     */
+    async function createAgentSession(sessions) {
+      let id;
+      try {
+        id = await sessions.create({});
+      } catch (failure) {
+        throw new Error(`没法新建专用对话：${messageOf(failure)}`);
+      }
+      try {
+        await sessions.binding(id)?.session?.rename?.(AGENT_SESSION_TITLE);
+      } catch {
+        // 改名失败不影响功能：id 才是身份，标题只是给人看的。
+      }
+      return id;
+    }
+
+    /**
+     * 等一个会话在列表里变得可用。
+     *
+     * `create()` 的注释说它在 resolve 时已经进了列表（同步投影），但这里只花一次轮询的
+     * 代价就能把"刚建好还没跟上"和"真的被删了"分开 —— 后者是**不能静默改投**的那种情况，
+     * 值得等清楚再下结论。
+     */
+    async function waitForBinding(sessions, id, timeoutMs = 2000) {
+      const deadline = Date.now() + timeoutMs;
+      for (;;) {
+        const binding = sessions.binding(id);
+        if (binding !== undefined && binding !== null && binding.session?.getSnapshot?.()?.removed !== true) return binding;
+        if (Date.now() > deadline) return undefined;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
+
+    /**
+     * 这次运行该发进哪个对话。
+     *
+     * 从 ③ 可迁移能力起，工作台的每一次 Agent 运行都发进**同一个**对话 —— 而不是"你
+     * 此刻打开的那个"。上一轮的计划、考核、调整因此都在同一个上下文里，不会被别的对话
+     * 淹没，也不会散得到处都是。
+     *
+     * 固定的是**新建**的专用对话（不是随手借一个现有的）：它只服务这一个方向。它被删掉时
+     * **不静默改投** —— 抛出去，页面把话说清楚，由用户决定重建还是改绑。
+     */
+    async function resolveAgentSession(sessions) {
+      const state = await call('/state');
+      const pinned = state?.profile?.agentSession ?? null;
+      const pinnedId = typeof pinned?.id === 'string' ? pinned.id : '';
+
+      if (pinnedId.length > 0) {
+        const binding = await waitForBinding(sessions, pinnedId);
+        if (binding === undefined) {
+          const label = typeof pinned.title === 'string' && pinned.title.length > 0 ? `「${pinned.title}」` : '';
+          throw new Error(`固定的对话${label}不在了 —— 在页头点「重建」或「改绑到当前对话」，不要让它悄悄发去别处`);
+        }
+        return { id: pinnedId, binding, created: false };
+      }
+
+      const id = await createAgentSession(sessions);
+      // **先落盘再发**：落盘失败就不发，否则会出现"消息发了、下次又新建一个"的重复对话。
+      await call('/agent-session', { sessionId: id, title: AGENT_SESSION_TITLE });
+      const binding = await waitForBinding(sessions, id);
+      if (binding === undefined) throw new Error('专用对话刚建好却寻址不到 —— 稍后再试一次');
+      return { id, binding, created: true };
+    }
+
+
+    /**
+     * Say one thing to the agent **in the workbench's own conversation**.
+     *
+     * 从 ③ 可迁移能力起，工作台的每一次运行都发进同一个固定对话（第一次用时新建并固定），
+     * 而不是"你此刻打开的那个" —— 上一轮的计划、考核、调整因此留在同一个上下文里，不会
+     * 散在各处。发送前会先把那个对话变成当前对话：**运行必须看得见、能打断**，这一点不让步。
      *
      * This is the whole point of the buttons: the user should not have to work
      * out the wording, and the work should stay visible. So the message is
@@ -264,21 +351,28 @@ window.__ModuleLoader__.load({
       setAgentActivity({ status: 'running', text, startedAt: Date.now() });
       // 用 ctx.get 而不是 inject：inject 里写一个不存在的服务会让整个插件静默不挂载，
       // 而这里只需要"拿不到就说清楚"。
-      const sessions = typeof rootCtx.get === 'function' ? rootCtx.get('sessions') : undefined;
-      if (sessions === undefined || sessions === null) throw new Error('当前环境没有会话服务，无法替你发消息 —— 请手动复制指令发到对话里');
+      let session, before, handle;
+      try {
+        const sessions = typeof rootCtx.get === 'function' ? rootCtx.get('sessions') : undefined;
+        if (sessions === undefined || sessions === null) throw new Error('当前环境没有会话服务，无法替你发消息 —— 请手动复制指令发到对话里');
 
-      const current = sessions.list?.getSnapshot?.()?.current;
-      if (typeof current !== 'string' || current.length === 0) {
-        throw new Error('还没有打开的对话 —— 先新建或打开一个会话，再点这个按钮');
+        // 发进**固定的那个**对话（第一次用时新建并固定），不是"此刻打开的那个"。
+        const target = await resolveAgentSession(sessions);
+        // 固定的对话不是当前对话时，先把它变成当前对话再发 —— 工作台不做看不见的运行：
+        // 这条指令会像你自己发的一样出现在那个对话里，你能看着它跑、能打断。
+        if (sessions.list?.getSnapshot?.()?.current !== target.id) sessions.open(target.id);
+        session = target.binding.session;
+        // 窗口没装好就 prompt，等于把消息发进一个还没有事件流的会话。open() 是幂等的。
+        await session.open?.();
+        before = session.getSnapshot();
+        // beginSubmission 会先在对话里放一条"提交中"的回声 —— 这就是用户期待看到的：
+        // 这条指令像是他自己发的。
+        handle = session.beginSubmission({ mode: 'queue', text, attachments: [] });
+      } catch (failure) {
+        // 没送出去就是失败，必须落一个状态：否则页头一直停在"正在送…"，按钮也一直禁用。
+        setAgentActivity({ status: 'error', text, finishedAt: Date.now(), error: messageOf(failure) });
+        throw failure instanceof Error ? failure : new Error(messageOf(failure));
       }
-      const binding = sessions.binding(current);
-      if (binding === undefined || binding === null) throw new Error('当前对话还没准备好，稍后再试');
-
-      const session = binding.session;
-      const before = session.getSnapshot();
-      // beginSubmission 会先在对话里放一条"提交中"的回声 —— 这就是用户期待看到的：
-      // 这条指令像是他自己发的。
-      const handle = session.beginSubmission({ mode: 'queue', text, attachments: [] });
       let result;
       try {
         result = await session.prompt([{ type: 'text', text }], 'queue', AbortSignal.timeout(20000), handle.requestId);
@@ -705,7 +799,7 @@ window.__ModuleLoader__.load({
       return h('div', { style: { display: 'flex', flexDirection: 'column', gap: compact ? '8px' : '18px' } }, kids);
     }
 
-    function WorkbenchHeader({ state, onNavigate, hideNext, currentTab }) {
+    function WorkbenchHeader({ state, post, onNavigate, hideNext, currentTab }) {
       const action = state.nextAction;
       // 下一步就落在用户正在看的这一页时，「现在去做 →」是让他去他已经站在的地方 ——
       // 考核那条的 targetTab 与 targetAnchor 都是 review，而页面上没有这个锚点，
@@ -715,6 +809,8 @@ window.__ModuleLoader__.load({
       const day = dayInfo(state.metrics.day);
       const [activity, setActivity] = useState(agentActivity);
       useEffect(() => subscribeActivity(setActivity), []);
+      // 运行固定发在工作台自己的那个对话里 —— 状态栏要说的是**那个**对话，不是"当前对话"。
+      const agentTitle = state.profile.agentSession?.title || AGENT_SESSION_TITLE;
       return h('div', { style: { display: 'flex', flexDirection: 'column', gap: '14px' } }, [
         h('div', { key: 'intro', style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '16px', flexWrap: 'wrap' } }, [
           h('div', { key: 'copy' }, [
@@ -732,7 +828,71 @@ window.__ModuleLoader__.load({
           ]),
           onThisTab ? null : h('button', { key: 'go', type: 'button', style: { ...S.button, background: '#f3c26b', borderColor: '#f3c26b', color: '#253b39' }, onClick: () => onNavigate(action.targetTab, action.targetAnchor) }, '现在去做 →'),
         ]),
-        activity === null ? null : h('div', { key: 'activity', role: 'status', 'aria-live': 'polite', style: { ...S.meta, padding: '9px 12px', borderRadius: '10px', background: activity.status === 'error' ? '#fff0ed' : activity.status === 'completed' ? '#edf7ef' : '#f3efe8' } }, activity.status === 'completed' ? 'AI 已返回结果，页面已自动更新。' : activity.status === 'error' ? `AI 处理失败：${activity.error}` : activity.status === 'queued' ? 'AI 已接手，页面会自动刷新结果，不需要守着对话。' : '正在把请求送进当前对话…'),
+        activity === null ? null : h('div', { key: 'activity', role: 'status', 'aria-live': 'polite', style: { ...S.meta, padding: '9px 12px', borderRadius: '10px', background: activity.status === 'error' ? '#fff0ed' : activity.status === 'completed' ? '#edf7ef' : '#f3efe8' } }, activity.status === 'completed' ? 'AI 已返回结果，页面已自动更新。' : activity.status === 'error' ? `AI 处理失败：${activity.error}` : activity.status === 'queued' ? 'AI 已接手，页面会自动刷新结果，不需要守着对话。' : `正在把请求送进「${agentTitle}」对话…`),
+        h(AgentSessionLine, { key: 'agent-session', state, post }),
+      ]);
+    }
+
+    /**
+     * Agent 运行发到哪个对话 —— 页头一行小字 + 最多两个安静的动作。
+     *
+     * 它是**一条说明**，不是一张卡：从 ③ 可迁移能力起，每一次运行都发进同一个固定对话
+     * （第一次用时自动新建），所以"发到哪儿"必须随时看得见、随时能改。固定的对话被删掉时
+     * 这一行不猜 —— 发送会明确报错（见 `resolveAgentSession`），而出口就在这里。
+     */
+    function AgentSessionLine({ state, post }) {
+      const pin = state.profile.agentSession ?? null;
+      const pinnedId = typeof pin?.id === 'string' ? pin.id : '';
+      const title = typeof pin?.title === 'string' && pin.title.length > 0 ? pin.title : AGENT_SESSION_TITLE;
+      const sessions = typeof rootCtx?.get === 'function' ? rootCtx.get('sessions') : undefined;
+      const [note, setNote] = useState('');
+      const [busy, setBusy] = useState(false);
+      // 既没固定、又没有会话服务（预览环境就是这样）：这一行没有话可说。
+      if (pinnedId.length === 0 && sessions === undefined) return null;
+
+      const run = async (work) => {
+        setBusy(true);
+        setNote('');
+        try {
+          await work();
+        } catch (failure) {
+          setNote(messageOf(failure));
+        } finally {
+          setBusy(false);
+        }
+      };
+      const act = (label, work) => h('button', {
+        key: label,
+        type: 'button',
+        className: 'gw-quiet',
+        disabled: busy,
+        style: { ...S.fine, font: 'inherit', background: 'none', border: 'none', padding: '0', textDecoration: 'underline', color: 'var(--gw-coral-deep, #a64132)', cursor: busy ? 'default' : 'pointer' },
+        onClick: () => { void run(work); },
+      }, label);
+      const currentId = () => sessions?.list?.getSnapshot?.()?.current ?? '';
+      const currentTitle = () => sessions?.list?.getSnapshot?.()?.byId?.[currentId()]?.title ?? '';
+      const bindCurrent = act(pinnedId.length > 0 ? '改绑到当前对话' : '固定到当前对话', async () => {
+        if (currentId().length === 0) throw new Error('现在没有打开的对话可以改绑 —— 先打开一个，再点这里');
+        const reply = await post('/agent-session', { sessionId: currentId(), title: currentTitle() });
+        if (reply.ok !== true) throw new Error(reply.error ?? '改绑失败');
+      });
+      const rebuild = act('重建一个', async () => {
+        const id = await createAgentSession(sessions);
+        const reply = await post('/agent-session', { sessionId: id, title: AGENT_SESSION_TITLE });
+        if (reply.ok !== true) throw new Error(reply.error ?? '固定失败');
+        sessions.open(id);
+      });
+
+      // 没有会话服务（预览里就是这样，别的宿主也可能）：这一行只剩说明 —— 两个动作都要
+      // 靠它才做得了，摆一个按不动的按钮比不摆更糟。
+      const actions = sessions === undefined ? [] : [bindCurrent, pinnedId.length === 0 ? null : rebuild];
+
+      return h('div', { className: 'gw-agent-line', style: { ...S.fine, display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' } }, [
+        h('span', { key: 'what' }, pinnedId.length > 0
+          ? `Agent 运行都在「${title}」这个对话里`
+          : 'Agent 运行会发进一个专用对话（第一次用时自动新建）'),
+        ...actions,
+        note.length === 0 ? null : h('span', { key: 'note', style: S.error }, note),
       ]);
     }
 
@@ -2129,7 +2289,7 @@ window.__ModuleLoader__.load({
         }, entry.label))),
          h('div', { key: 'body', style: S.body }, h('div', { style: S.inner }, [
            error.length > 0 ? h('div', { key: 'error', style: S.error }, error) : null,
-           h(WorkbenchHeader, { key: 'header', state, onNavigate: navigate, hideNext: tab === 'profile', currentTab: tab }),
+           h(WorkbenchHeader, { key: 'header', state, post, onNavigate: navigate, hideNext: tab === 'profile', currentTab: tab }),
            bodies[tab](),
          ])),
       ]);

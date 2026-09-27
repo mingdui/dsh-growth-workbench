@@ -171,10 +171,18 @@ After restarting, open the left sidebar -> 成长工作台 -> **画像**:
    record evidence. For a review, the **让 AI 现在考核** button says "考核我"
 
 A button is **a shortcut for typing, not a hidden worker**: the phrase is delivered as an
-**ordinary user turn in the conversation you already have open**, so you watch it read,
-you can interrupt it, and you can correct it mid-flight. And nothing that is *your* call
-gets generated at all — which abilities you have, how you score (4), what counts as
-evidence and every check-in stay in forms you fill in yourself.
+**ordinary user turn**, so you watch it read, you can interrupt it, and you can correct it
+mid-flight. And nothing that is *your* call gets generated at all — which abilities you
+have, how you score (4), what counts as evidence and every check-in stay in forms you fill
+in yourself.
+
+**Which conversation?** From step (3) 可迁移能力 onwards, every run goes into the
+workbench's own conversation — created automatically on first use and named 成长工作台 —
+instead of whatever you happen to have open, so the plan, the review and the adjustments
+stay in one context. The name sits in the page header, with *rebind to the current
+conversation* and *start a fresh one* next to it; if that conversation is deleted the page
+says so rather than quietly sending your request somewhere else. Clicking a button switches
+to it first: a run has to be visible and interruptible.
 
 The wording is on screen too: type any of those phrases by hand and you get the same run.
 

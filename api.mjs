@@ -530,10 +530,27 @@ async function mutate(route, body) {
       updateProfile({ capabilityModel: null, selfAssessment: null })
       return { profile: read('profile') }
     }
+    case '/agent-session': {
+      // 「成长工作台」固定的那个对话。页面只交 id 与标题，宿主不校验会话是否存在 ——
+      // 会话是浏览器侧的东西（宿主看不见 UI 的会话列表）。真相在页面的 sessions 服务里：
+      // 它每次发送前都自己 bind 一次，bind 不到就**明说**，不静默改投别的对话。
+      const sessionId = typeof body.sessionId === 'string' ? body.sessionId.trim() : ''
+      if (sessionId.length === 0) {
+        updateProfile({ agentSession: null })
+        return { profile: read('profile') }
+      }
+      if (sessionId.length > 120) throw new Error('会话 id 过长 —— 这看起来不是 DSH 的会话 id')
+      const title = typeof body.title === 'string' ? body.title.trim().slice(0, 60) : ''
+      updateProfile({ agentSession: { id: sessionId, title, boundAt: new Date().toISOString() } })
+      return { profile: read('profile') }
+    }
     case '/reset': {
       const kind = String(body.kind ?? '')
       if (!KINDS.includes(kind)) throw new Error(`未知的数据分区：${kind}`)
-      write(kind, empty(kind))
+      const blank = empty(kind)
+      // 清空画像 ≠ 解除会话绑定：固定的对话是「运行发到哪儿」，不是画像内容。
+      if (kind === 'profile') blank.agentSession = read('profile').agentSession ?? null
+      write(kind, blank)
       return { reset: kind }
     }
     default:

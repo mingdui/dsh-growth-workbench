@@ -120,9 +120,12 @@ await check('client.js warns when the model is not the preset one', () => {
 
 await check('「让 AI 来做」按钮是替你把这句说了，不是让你自己复制', () => {
   const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
-  // 发消息这条路必须真的在：拿到会话服务 → 取当前那一个 → 以用户回合的身份送出去。
+  // 发消息这条路必须真的在：拿到会话服务 → 定出**固定的那个**对话 → 以用户回合的身份送出去。
   assert.match(source, /rootCtx\.get\('sessions'\)/)
-  assert.match(source, /sessions\.binding\(current\)/)
+  assert.match(source, /const target = await resolveAgentSession\(sessions\)/, '目标对话由固定关系决定，不是"此刻打开的那个"')
+  assert.doesNotMatch(source, /sessions\.binding\(current\)/, '不再拿"当前对话"当发送目标')
+  assert.match(source, /sessions\.open\(target\.id\)/, '固定的对话不是当前对话时先切过去 —— 不做看不见的运行')
+  assert.match(source, /await session\.open\?\.\(\)/, '窗口没装好就 prompt，等于把消息发进一个还没有事件流的会话')
   assert.match(source, /beginSubmission\(\{ mode: 'queue'/)
   assert.match(source, /\.prompt\(\[\{ type: 'text', text \}\]/)
   // 'queue' 而不是 'steer'：点一下不能把正在跑的那一轮掐掉。
@@ -142,6 +145,24 @@ await check('「让 AI 来做」按钮是替你把这句说了，不是让你自
 
 const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
 const patch = readFileSync(join(ROOT, 'cordis.patch.yml'), 'utf8')
+
+await check('固定对话：丢了就明说，新建先落盘，页头给得出两个出口', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  // 固定的对话被删掉时**不能静默改投**别处 —— 那是"你发的消息去了你不知道的地方"。
+  assert.match(source, /不在了 —— 在页头点「重建」或「改绑到当前对话」/, '找不到固定对话时要把话说清楚')
+  // 新建之后**先把 id 落盘再发**：否则会出现"消息发了、下一次又新建一个"的重复对话。
+  const created = source.indexOf('async function createAgentSession')
+  const persisted = source.indexOf("await call('/agent-session'", created)
+  assert.ok(created > 0 && persisted > created, '新建的对话要先固定下来，再往里发消息')
+  // 页头那一行：说清发到哪儿，给「改绑 / 重建」两个出口，且是安静的文字链而不是又一张卡。
+  assert.match(source, /function AgentSessionLine/)
+  assert.match(source, /Agent 运行都在「\$\{title\}」这个对话里/)
+  assert.match(source, /'重建一个'/)
+  assert.match(source, /className: 'gw-quiet'/)
+  // 文字链不能吃通用 hover 那套（上浮 + 投影）—— 落在没有边框底色的纯文字上就是一团脏影子。
+  assert.match(source, /\.gw-root \.gw-quiet:not\(:disabled\):hover\{/, '文字链的 hover 要自己一条、且作用域化')
+  assert.match(source, /h\(AgentSessionLine, \{ key: 'agent-session', state, post \}\)/, '这一行要真的挂在页头上')
+})
 
 await check('画像每一步都能点回收起，标题行就是那个开关', () => {
   const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
@@ -1365,6 +1386,28 @@ await check('GET /export 给一份可自己留存的备份', async () => {
   assert.equal(reply.status, 200)
   assert.ok(reply.body.data.profile !== undefined && reply.body.data.plan !== undefined)
   assert.ok(reply.body.exported.length === 10)
+})
+
+await check('固定对话：写进画像、能从 /state 读回、清空画像时不被带走', async () => {
+  const bound = await callApi('POST', `${api.API_PREFIX}/agent-session`, { sessionId: 'sess-abc', title: '成长工作台' })
+  assert.equal(bound.status, 200)
+  assert.equal(store.read('profile').agentSession.id, 'sess-abc')
+  assert.equal(store.read('profile').agentSession.title, '成长工作台')
+  // 页面读的就是 /state 里的这一份 —— 页面不能自己存一份（仓库规矩：不得另建真相）。
+  const state = await callApi('GET', `${api.API_PREFIX}/state`)
+  assert.equal(state.body.profile.agentSession.id, 'sess-abc')
+  // 长得不像会话 id 的直接拒掉，而不是悄悄存进去。
+  const tooLong = await callApi('POST', `${api.API_PREFIX}/agent-session`, { sessionId: 'x'.repeat(121) })
+  assert.equal(tooLong.status, 400)
+  // 清空画像 ≠ 解除绑定：固定的对话是「运行发到哪儿」，不是画像内容。
+  const reset = await callApi('POST', `${api.API_PREFIX}/reset`, { kind: 'profile' })
+  assert.equal(reset.status, 200)
+  assert.equal(store.read('profile').targetRole, '', '画像该清的还是要清')
+  assert.equal(store.read('profile').agentSession.id, 'sess-abc', '绑定不该被清空画像一起带走')
+  // 空 id = 解除固定（页面上的「改绑」「重建」都走这条路由的另一个分支）。
+  const cleared = await callApi('POST', `${api.API_PREFIX}/agent-session`, { sessionId: '' })
+  assert.equal(cleared.status, 200)
+  assert.equal(store.read('profile').agentSession, null)
 })
 
 await check('未知路由是 404', async () => {
