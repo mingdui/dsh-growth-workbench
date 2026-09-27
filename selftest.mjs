@@ -182,23 +182,38 @@ await check('「已返回结果」要等会话真的不跑了才说', () => {
   assert.match(source, /sessionId: target\.id, startedRevision: target\.revision/)
 })
 
-await check('证据区：档位有解释、未交不再是按钮、空证据选不了档位', () => {
+await check('写证据是一个弹窗：能写、能改、关掉不等于丢掉', () => {
   const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
   // 档位的词汇只有一个来源：按钮从 `state.catalog.tiers`（= model 的 EVIDENCE_TIERS）渲染。
   assert.match(source, /tiers: state\.catalog\.tiers/, '档位名从 model 来，不在 client 里再写一份')
-  // 「未交」不是一枚按钮 —— 它是"证据是空的"这一种状态，清空文本框就是它。
+  // 「未交」不是一枚按钮 —— 它是"证据是空的"这一种状态，清空正文就是它。
   assert.doesNotMatch(source, /\['', '未交'\]/)
   assert.doesNotMatch(source, /链接 \/ 文件路径 \/ 一段心得（可留空）/, '那句「（可留空）」等于劝人别写')
   // 三个词各带一句解释，否则用户无从知道「自述」和「过程」差在哪。
   assert.match(source, /const TIER_GLOSS = \{[\s\S]{0,320}?自述:[\s\S]{0,140}?过程:[\s\S]{0,180}?成果:/)
   assert.match(source, /TIER_GLOSS\[tier\]/, '选中的那一档要说清它算什么')
-  // 多行输入：一行 input 装不下「客户支持——电商订单退款申请处理…」这种真实证据。
-  assert.match(source, /h\('textarea', \{\n\s+key: 'input',\n\s+rows: 2,/)
-  // 空证据时档位不可点：服务端有这条规则（证据空 → 档位退回），页面原先照样让你点。
-  assert.match(source, /const canPickTier = evidence\.trim\(\)\.length > 0/)
+  // 弹窗本身：一整张纸（正文无边框、行高放宽），并且给得出键盘与关闭三个出口。
+  assert.match(source, /function EvidenceEditor\(\{ task, entry, post, reload, tiers, onClose \}\)/)
+  assert.match(source, /className: 'gw-modal'/)
+  assert.match(source, /role: 'dialog'/)
+  assert.match(source, /event\.key === 'Escape'/, 'Esc 要能关')
+  assert.match(source, /event\.metaKey \|\| event\.ctrlKey/, '⌘/Ctrl + Enter 要能存')
+  assert.match(source, /body\.current\?\.focus\(\)/, '打开时焦点进正文')
+  assert.match(source, /document\.body\.style\.overflow = 'hidden'/, '弹窗打开时背景不该跟着滚')
+  // **关掉不等于丢掉**：有关键改动时，关闭照样先落盘（与原先"失焦即存"的承诺一致）。
+  // 行尾用 `\r?\n`：这个断言不该取决于检出时的换行符（Windows 上的工作副本可能是 CRLF，
+  // 而 git 在入库时会归一成 LF —— 断言跟着检出方式变红是最没意义的红）。
+  assert.match(source, /const close = useCallback\(\(\) => \{\r?\n\s+if \(dirty\) void post\('\/checkin'/)
+  // 阅读态那一行是**可点的文本块**，不是输入框：编排放进弹窗了。
+  assert.match(source, /className: 'gw-evidence-open'/)
+  assert.match(source, /editing \? h\(EvidenceEditor, \{ key: 'editor'/)
+  // 空证据时档位不可点：服务端有这条规则（证据空 → 档位退回），页面不能让你点个寂寞。
+  assert.match(source, /const canPickTier = text\.trim\(\)\.length > 0/)
   assert.match(source, /disabled: !canPickTier/)
-  // 档位与证据**一起**交：只交档位的话，服务端读到的还是空证据，会把它退回 —— 那就是"点了没反应"。
-  assert.match(source, /void save\(\{ tier: value, evidence \}\)/)
+  // 档位与证据**一起**交：只交档位的话，服务端读到的还是空证据，会把它退回去 ——
+  // 所以弹窗里点档位只改草稿，落盘一律由 save / close 一次带上两样。
+  assert.match(source, /onClick: \(\) => setTier\(value\)/)
+  assert.match(source, /post\('\/checkin', \{ taskId: task\.id, evidence: text, tier: tier === '' \? null : tier \}\)/)
   // 反方向也钉住：服务端那条规则还在。
   assert.match(readFileSync(join(ROOT, 'store.mjs'), 'utf8'), /if \(entry\.evidence === ''\) entry\.tier = null/)
 })

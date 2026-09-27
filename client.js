@@ -106,6 +106,18 @@ window.__ModuleLoader__.load({
         // 可点的东西必须有可见反馈，所以它自己一条，键盘聚焦（focus-within）也算数。
         + '.gw-root .gw-shot-add:hover{border-color:var(--gw-coral,#e56b55);color:var(--gw-coral-deep,#a64132)}'
         + '.gw-root .gw-shot-add:focus-within{outline:2px solid var(--gw-coral,#e56b55);outline-offset:3px}'
+        // 写证据的弹窗：写作要的是空间与安静 —— 遮罩压暗、卡片纸色、正文**无边框**
+        // （有边框的框是"填表"，没边框的纸才是"写东西"）。
+        + '.gw-modal{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;padding:26px 16px;background:rgba(31,41,51,.42);animation:gw-fade .18s ease both}'
+        + '.gw-modal-card{width:min(760px,100%);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;background:var(--gw-card,#fffefb);border-radius:20px;box-shadow:0 40px 80px -32px rgba(31,41,51,.55);animation:gw-rise .22s cubic-bezier(.2,.9,.3,1.14) both}'
+        + '@keyframes gw-fade{from{opacity:0}to{opacity:1}}'
+        + '@keyframes gw-rise{from{opacity:0;transform:translateY(16px) scale(.985)}to{opacity:1;transform:none}}'
+        + '.gw-modal textarea{border:0;outline:0;background:transparent;resize:none;box-sizing:border-box}'
+        + '.gw-modal textarea:focus{box-shadow:none;border:0}'
+        // 证据的阅读态就是一个可点的文本块（点它进弹窗写）。它自己一条 hover：
+        // 通用那条会给按钮加上浮与投影，落在一块纯文字上就是一团脏影子。
+        + '.gw-root button.gw-evidence-open:not(:disabled):hover{transform:none;box-shadow:none;border-color:transparent;color:inherit;background:rgba(229,107,85,.06)}'
+        + '@media (prefers-reduced-motion: reduce){.gw-modal,.gw-modal-card{animation:none}}'
         + '.gw-root input:focus,.gw-root select:focus,.gw-root textarea:focus{border-color:var(--gw-coral,#e56b55);box-shadow:0 0 0 4px var(--gw-coral-soft,rgba(229,107,85,.10))}'
         // The section label's coral dash. It cannot be an inline style, and it is what
         // makes a card read as labelled tiers instead of one grey block.
@@ -685,27 +697,211 @@ window.__ModuleLoader__.load({
     /** 一张证据图片的地址。文件名是宿主生成的，这里只做一次编码。 */
     const shotUrl = (file) => `${API}/evidence-image?file=${encodeURIComponent(file)}`;
 
-    /** One task row: check it off, then say what evidence came out of it. */
-    function TaskRow({ task, entry, post, reload, tiers }) {
-      const [evidence, setEvidence] = useState(entry?.evidence ?? '');
+    /**
+     * 写证据的弹窗 —— 一块安静的写作空间。
+     *
+     * 为什么是弹窗而不是行内输入框：证据是要**写**的东西，一行框装不下它（用户第一次的反馈
+     * 就是「这种框也没有输入的意愿」）。这里给它一整张纸：动作当标题、完成标准与可接受证据
+     * 摆在旁边，正文**无边框**（有边框的框是"填表"，没边框的纸才是"写东西"）、行高放宽，
+     * 档位和图都在手边。
+     *
+     * Esc 关、Cmd/Ctrl+Enter 保存、点遮罩关。**关掉不等于丢掉**：有关键改动时关闭照样先存，
+     * 只是不留在那儿等结果 —— 与原先"失焦即存"的承诺一致。
+     */
+    function EvidenceEditor({ task, entry, post, reload, tiers, onClose }) {
+      const [text, setText] = useState(entry?.evidence ?? '');
       const [tier, setTier] = useState(entry?.tier ?? '');
       const [note, setNote] = useState('');
       const [busyShot, setBusyShot] = useState(false);
+      const [saving, setSaving] = useState(false);
+      const body = useRef(null);
 
-      // A reload wipes local edits only when the server value actually changed.
-      useEffect(() => { setEvidence(entry?.evidence ?? ''); }, [entry?.evidence]);
-      useEffect(() => { setTier(entry?.tier ?? ''); }, [entry?.tier]);
-
-      // 空证据选不了档位：服务端本来就有这条规则（证据为空 → 档位退回未交），而页面上原先
-      // 照样让你点 —— 点下去看着选中了，刷新就没了，读起来就是"点了没反应"。
-      const canPickTier = evidence.trim().length > 0;
+      const dirty = text !== (entry?.evidence ?? '') || tier !== (entry?.tier ?? '');
+      // 空证据选不了档位：服务端有这条规则（证据为空 → 档位退回未交），页面不能让你点个寂寞。
+      const canPickTier = text.trim().length > 0;
       const tierGloss = !canPickTier
         ? '先写下留下了什么，再选它算什么 —— 空着就是「未交」'
         : (TIER_GLOSS[tier] ?? '选一个：它决定这条证据算多重');
 
+      // `save` 必须在下面那两个 effect 之前定义：effect 的依赖数组在**渲染时**就会读它。
+      const save = useCallback(async () => {
+        setSaving(true);
+        setNote('');
+        // 档位与证据**一起**交：只交档位的话服务端读到的还是空证据，会按规则把它退回去。
+        const reply = await post('/checkin', { taskId: task.id, evidence: text, tier: tier === '' ? null : tier });
+        setSaving(false);
+        if (reply.ok !== true) {
+          setNote(reply.error ?? '没存上');
+          return;
+        }
+        onClose();
+      }, [post, task.id, text, tier, onClose]);
+
+      const close = useCallback(() => {
+        if (dirty) void post('/checkin', { taskId: task.id, evidence: text, tier: tier === '' ? null : tier });
+        onClose();
+      }, [dirty, text, tier, post, task.id, onClose]);
+
+      // 快捷键挂在 window 上：焦点在正文里时也管用。
+      useEffect(() => {
+        const onKey = (event) => {
+          if (event.key === 'Escape') { event.preventDefault(); close(); }
+          if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); void save(); }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+      }, [close, save]);
+
+      // 打开时把焦点放进正文，并锁住背景滚动 —— 弹窗不该让底下的页面跟着滚。
+      useEffect(() => {
+        body.current?.focus();
+        const previous = document.body.style.overflow;
+        document.body.style.overflow = 'hidden';
+        return () => { document.body.style.overflow = previous; };
+      }, []);
+
+      /** 传一张（或几张）图：裸字节直传，文件名由宿主生成（见 api.mjs 那条路由）。 */
+      const upload = async (files) => {
+        if (files.length === 0) return;
+        setBusyShot(true);
+        setNote('');
+        try {
+          for (const file of files) {
+            if (!file.type.startsWith('image/')) throw new Error(`「${file.name}」不是图片`);
+            if (file.size > MAX_SHOT_BYTES) throw new Error(`「${file.name}」超过 8 MB —— 截图一般几百 KB，先压一下`);
+            const response = await fetch(`${API}/evidence-image?task=${encodeURIComponent(task.id)}`, {
+              method: 'POST',
+              headers: { 'content-type': file.type },
+              body: file,
+            });
+            const raw = await response.text();
+            let parsed;
+            try { parsed = raw.length > 0 ? JSON.parse(raw) : {}; } catch { parsed = {}; }
+            if (parsed.ok !== true) throw new Error(parsed.error ?? `上传失败（${String(response.status)}）`);
+          }
+          if (typeof reload === 'function') await reload();
+        } catch (failure) {
+          setNote(messageOf(failure));
+        } finally {
+          setBusyShot(false);
+        }
+      };
+
+      /** 删掉一张图。**这是唯一会删图片文件的入口** —— 见 store 里那条注释。 */
+      const dropShot = async (file) => {
+        setNote('');
+        const reply = await post('/evidence-image-remove', { taskId: task.id, file });
+        if (reply.ok !== true) setNote(reply.error ?? '删不掉');
+      };
+
+      const run = [
+        h('div', { key: 'head', style: { padding: '24px 28px 14px' } }, [
+          h('div', { key: 'kicker', style: S.subhead }, Number.isInteger(task.day) ? `第 ${String(task.day)} 天 · 写证据` : '写证据'),
+          h('div', { key: 'action', style: { fontFamily: 'var(--gw-display, Calistoga, Georgia, serif)', fontSize: '21px', lineHeight: '1.55', marginTop: '10px' } }, task.action),
+          h('div', { key: 'done', style: { ...S.fine, marginTop: '8px' } }, `完成标准：${task.doneCriteria}`),
+          h('div', { key: 'ev', style: { ...S.fine, marginTop: '2px' } }, `可接受证据：${task.acceptableEvidence}`),
+        ]),
+        h('div', { key: 'rule1', style: { height: '1px', background: 'var(--gw-line-soft, #efeae2)', margin: '0 28px' } }),
+        h('textarea', {
+          key: 'body',
+          ref: body,
+          'aria-label': '证据',
+          value: text,
+          onChange: (event) => setText(event.target.value),
+          placeholder: '今天这件事留下了什么？\n\n一段笔记、一个链接、一张图、或者做出来的那个东西 —— 写给自己看就行。',
+          style: { flex: '1 1 auto', minHeight: '230px', padding: '18px 28px', fontSize: '15.5px', lineHeight: '1.95', fontFamily: 'inherit', color: 'var(--gw-ink, #1f2933)' },
+        }),
+        h('div', { key: 'rule2', style: { height: '1px', background: 'var(--gw-line-soft, #efeae2)', margin: '0 28px' } }),
+        h('div', { key: 'foot', style: { padding: '14px 28px 20px', display: 'flex', flexDirection: 'column', gap: '14px' } }, [
+          h('div', { key: 'tierRow', style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' } }, [
+            h('span', { key: 'ask', style: S.fine }, '这份证据算什么？'),
+            h('div', {
+              key: 'tier',
+              role: 'group',
+              'aria-label': '证据档位',
+              style: { display: 'inline-flex', border: '1px solid var(--gw-line, #e5dfd5)', borderRadius: '12px', overflow: 'hidden', background: '#fffdf9', flex: '0 0 auto', opacity: canPickTier ? '1' : '.55' },
+            }, tiers.map((value, index) => h('button', {
+              key: value,
+              type: 'button',
+              disabled: !canPickTier,
+              'aria-pressed': tier === value,
+              style: { appearance: 'none', font: 'inherit', fontSize: '12.5px', fontWeight: '500', padding: '8px 13px', border: '0', borderLeft: index === 0 ? '0' : '1px solid var(--gw-line, #e5dfd5)', background: tier === value ? 'var(--gw-teal-soft, rgba(47,125,116,.12))' : 'transparent', color: tier === value ? 'var(--gw-teal, #2f7d74)' : 'var(--gw-muted, #6f7c87)', cursor: canPickTier ? 'pointer' : 'default', transition: 'background 140ms ease, color 140ms ease' },
+              onClick: () => setTier(value),
+            }, value))),
+            h('span', { key: 'gloss', style: { ...S.fine, flex: '1 1 220px' } }, tierGloss),
+          ]),
+          h('div', { key: 'shots', style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' } }, [
+            ...(entry?.images ?? []).map((image) => h('span', { key: image.file, className: 'gw-shot', style: { position: 'relative', display: 'inline-flex' } }, [
+              h('a', {
+                key: 'open',
+                href: shotUrl(image.file),
+                target: '_blank',
+                rel: 'noreferrer',
+                title: `${String(Math.max(1, Math.round(image.bytes / 1024)))} KB　点开看原图`,
+                style: { display: 'block', lineHeight: '0' },
+              }, [h('img', {
+                key: 'img',
+                src: shotUrl(image.file),
+                alt: '证据图片',
+                style: { width: '58px', height: '58px', objectFit: 'cover', borderRadius: '10px', border: '1px solid var(--gw-line, #e5dfd5)', background: '#fff' },
+              })]),
+              h('button', {
+                key: 'drop',
+                type: 'button',
+                'aria-label': '删掉这张图',
+                title: '删掉这张图',
+                style: { position: 'absolute', top: '-6px', right: '-6px', width: '20px', height: '20px', minHeight: '0', padding: '0', display: 'grid', placeItems: 'center', borderRadius: '999px', border: '1px solid var(--gw-line, #e5dfd5)', background: '#fffdf9', color: 'var(--gw-muted, #6f7c87)', fontSize: '12px', lineHeight: '1', cursor: 'pointer' },
+                onClick: () => { void dropShot(image.file); },
+              }, '×'),
+            ])),
+            h('label', { key: 'add', className: 'gw-shot-add', style: { ...S.chipPlain, display: 'inline-flex', alignItems: 'center', gap: '6px', minHeight: '34px', padding: '6px 13px', cursor: busyShot ? 'default' : 'pointer' } }, [
+              busyShot ? '正在传…' : '＋ 加一张图',
+              // 1px + opacity 而不是 display:none —— 后者连键盘都聚焦不到。
+              h('input', {
+                key: 'file',
+                type: 'file',
+                accept: 'image/png,image/jpeg,image/webp,image/gif',
+                multiple: true,
+                style: { position: 'absolute', width: '1px', height: '1px', opacity: '0' },
+                onChange: (event) => { void upload([...(event.target.files ?? [])]); event.target.value = ''; },
+              }),
+            ]),
+            note.length === 0 ? null : h('span', { key: 'note', style: { ...S.fine, color: '#b33a2d' } }, note),
+          ]),
+          h('div', { key: 'actions', style: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '12px', borderTop: '1px solid var(--gw-line-soft, #efeae2)', paddingTop: '14px' } }, [
+            h('span', { key: 'hint', style: { ...S.fine, marginRight: 'auto' } }, 'Esc 关 · ⌘/Ctrl + Enter 保存'),
+            h('button', { key: 'close', type: 'button', style: S.button, onClick: close }, '关闭'),
+            h('button', {
+              key: 'save',
+              type: 'button',
+              disabled: saving || !dirty,
+              style: { ...S.button, ...(dirty ? S.buttonOn : { color: 'var(--gw-muted, #6f7c87)', background: 'transparent', borderColor: 'transparent', cursor: 'default' }) },
+              onClick: () => { void save(); },
+            }, saving ? '保存中…' : (dirty ? '保存' : '已保存')),
+          ]),
+        ]),
+      ];
+
+      return h('div', {
+        className: 'gw-modal',
+        role: 'dialog',
+        'aria-modal': 'true',
+        'aria-label': '写证据',
+        // 点遮罩关（按在卡片内部拖出去不算 —— 所以比的是事件源本身）。
+        onMouseDown: (event) => { if (event.target === event.currentTarget) close(); },
+      }, [h('div', { key: 'card', className: 'gw-modal-card' }, run)]);
+    }
+
+    /** One task row: check it off, then say what evidence came out of it. */
+    function TaskRow({ task, entry, post, reload, tiers }) {
+      // 证据是**写**出来的东西，一行输入框装不下它 —— 所以编辑放在弹窗里（`EvidenceEditor`），
+      // 这一行只显示结果：写了什么、算哪一档、有没有图。打卡入口因此也只有一处。
+      const [editing, setEditing] = useState(false);
       const done = entry?.done === true;
       const days = (entry?.checkInDates ?? []).length;
       const save = (patch) => post('/checkin', { taskId: task.id, ...patch });
+      const evidenceText = String(entry?.evidence ?? '');
+      const images = entry?.images ?? [];
 
       /**
        * 传一张（或几张）图。
@@ -787,85 +983,45 @@ window.__ModuleLoader__.load({
           // 「盖上去」的那一下；取消再勾会重来一次。
           done ? h(Seal, { key: 'mark', tone: 'teal', label: '已完成', stamp: true }) : null,
         ]),
-        // 证据区：文本框换成**多行**，档位从"一排没有解释的按钮"改成"一句问话 + 三个答案 +
-        // 一句解释"。
-        //
-        // 原先是一行 input：像「客户支持——电商订单退款申请处理 参与角色 客户一线客服 客服主管
-        // 财务 输入:」这种真实证据根本装不下，字被截在框外 —— 看着就不想写；而 placeholder 里
-        // 那句「（可留空）」等于劝人别写。四枚按钮里「未交」也不是一枚按钮：它是"证据空着"这
-        // 一种状态，清空文本框就是它。
-        h('div', { key: 'evidence', className: 'gw-evidence', style: { display: 'flex', flexDirection: 'column', gap: '9px', paddingLeft: '22px' } }, [
-          h('textarea', {
-            key: 'input',
-            rows: 2,
-            style: { ...S.input, fontSize: '13.5px', lineHeight: '1.7', width: '100%', boxSizing: 'border-box', minHeight: '62px', resize: 'vertical', fontFamily: 'inherit' },
-            placeholder: '今天这件事留下了什么？一段笔记、一个链接、一张图、或者做出来的那个东西',
-            value: evidence,
-            onChange: (event) => setEvidence(event.target.value),
-            onBlur: () => { if (evidence !== (entry?.evidence ?? '')) void save({ evidence }); },
-          }),
-          h('div', { key: 'tierRow', style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' } }, [
-            h('span', { key: 'ask', style: S.fine }, '这份证据算什么？'),
-            h('div', {
-              key: 'tier',
-              role: 'group',
-              'aria-label': '证据档位',
-              style: { display: 'inline-flex', border: '1px solid var(--gw-line, #e5dfd5)', borderRadius: '12px', overflow: 'hidden', background: '#fffdf9', flex: '0 0 auto', opacity: canPickTier ? '1' : '.55' },
-            }, tiers.map((value, index) => h('button', {
-              key: value,
-              type: 'button',
-              disabled: !canPickTier,
-              'aria-pressed': tier === value,
-              // 三格一眼看完，比下拉框少一次点击 —— 档位是三档里选一个，本来就该看见全部选项。
-              style: { appearance: 'none', font: 'inherit', fontSize: '12.5px', fontWeight: '500', padding: '8px 13px', border: '0', borderLeft: index === 0 ? '0' : '1px solid var(--gw-line, #e5dfd5)', background: tier === value ? 'var(--gw-teal-soft, rgba(47,125,116,.12))' : 'transparent', color: tier === value ? 'var(--gw-teal, #2f7d74)' : 'var(--gw-muted, #6f7c87)', cursor: canPickTier ? 'pointer' : 'default', transition: 'background 140ms ease, color 140ms ease' },
-              // 档位与证据**一起**交。只交档位的话，服务端读到的还是空证据，会按规则把档位退回
-              //「未交」—— 那正是"点了没反应"的另一半来源。
-              onClick: () => { setTier(value); void save({ tier: value, evidence }); },
-            }, value))),
-            h('span', { key: 'gloss', style: { ...S.fine, flex: '1 1 220px' } }, tierGloss),
-          ]),
-          // 图片证据：一行缩略图 + 一个「加一张图」。它和文字证据是**同一条证据的两半**，
-          // 所以不另起一个框，就长在这条下面。删图只走缩略图右上角那个 × —— 别处不删。
-          h('div', { key: 'shots', style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' } }, [
-            ...(entry?.images ?? []).map((image) => h('span', { key: image.file, className: 'gw-shot', style: { position: 'relative', display: 'inline-flex' } }, [
-              h('a', {
-                key: 'open',
-                href: shotUrl(image.file),
-                target: '_blank',
-                rel: 'noreferrer',
-                title: `${String(Math.max(1, Math.round(image.bytes / 1024)))} KB　点开看原图`,
-                style: { display: 'block', lineHeight: '0' },
-              }, [h('img', {
-                key: 'img',
-                src: shotUrl(image.file),
-                alt: '证据图片',
-                style: { width: '58px', height: '58px', objectFit: 'cover', borderRadius: '10px', border: '1px solid var(--gw-line, #e5dfd5)', background: '#fff' },
-              })]),
-              h('button', {
-                key: 'drop',
-                type: 'button',
-                'aria-label': '删掉这张图',
-                title: '删掉这张图',
-                style: { position: 'absolute', top: '-6px', right: '-6px', width: '20px', height: '20px', minHeight: '0', padding: '0', display: 'grid', placeItems: 'center', borderRadius: '999px', border: '1px solid var(--gw-line, #e5dfd5)', background: '#fffdf9', color: 'var(--gw-muted, #6f7c87)', fontSize: '12px', lineHeight: '1', cursor: 'pointer' },
-                onClick: () => { void dropShot(image.file); },
-              }, '×'),
-            ])),
-            h('label', { key: 'add', className: 'gw-shot-add', style: { ...S.chipPlain, display: 'inline-flex', alignItems: 'center', gap: '6px', minHeight: '34px', padding: '6px 13px', cursor: busyShot ? 'default' : 'pointer' } }, [
-              busyShot ? '正在传…' : '＋ 加一张图',
-              // 用 1px + opacity 而不是 display:none —— 后者连键盘都聚焦不到，
-              // 而这个仓库的规矩是可点的东西必须有可见的 hover / focus。
-              h('input', {
-                key: 'file',
-                type: 'file',
-                accept: 'image/png,image/jpeg,image/webp,image/gif',
-                multiple: true,
-                style: { position: 'absolute', width: '1px', height: '1px', opacity: '0' },
-                onChange: (event) => { void upload([...(event.target.files ?? [])]); event.target.value = ''; },
-              }),
-            ]),
-            note.length === 0 ? null : h('span', { key: 'note', style: { ...S.fine, color: '#b33a2d' } }, note),
+        // 证据区是**阅读态**：写了什么、算哪一档、有没有图 —— 一眼看完。
+        // 编辑在弹窗里（点这一块，或点「改写 / 加图」）：那里有整张纸可以写。
+        h('div', { key: 'evidence', className: 'gw-evidence', style: { display: 'flex', flexDirection: 'column', gap: '8px', paddingLeft: '22px' } }, [
+          h('button', {
+            key: 'open',
+            type: 'button',
+            className: 'gw-evidence-open',
+            title: evidenceText.length > 0 ? '点开改一改，或再加点东西' : '写点什么',
+            style: {
+              fontSize: '14px', lineHeight: '1.8', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+              padding: '7px 10px', margin: '0 -10px 0 -10px', textAlign: 'left',
+              color: evidenceText.length > 0 ? 'var(--gw-ink, #1f2933)' : 'var(--gw-muted-2, #9aa7b1)',
+            },
+            onClick: () => setEditing(true),
+          }, evidenceText.length > 0
+            ? evidenceText
+            : '写下今天留下的东西 —— 一段笔记、一个链接、一张图、或者做出来的那个东西'),
+          h('div', { key: 'meta', style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' } }, [
+            h('span', { key: 'tier', style: entry?.tier ? S.chipPlain : { ...S.chipPlain, color: 'var(--gw-muted-2, #9aa7b1)' } },
+              entry?.tier ? `证据 · ${entry.tier}` : '证据 · 未交'),
+            ...images.map((image) => h('a', {
+              key: image.file,
+              className: 'gw-shot',
+              href: shotUrl(image.file),
+              target: '_blank',
+              rel: 'noreferrer',
+              title: `${String(Math.max(1, Math.round(image.bytes / 1024)))} KB　点开看原图`,
+              style: { display: 'block', lineHeight: '0' },
+            }, [h('img', {
+              key: 'img',
+              src: shotUrl(image.file),
+              alt: '证据图片',
+              style: { width: '40px', height: '40px', objectFit: 'cover', borderRadius: '8px', border: '1px solid var(--gw-line, #e5dfd5)', background: '#fff' },
+            })])),
+            h('button', { key: 'edit', type: 'button', className: 'gw-quiet', style: { ...S.fine, ...S.quiet }, onClick: () => setEditing(true) },
+              evidenceText.length > 0 ? '改写 / 加图' : '写证据'),
           ]),
         ]),
+        editing ? h(EvidenceEditor, { key: 'editor', task, entry, post, reload, tiers, onClose: () => setEditing(false) }) : null,
       ]);
     }
 

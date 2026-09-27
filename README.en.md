@@ -171,10 +171,13 @@ After restarting, open the left sidebar -> 成长工作台 -> **画像**:
    record evidence. For a review, the **让 AI 现在考核** button says "考核我"
 
 Evidence can be a line of text or **a picture** (a screenshot, a whiteboard photo, a run's
-output): hit **＋ 加一张图** and the thumbnail sits under the evidence line. Images live in
-the plugin's data directory (`$DSH_HOME/growth-workbench/evidence/`) and **only the × on
-the thumbnail deletes one** — rewriting the plan or dropping a task never touches them:
-your evidence is yours, not a cache.
+output). Click the evidence line on a task and a **writing sheet** opens: a full sheet, no
+border on the body, roomy line height, with the task's done-criteria and acceptable evidence
+right beside it — write it like a note. Esc closes, ⌘/Ctrl + Enter saves (closing saves too,
+nothing is lost). Images live in the plugin's data directory
+(`$DSH_HOME/growth-workbench/evidence/`) and **only the × on a thumbnail inside that sheet
+deletes one** — rewriting the plan or dropping a task never touches them: your evidence is
+yours, not a cache.
 
 **An extra day spare? A task you already know how to do?** Once today's tasks are done the
 今日 tab offers "继续做下一天 →": the pace is yours, there is no need to wait for the
