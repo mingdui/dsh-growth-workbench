@@ -282,7 +282,7 @@ export function progressEntry(progress, taskId) {
   const existing = progress.tasks?.[taskId]
   if (existing !== undefined) return existing
   // `images` 是后加的字段：旧文档里没有它，`{ ...empty, ...parsed }` 那一套不管这个（进度
-  // 条目不是整份文档），所以读取处一律写 `entry.images ?? []` —— 见 addEvidenceImage / 页面。
+  // 条目不是整份文档），所以读取处一律写 `entry.images ?? []` —— 见 addEvidenceFile / 页面。
   return { done: false, evidence: '', tier: null, checkInDates: [], checkInDays: [], lastDate: '', images: [] }
 }
 
@@ -377,49 +377,81 @@ export function evidenceDir() {
   return join(dataDir(), 'evidence')
 }
 
-/** 收哪些图片，各用什么扩展名落盘 —— 只收浏览器能直接显示的这四种。 */
-const IMAGE_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' }
+/**
+ * 收哪些证据文件，各用什么扩展名落盘。
+ *
+ * 两类，**读回来时的处理完全不同**（见 api.mjs 那条 GET）：
+ *   · 图片 —— 原样回 `image/*`，页面直接显示缩略图；
+ *   · 其余 —— 一律 `application/octet-stream` + `attachment`，**永远不当页面渲染**。
+ *     这条不是洁癖：上传一个 `.html` 或 `.svg` 再让它按原类型回，就是同源 XSS。
+ */
+const EVIDENCE_TYPES = {
+  'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif',
+  'text/csv': 'csv', 'application/json': 'json', 'text/plain': 'txt', 'text/markdown': 'md',
+  'application/zip': 'zip', 'application/pdf': 'pdf',
+}
 
 /** 文件名只能是本插件自己生成的那种形状 —— 它同时就是路径穿越的闸门。 */
-const IMAGE_FILE = /^T\d+-\d{14}-[a-z0-9]{4}\.(png|jpg|webp|gif)$/
+const EVIDENCE_FILE = /^T\d+-\d{14}-[a-z0-9]{4}\.(png|jpg|webp|gif|csv|json|txt|md|zip|pdf)$/
+
+/** 扩展名 → 回给浏览器的类型。图片 inline，其余一律下载。 */
+const EXT_MIME = {
+  png: 'image/png', jpg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif',
+  csv: 'application/octet-stream', json: 'application/octet-stream', txt: 'application/octet-stream',
+  md: 'application/octet-stream', zip: 'application/octet-stream', pdf: 'application/octet-stream',
+}
+
+/** 这一份证据是图还是文件 —— 页面据此决定"缩略图"还是"文件名 + 下载"。 */
+export function evidenceKind(mime) {
+  return String(mime ?? '').startsWith('image/') ? 'image' : 'file'
+}
+
+/** 文件名的类型，读数用（页面上写「CSV」比写「octet-stream」强）。 */
+export function evidenceMimeOf(file) {
+  const ext = String(file ?? '').slice(String(file ?? '').lastIndexOf('.') + 1).toLowerCase()
+  return EXT_MIME[ext] ?? 'application/octet-stream'
+}
 
 /**
- * 一张证据图片的绝对路径。
+ * 一份证据文件的绝对路径。
  *
  * 名字必须是我们生成的形状，而且解析出来仍在 `evidence/` 里：这个值是从 query string
- * 进来的（`GET /gw/api/evidence-image?file=…`），不校验就是路径穿越 ——
- * `?file=../profile.json` 能把用户画像当图片吐出去。
+ * 进来的（`GET /gw/api/evidence?file=…`），不校验就是路径穿越 ——
+ * `?file=../profile.json` 能把用户画像当文件吐出去。
  */
-export function evidenceImagePath(file) {
+export function evidenceFilePath(file) {
   const name = typeof file === 'string' ? file : ''
-  if (!IMAGE_FILE.test(name)) throw new Error(`不是本插件生成的证据图片名：${JSON.stringify(name)}`)
+  if (!EVIDENCE_FILE.test(name)) throw new Error(`不是本插件生成的证据文件名：${JSON.stringify(name)}`)
   const directory = evidenceDir()
   const full = resolve(directory, name)
-  if (!full.startsWith(`${directory}${sep}`)) throw new Error('证据图片路径越界')
+  if (!full.startsWith(`${directory}${sep}`)) throw new Error('证据文件路径越界')
   return full
 }
 
-/** 读一张证据图片的字节，原路交回给页面显示。 */
-export function readEvidenceImage(file) {
-  return readFileSync(evidenceImagePath(file))
+/** 读一份证据文件的字节，原路交回给页面（图片显示缩略图，其余下载）。 */
+export function readEvidenceFile(file) {
+  return readFileSync(evidenceFilePath(file))
 }
 
 /**
- * 把一张图片挂到某个任务的证据上。
+ * 把一份证据文件挂到某个任务上（图片、CSV、JSON、文本、zip、pdf 都走这一条）。
  *
  * 文件名由**这里**生成（任务标识 + 本地时间 + 四个随机字符），永不使用上传方给的文件名：
- * 那是路径穿越的入口，而"两张截图叫同一个名字"本来就是常态。
+ * 那是路径穿越的入口，而"两张截图叫同一个名字"本来就是常态。原文件名只作为 `name` 存下来
+ * **给人看** —— 它不进磁盘路径，也不进响应头。
  *
  * 先落盘、再写记录：反过来的话，记录会指向一个不存在的文件。
  */
-export function addEvidenceImage(taskId, bytes, mime) {
+export function addEvidenceFile(taskId, bytes, mime, originalName = '') {
   if (typeof taskId !== 'string' || !/^T\d+$/.test(taskId)) {
     throw new Error(`growth-workbench: task id must look like T<n>, got ${JSON.stringify(taskId)}`)
   }
   const type = String(mime ?? '').split(';')[0].trim().toLowerCase()
-  const ext = IMAGE_TYPES[type]
-  if (ext === undefined) throw new Error('只收 png / jpeg / webp / gif 四种图片')
-  if (!Buffer.isBuffer(bytes) || bytes.length === 0) throw new Error('这张图是空的')
+  const ext = EVIDENCE_TYPES[type]
+  if (ext === undefined) {
+    throw new Error('只收图片（png / jpeg / webp / gif）与 csv / json / txt / md / zip / pdf —— 别的类型浏览器打开就是风险')
+  }
+  if (!Buffer.isBuffer(bytes) || bytes.length === 0) throw new Error('这个文件是空的')
 
   const now = new Date()
   const stamp = [
@@ -430,13 +462,15 @@ export function addEvidenceImage(taskId, bytes, mime) {
     String(now.getMinutes()).padStart(2, '0'),
     String(now.getSeconds()).padStart(2, '0'),
   ].join('')
+  // 原文件名只留"给人看"的部分：去掉路径分隔符与控制字符、限长。
+  const display = String(originalName).replace(/[\\/:*?"<>|]/g, '').replace(/[\u0000-\u001f]/g, '').trim().slice(0, 80)
   const file = `${taskId}-${stamp}-${Math.random().toString(36).slice(2, 6)}.${ext}`
   mkdirSync(evidenceDir(), { recursive: true })
-  writeFileSync(evidenceImagePath(file), bytes, { flag: 'wx' })
+  writeFileSync(evidenceFilePath(file), bytes, { flag: 'wx' })
 
   const progress = read('progress')
   const entry = { ...progressEntry(progress, taskId) }
-  entry.images = [...(entry.images ?? []), { file, mime: type, bytes: bytes.length, at: now.toISOString() }]
+  entry.images = [...(entry.images ?? []), { file, mime: type, bytes: bytes.length, at: now.toISOString(), ...(display.length === 0 ? {} : { name: display }) }]
   progress.tasks = { ...progress.tasks, [taskId]: entry }
   progress.updated = new Date().toISOString()
   write('progress', progress)
@@ -444,11 +478,11 @@ export function addEvidenceImage(taskId, bytes, mime) {
 }
 
 /**
- * 摘掉一张证据图片 —— **只有用户点缩略图上那个 × 才会走到这里**。
+ * 摘掉一份证据文件 —— **只有用户点它旁边那个 × 才会走到这里**。
  * 计划重写、任务被删都不会动它（见 {@link clearCheckIn}）。
  */
-export function removeEvidenceImage(taskId, file) {
-  const path = evidenceImagePath(file)
+export function removeEvidenceFile(taskId, file) {
+  const path = evidenceFilePath(file)
   const progress = read('progress')
   const existing = progress.tasks?.[taskId]
   if (existing === undefined) return false

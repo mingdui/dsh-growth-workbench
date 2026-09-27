@@ -459,7 +459,7 @@ export const growthSavePlan = {
                   minutes: { type: 'integer', description: '预计分钟，15-60；超过 60 就拆。' },
                   minimumVersion: { type: 'string', description: '最低完成版本：做不到全量时先交什么。' },
                   doneCriteria: { type: 'string', description: '完成标准：怎么算做完，可被他人核对。' },
-                  acceptableEvidence: { type: 'string', description: '可接受证据：完整版交什么、最低版交什么。' },
+                  acceptableEvidence: { type: 'string', description: '可接受证据：完整版交什么、最低版交什么。**写成产品收得下的形态** —— 一段文字 / 一张图（截图、白板照）/ 一个文件（csv、json、txt、md、zip、pdf，单个 ≤8MB）。别写"交一份 xlsx""交一份 PPT"这种收不到的形态；要交表格就写"导出 CSV"或"截图"。' },
                   dependsOn: { type: 'string', description: '前置依赖，写「阶段.序号」这个引用 —— 例如本阶段第 3 个任务写 1.3；没有依赖写「无」。**不是天号，也不是任务序号本身**。' },
                   id: { type: 'string', description: '已存在的任务标识（T 开头）。改已有任务时原样带上（措辞可以改，标识永不变）；新任务留空，由系统分配。' },
                   learn: {

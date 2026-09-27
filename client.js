@@ -703,11 +703,33 @@ window.__ModuleLoader__.load({
       成果: '做出了能给别人看的东西：文件、链接、成品',
     };
 
-    /** 证据图片的上限，与宿主那条路由一致（超过它宿主也会拒，这里先拦是为了省一次往返）。 */
-    const MAX_SHOT_BYTES = 8 * 1024 * 1024;
+    /**
+     * 证据文件收哪几种 —— 与宿主那张白名单（`store.EVIDENCE_TYPES`）一致。
+     *
+     * 页面这一份只为了"选之前就拦住"（省一次往返、也把话说清）；真正说了算的是宿主 ——
+     * 页面能被绕过，宿主不能。
+     */
+    const EVIDENCE_ACCEPT = [
+      'image/png', 'image/jpeg', 'image/webp', 'image/gif',
+      'text/csv', 'application/json', 'text/plain', 'text/markdown', 'application/zip', 'application/pdf',
+    ];
 
-    /** 一张证据图片的地址。文件名是宿主生成的，这里只做一次编码。 */
-    const shotUrl = (file) => `${API}/evidence-image?file=${encodeURIComponent(file)}`;
+    /** 证据文件的上限，与宿主那条路由一致。 */
+    const MAX_EVIDENCE_BYTES = 8 * 1024 * 1024;
+
+    /**
+     * 一份证据文件的地址。文件名是宿主生成的，这里只做一次编码。
+     *
+     * 读回来的处理**分两类**（宿主那边定的）：图片按 `image/*` 回、页面直接显示缩略图；
+     * 其余一律 `octet-stream + attachment` —— 点它就是下载，不会被当成页面渲染。
+     */
+    const evidenceUrl = (file) => `${API}/evidence?file=${encodeURIComponent(file)}`;
+
+    /** 这一份证据是图还是文件（页面据此决定"缩略图"还是"文件名 + 下载"）。 */
+    const isImage = (item) => String(item?.mime ?? '').startsWith('image/');
+
+    /** 文件大小，给人看的那种。 */
+    const sizeLabel = (bytes) => `${String(Math.max(1, Math.round(Number(bytes ?? 0) / 1024)))} KB`;
 
     /** 从 URL 里取出域名 —— 用户靠它判断"这是什么站的链接"，比一长串地址有用。 */
     const hostOf = (url) => {
@@ -778,16 +800,18 @@ window.__ModuleLoader__.load({
         body.current?.focus();
       }, []);
 
-      /** 传一张（或几张）图：裸字节直传，文件名由宿主生成（见 api.mjs 那条路由）。 */
+      /** 传证据文件：**图片和别的文件都走这一条**（裸字节直传，文件名由宿主生成）。 */
       const upload = async (files) => {
         if (files.length === 0) return;
         setBusyShot(true);
         setNote('');
         try {
           for (const file of files) {
-            if (!file.type.startsWith('image/')) throw new Error(`「${file.name}」不是图片`);
-            if (file.size > MAX_SHOT_BYTES) throw new Error(`「${file.name}」超过 8 MB —— 截图一般几百 KB，先压一下`);
-            const response = await fetch(`${API}/evidence-image?task=${encodeURIComponent(task.id)}`, {
+            if (!EVIDENCE_ACCEPT.includes(file.type)) throw new Error(`「${file.name}」这种类型不收 —— 图片、csv / json / txt / md / zip / pdf 可以`);
+            if (file.size > MAX_EVIDENCE_BYTES) throw new Error(`「${file.name}」超过 8 MB —— 先压一下，或者只交其中一部分`);
+            // 原文件名随 query 带上**只为了在页面上显示**：落盘名由宿主生成，响应头也用宿主那个
+            // （上传方给的名字进文件名或响应头都是注入面）。
+            const response = await fetch(`${API}/evidence?task=${encodeURIComponent(task.id)}&name=${encodeURIComponent(file.name)}`, {
               method: 'POST',
               headers: { 'content-type': file.type },
               body: file,
@@ -805,10 +829,10 @@ window.__ModuleLoader__.load({
         }
       };
 
-      /** 删掉一张图。**这是唯一会删图片文件的入口** —— 见 store 里那条注释。 */
+      /** 删掉一份证据。**这是唯一会删证据文件的入口** —— 见 store 里那条注释。 */
       const dropShot = async (file) => {
         setNote('');
-        const reply = await post('/evidence-image-remove', { taskId: task.id, file });
+        const reply = await post('/evidence-remove', { taskId: task.id, file });
         if (reply.ok !== true) setNote(reply.error ?? '删不掉');
       };
 
@@ -849,31 +873,53 @@ window.__ModuleLoader__.load({
             h('span', { key: 'gloss', style: { ...S.fine, flex: '1 1 220px' } }, tierGloss),
           ]),
           h('div', { key: 'shots', style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' } }, [
-            ...(entry?.images ?? []).map((image) => h('span', { key: image.file, className: 'gw-shot', style: { position: 'relative', display: 'inline-flex' } }, [
-              h('a', {
-                key: 'open',
-                href: shotUrl(image.file),
-                target: '_blank',
-                rel: 'noreferrer',
-                title: `${String(Math.max(1, Math.round(image.bytes / 1024)))} KB　点开看原图`,
-                style: { display: 'block', lineHeight: '0' },
-              }, [h('img', {
-                key: 'img',
-                src: shotUrl(image.file),
-                alt: '证据图片',
-                style: { width: '58px', height: '58px', objectFit: 'cover', borderRadius: '10px', border: '1px solid var(--gw-line, #e5dfd5)', background: '#fff' },
-              })]),
-              h('button', {
-                key: 'drop',
-                type: 'button',
-                'aria-label': '删掉这张图',
-                title: '删掉这张图',
-                style: { position: 'absolute', top: '-6px', right: '-6px', width: '20px', height: '20px', minHeight: '0', padding: '0', display: 'grid', placeItems: 'center', borderRadius: '999px', border: '1px solid var(--gw-line, #e5dfd5)', background: '#fffdf9', color: 'var(--gw-muted, #6f7c87)', fontSize: '12px', lineHeight: '1', cursor: 'pointer' },
-                onClick: () => { void dropShot(image.file); },
-              }, '×'),
-            ])),
-            h('label', { key: 'add', className: 'gw-shot-add', style: { ...S.chipPlain, display: 'inline-flex', alignItems: 'center', gap: '6px', minHeight: '34px', padding: '6px 13px', cursor: busyShot ? 'default' : 'pointer' } }, [
-              busyShot ? '正在传…' : '＋ 加一张图',
+            // 图 → 缩略图（看一眼就知道是什么）；其他文件 → 名字 + 大小 + 下载。
+            // 两者读回来的方式本来就不同（一个 inline、一个 attachment），这里也照实分开。
+            ...(entry?.images ?? []).map((item) => (isImage(item)
+              ? h('span', { key: item.file, className: 'gw-shot', style: { position: 'relative', display: 'inline-flex' } }, [
+                h('a', {
+                  key: 'open',
+                  href: evidenceUrl(item.file),
+                  target: '_blank',
+                  rel: 'noreferrer',
+                  title: `${sizeLabel(item.bytes)}　点开看原图`,
+                  style: { display: 'block', lineHeight: '0' },
+                }, [h('img', {
+                  key: 'img',
+                  src: evidenceUrl(item.file),
+                  alt: '证据图片',
+                  style: { width: '58px', height: '58px', objectFit: 'cover', borderRadius: '10px', border: '1px solid var(--gw-line, #e5dfd5)', background: '#fff' },
+                })]),
+                h('button', {
+                  key: 'drop',
+                  type: 'button',
+                  'aria-label': '删掉这张图',
+                  title: '删掉这张图',
+                  style: { position: 'absolute', top: '-6px', right: '-6px', width: '20px', height: '20px', minHeight: '0', padding: '0', display: 'grid', placeItems: 'center', borderRadius: '999px', border: '1px solid var(--gw-line, #e5dfd5)', background: '#fffdf9', color: 'var(--gw-muted, #6f7c87)', fontSize: '12px', lineHeight: '1', cursor: 'pointer' },
+                  onClick: () => { void dropShot(item.file); },
+                }, '×'),
+              ])
+              : h('span', { key: item.file, className: 'gw-shot', style: { display: 'inline-flex', alignItems: 'center', gap: '9px', padding: '6px 8px 6px 11px', borderRadius: '10px', border: '1px solid var(--gw-line, #e5dfd5)', background: '#fffdf9' } }, [
+                h('a', {
+                  key: 'open',
+                  href: evidenceUrl(item.file),
+                  title: '点开就是下载',
+                  style: { fontSize: '13px', color: 'var(--gw-coral-deep, #a64132)', textDecoration: 'underline', wordBreak: 'break-all' },
+                }, item.name ?? item.file),
+                h('span', { key: 'size', style: { ...S.fine, color: 'var(--gw-muted-2, #9aa7b1)', whiteSpace: 'nowrap' } }, sizeLabel(item.bytes)),
+                h('button', {
+                  key: 'drop',
+                  type: 'button',
+                  'aria-label': '删掉这份证据',
+                  title: '删掉这份证据',
+                  style: { width: '20px', height: '20px', minHeight: '0', padding: '0', display: 'grid', placeItems: 'center', borderRadius: '999px', border: '1px solid var(--gw-line, #e5dfd5)', background: '#fffdf9', color: 'var(--gw-muted, #6f7c87)', fontSize: '12px', lineHeight: '1', cursor: 'pointer' },
+                  onClick: () => { void dropShot(item.file); },
+                }, '×'),
+              ]))),
+            // 两个入口：**图片**按 image/* 回、页面直接看；**其他文件**（csv / json / txt / md /
+            // zip / pdf）按 attachment 回 —— 所以从按钮上就分开说，不让「加一张图」去接一个 CSV。
+            h('label', { key: 'add-image', className: 'gw-shot-add', style: { ...S.chipPlain, display: 'inline-flex', alignItems: 'center', gap: '6px', minHeight: '34px', padding: '6px 13px', cursor: busyShot ? 'default' : 'pointer' } }, [
+              busyShot ? '正在传…' : '＋ 加图',
               // 1px + opacity 而不是 display:none —— 后者连键盘都聚焦不到。
               h('input', {
                 key: 'file',
@@ -884,6 +930,18 @@ window.__ModuleLoader__.load({
                 onChange: (event) => { void upload([...(event.target.files ?? [])]); event.target.value = ''; },
               }),
             ]),
+            h('label', { key: 'add-file', className: 'gw-shot-add', style: { ...S.chipPlain, display: 'inline-flex', alignItems: 'center', gap: '6px', minHeight: '34px', padding: '6px 13px', cursor: busyShot ? 'default' : 'pointer' } }, [
+              busyShot ? '正在传…' : '＋ 加文件',
+              h('input', {
+                key: 'file',
+                type: 'file',
+                accept: '.csv,.json,.txt,.md,.log,.zip,.pdf',
+                multiple: true,
+                style: { position: 'absolute', width: '1px', height: '1px', opacity: '0' },
+                onChange: (event) => { void upload([...(event.target.files ?? [])]); event.target.value = ''; },
+              }),
+            ]),
+            h('span', { key: 'hint', style: { ...S.fine, color: 'var(--gw-muted-2, #9aa7b1)' } }, '图直接看；其他文件给名字和大小，点开就是下载'),
             note.length === 0 ? null : h('span', { key: 'note', style: { ...S.fine, color: '#b33a2d' } }, note),
           ]),
           h('div', { key: 'actions', style: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '12px', borderTop: '1px solid var(--gw-line-soft, #efeae2)', paddingTop: '14px' } }, [
@@ -1057,22 +1115,31 @@ window.__ModuleLoader__.load({
           h('div', { key: 'meta', style: { display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' } }, [
             // 档位**只在定了之后**显示：没定就不提（「未交」是门禁的词，不是给人看的）。
             entry?.tier ? h('span', { key: 'tier', style: S.chipPlain }, entry.tier) : null,
-            ...images.map((image) => h('a', {
-              key: image.file,
-              className: 'gw-shot',
-              href: shotUrl(image.file),
-              target: '_blank',
-              rel: 'noreferrer',
-              title: `${String(Math.max(1, Math.round(image.bytes / 1024)))} KB　点开看原图`,
-              style: { display: 'block', lineHeight: '0' },
-              // 缩略图在"整块可点"的框里：点它只该开图，不该把弹窗一起打开。
-              onClick: (event) => event.stopPropagation(),
-            }, [h('img', {
-              key: 'img',
-              src: shotUrl(image.file),
-              alt: '证据图片',
-              style: { width: '40px', height: '40px', objectFit: 'cover', borderRadius: '8px', border: '1px solid var(--gw-line, #e5dfd5)', background: '#fff' },
-            })])),
+            ...images.map((item) => (isImage(item)
+              ? h('a', {
+                key: item.file,
+                className: 'gw-shot',
+                href: evidenceUrl(item.file),
+                target: '_blank',
+                rel: 'noreferrer',
+                title: `${sizeLabel(item.bytes)}　点开看原图`,
+                style: { display: 'block', lineHeight: '0' },
+                // 缩略图在"整块可点"的框里：点它只该开图，不该把弹窗一起打开。
+                onClick: (event) => event.stopPropagation(),
+              }, [h('img', {
+                key: 'img',
+                src: evidenceUrl(item.file),
+                alt: '证据图片',
+                style: { width: '40px', height: '40px', objectFit: 'cover', borderRadius: '8px', border: '1px solid var(--gw-line, #e5dfd5)', background: '#fff' },
+              })])
+              : h('a', {
+                key: item.file,
+                className: 'gw-shot',
+                href: evidenceUrl(item.file),
+                title: '点开就是下载',
+                style: { ...S.fine, color: 'var(--gw-coral-deep, #a64132)', textDecoration: 'underline', wordBreak: 'break-all' },
+                onClick: (event) => event.stopPropagation(),
+              }, `${item.name ?? item.file}　${sizeLabel(item.bytes)}`))),
             // 常态不占位置，hover / 键盘聚焦时浮出来。
             h('span', { key: 'edit', className: 'gw-answer-edit', style: { ...S.fine, marginLeft: 'auto', color: 'var(--gw-coral-deep, #a64132)' } }, '改写'),
           ]),

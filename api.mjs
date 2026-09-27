@@ -58,17 +58,18 @@ import {
 } from './model.mjs'
 import {
   KINDS,
-  addEvidenceImage,
+  addEvidenceFile,
   appendAssessment,
   checkIn,
   clearDraft,
   dismissTransferable,
   effectiveToday,
   empty,
+  evidenceMimeOf,
   read,
   readAll,
-  readEvidenceImage,
-  removeEvidenceImage,
+  readEvidenceFile,
+  removeEvidenceFile,
   saveDraft,
   today,
   updatePlan,
@@ -84,26 +85,11 @@ export const API_PREFIX = '/gw/api'
 const MAX_BODY_BYTES = 256 * 1024
 
 /**
- * 图片单独一个上限：截图动辄几百 KB，而手机照片能到好几 MB。
+ * 证据文件单独一个上限：截图动辄几百 KB，评测集/表格也能到几 MB。
  *
- * 只有 `POST /evidence-image` 用这个数，JSON 路由仍然是 256 KB —— 放宽的只是"字节流"
- * 这一条路，不是全部。
+ * 只有 `POST /evidence` 用这个数，JSON 路由仍然是 256 KB —— 放宽的只是"字节流"这一条路。
  */
-const MAX_IMAGE_BYTES = 8 * 1024 * 1024
-
-/** 证据图片按扩展名回给浏览器的类型。扩展名是宿主生成的，白名单只有这四个。 */
-const IMAGE_MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' }
-
-/** Write one binary response (evidence images, read straight back off disk). */
-function sendBytes(res, status, type, bytes) {
-  res.writeHead(status, {
-    'content-type': type,
-    'content-length': String(bytes.length),
-    // 文件名里带时间戳、内容不会变，所以让浏览器缓存一天 —— 缩略图不必每次重新下载。
-    'cache-control': 'private, max-age=86400',
-  })
-  res.end(bytes)
-}
+const MAX_EVIDENCE_BYTES = 8 * 1024 * 1024
 
 /**
  * Read a raw (non-JSON) body, refusing an oversized one before buffering it.
@@ -643,10 +629,10 @@ async function mutate(route, body) {
       updateProfile({ agentSession: { id: sessionId, title, boundAt: new Date().toISOString() } })
       return { profile: read('profile') }
     }
-    case '/evidence-image-remove': {
-      // 只有用户点缩略图上那个 × 会走到这里 —— 而它也是唯一会删图片文件的入口。
-      const removed = removeEvidenceImage(String(body.taskId ?? ''), String(body.file ?? ''))
-      if (!removed) throw new Error('这张图不在这个任务的证据里（可能已经删过了）')
+    case '/evidence-remove': {
+      // 只有用户点证据上那个 × 会走到这里 —— 而它也是唯一会删证据文件的入口。
+      const removed = removeEvidenceFile(String(body.taskId ?? ''), String(body.file ?? ''))
+      if (!removed) throw new Error('这份证据不在这个任务的记录里（可能已经删过了）')
       return { progress: read('progress') }
     }
     case '/reset': {
@@ -681,28 +667,39 @@ export async function handleApi(req, res) {
     // the data moved out of the browser, so it owes them a way to hold it.
     return serve(res, () => ({ exported: today(), data: readAll() }))
   }
-  if (method === 'GET' && route === '/evidence-image') {
-    // 原路把图片吐回去给页面显示。文件名过 store 的校验（形状 + 不越界）—— 路径穿越的
-    // 那道闸门就在那里，不在这一层。
+  if (method === 'GET' && route === '/evidence') {
+    // 原路交回去：**图片按 image/* 显示缩略图，其余一律 octet-stream + attachment 下载**。
+    // 后半句不是洁癖 —— 上传一个 .html / .svg 再让它按原类型回，就是同源 XSS。
+    // 文件名过 store 的校验（形状 + 不越界），路径穿越的闸门在那里，不在这一层。
     const file = url.searchParams.get('file') ?? ''
     try {
-      const bytes = readEvidenceImage(file)
-      const ext = file.slice(file.lastIndexOf('.') + 1).toLowerCase()
-      return sendBytes(res, 200, IMAGE_MIME[ext] ?? 'application/octet-stream', bytes)
+      const bytes = readEvidenceFile(file)
+      const mime = evidenceMimeOf(file)
+      res.writeHead(200, mime.startsWith('image/')
+        ? { 'content-type': mime, 'content-length': String(bytes.length), 'cache-control': 'private, max-age=86400' }
+        : {
+          'content-type': 'application/octet-stream',
+          'content-length': String(bytes.length),
+          // 用**我们生成的那个名字**，不用上传方给的（那会进响应头 —— 另一条注入面）。
+          'content-disposition': `attachment; filename="${file}"`,
+          'cache-control': 'private, max-age=86400',
+        })
+      return res.end(bytes)
     } catch (error) {
       return sendJson(res, 404, { ok: false, error: error instanceof Error ? error.message : String(error) })
     }
   }
-  if (method === 'POST' && route === '/evidence-image') {
+  if (method === 'POST' && route === '/evidence') {
     // 收的是**裸字节**（不是 JSON、也不是 multipart），所以它不走下面那条通用写入路径。
     const taskId = url.searchParams.get('task') ?? ''
+    const originalName = url.searchParams.get('name') ?? ''
     return serve(res, async () => {
-      const bytes = await readRawBody(req, MAX_IMAGE_BYTES)
+      const bytes = await readRawBody(req, MAX_EVIDENCE_BYTES)
       const { plan } = readAll()
       if (planTasks(plan).every((task) => task.id !== taskId)) {
         throw new Error(`计划里没有 ${taskId} 这个任务（任务可能已被删除）`)
       }
-      return { entry: addEvidenceImage(taskId, bytes, req.headers?.['content-type'] ?? '') }
+      return { entry: addEvidenceFile(taskId, bytes, req.headers?.['content-type'] ?? '', originalName) }
     })
   }
   if (method === 'POST') {

@@ -1707,12 +1707,12 @@ await check('POST /assessment 登记四维成绩', async () => {
   assert.equal(reply.body.entry.grade, '良')
 })
 
-await check('证据图片：上传、原路读回、拒绝越界与非法类型、只有用户那一下会删', async () => {
+await check('证据文件：图片显示、其他下载，越界与危险类型都拒', async () => {
   // 一张最小的 PNG 头 —— 这条验的是通路（字节进、字节出、名字由宿主生成），不是解码。
   const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex')
   const taskId = model.planTasks(store.read('plan'))[0].id
 
-  const up = await callApi('POST', `${api.API_PREFIX}/evidence-image?task=${taskId}`, png, 'image/png')
+  const up = await callApi('POST', `${api.API_PREFIX}/evidence?task=${taskId}`, png, 'image/png')
   assert.equal(up.status, 200)
   const entry = store.read('progress').tasks[taskId]
   assert.equal(entry.images.length, 1)
@@ -1721,32 +1721,59 @@ await check('证据图片：上传、原路读回、拒绝越界与非法类型�
   assert.ok(existsSync(join(store.evidenceDir(), file)), '字节真的落盘了')
   assert.equal(entry.images[0].bytes, png.length)
 
-  // 原路读回：同样的字节、同样的类型（页面用它显示缩略图）。
-  const back = await callApi('GET', `${api.API_PREFIX}/evidence-image?file=${file}`)
+  // 原路读回：**图片按 image/\* 回**，页面直接显示缩略图。
+  const back = await callApi('GET', `${api.API_PREFIX}/evidence?file=${file}`)
   assert.equal(back.status, 200)
   assert.equal(back.headers['content-type'], 'image/png')
   assert.ok(back.bytes.equals(png))
 
+  // **CSV 这类文件走同一条路**：能存、能读回，但回的是 octet-stream + attachment ——
+  // 绝不当页面渲染（上传一个 .html 再按原类型回就是同源 XSS）。
+  const csv = Buffer.from('问题,期望要点\n退款多久到账,3 个工作日\n', 'utf8')
+  const csvUp = await callApi('POST', `${api.API_PREFIX}/evidence?task=${taskId}&name=${encodeURIComponent('评测集.csv')}`, csv, 'text/csv')
+  assert.equal(csvUp.status, 200)
+  const csvFile = store.read('progress').tasks[taskId].images[1].file
+  assert.match(csvFile, /\.csv$/)
+  assert.equal(store.read('progress').tasks[taskId].images[1].name, '评测集.csv', '原文件名只留着给人看')
+  const csvBack = await callApi('GET', `${api.API_PREFIX}/evidence?file=${csvFile}`)
+  assert.equal(csvBack.status, 200)
+  assert.equal(csvBack.headers['content-type'], 'application/octet-stream')
+  assert.match(csvBack.headers['content-disposition'], /^attachment; filename="/, '非图片一律下载，不当页面渲染')
+  assert.match(csvBack.headers['content-disposition'], new RegExp(csvFile.replace('.', '\\.')), '响应头用宿主生成的名字，不用上传方给的')
+  assert.ok(csvBack.bytes.equals(csv))
+
   // 路径穿越：名字必须是宿主生成的那个形状 —— `?file=../profile.json` 不该把画像吐出来。
-  const escape = await callApi('GET', `${api.API_PREFIX}/evidence-image?file=${encodeURIComponent('../profile.json')}`)
+  const escape = await callApi('GET', `${api.API_PREFIX}/evidence?file=${encodeURIComponent('../profile.json')}`)
   assert.equal(escape.status, 404)
 
-  // 只收四种图片；空的也不收。
-  const badType = await callApi('POST', `${api.API_PREFIX}/evidence-image?task=${taskId}`, Buffer.from('<html>'), 'text/html')
+  // 危险类型（能当页面执行的）与空文件都拒。
+  const badType = await callApi('POST', `${api.API_PREFIX}/evidence?task=${taskId}`, Buffer.from('<html>'), 'text/html')
   assert.equal(badType.status, 400)
-  assert.match(badType.body.error, /只收 png/)
-  const empty = await callApi('POST', `${api.API_PREFIX}/evidence-image?task=${taskId}`, Buffer.alloc(0), 'image/png')
+  assert.match(badType.body.error, /只收图片/)
+  const empty = await callApi('POST', `${api.API_PREFIX}/evidence?task=${taskId}`, Buffer.alloc(0), 'image/png')
   assert.equal(empty.status, 400)
 
-  // 删：只有用户点那个 × 会走到这条路由，文件与记录一起清掉。
-  const gone = await callApi('POST', `${api.API_PREFIX}/evidence-image-remove`, { taskId, file })
+  // 删：只有用户点那个 × 会走到这条路由，文件与记录一起清掉（两份都能删）。
+  const gone = await callApi('POST', `${api.API_PREFIX}/evidence-remove`, { taskId, file })
   assert.equal(gone.status, 200)
-  assert.deepEqual(store.read('progress').tasks[taskId].images, [])
+  assert.equal(store.read('progress').tasks[taskId].images.length, 1)
   assert.ok(!existsSync(join(store.evidenceDir(), file)), '文件跟着删了')
+  await callApi('POST', `${api.API_PREFIX}/evidence-remove`, { taskId, file: csvFile })
+  assert.deepEqual(store.read('progress').tasks[taskId].images, [])
 
   // 再删一次要说清楚，而不是静默成功。
-  const twice = await callApi('POST', `${api.API_PREFIX}/evidence-image-remove`, { taskId, file })
+  const twice = await callApi('POST', `${api.API_PREFIX}/evidence-remove`, { taskId, file })
   assert.equal(twice.status, 400)
+
+  // 页面那份白名单只为了"选之前就拦住"，但**必须与宿主那张一致** —— 否则会出现"页面放行、
+  // 宿主拒绝"（用户看到的是一个说不清原因的失败）。逐条对着宿主那张查。
+  const storeSource = readFileSync(join(ROOT, 'store.mjs'), 'utf8')
+  const blockStart = storeSource.indexOf('const EVIDENCE_TYPES')
+  const block = storeSource.slice(blockStart, storeSource.indexOf('}', blockStart))
+  const clientSource = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  for (const mime of [...block.matchAll(/'([a-z]+\/[a-z0-9.+-]+)'/g)].map((match) => match[1])) {
+    assert.ok(clientSource.includes(`'${mime}'`), `页面白名单也要有 ${mime}`)
+  }
 })
 
 await check('提前：节奏比日历快，但不碰起始日与打卡日期', async () => {

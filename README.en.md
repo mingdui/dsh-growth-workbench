@@ -170,13 +170,15 @@ After restarting, open the left sidebar -> 成长工作台 -> **画像**:
 5. Day to day, the 今日 tab and the right 今日 tab are the only place to check in and
    record evidence. For a review, the **让 AI 现在考核** button says "考核我"
 
-Evidence can be a line of text or **a picture** (a screenshot, a whiteboard photo, a run's
-output). Click the evidence line on a task and a **writing sheet** opens: a full sheet, no
-border on the body, roomy line height, with the task's done-criteria and acceptable evidence
-right beside it — write it like a note. Esc closes, ⌘/Ctrl + Enter saves (closing saves too,
-nothing is lost). Images live in the plugin's data directory
-(`$DSH_HOME/growth-workbench/evidence/`) and **only the × on a thumbnail inside that sheet
-deletes one** — rewriting the plan or dropping a task never touches them: your evidence is
+Evidence can be a line of text, **a picture** (a screenshot, a whiteboard photo, a run's
+output), or **a file** (csv / json / txt / md / zip / pdf, up to 8MB each — an eval set, a
+log, a data table). Click the evidence line on a task and a **writing sheet** opens: a full
+sheet, no border on the body, roomy line height, with the task's done-criteria and acceptable
+evidence right beside it — write it like a note. ⌘/Ctrl + Enter saves (closing saves too,
+nothing is lost); both *＋ 加图* and *＋ 加文件* live in that sheet. Evidence lives in the
+plugin's data directory (`$DSH_HOME/growth-workbench/evidence/`) and **only the × next to an
+item inside that sheet deletes one** — rewriting the plan or dropping a task never touches
+them: your evidence is
 yours, not a cache.
 
 **Every task should tell you how to learn it.** A task carries a **learning block**: a
