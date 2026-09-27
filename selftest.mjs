@@ -1502,6 +1502,52 @@ await check('证据图片：上传、原路读回、拒绝越界与非法类型�
   assert.equal(twice.status, 400)
 })
 
+await check('试跑：把「今天」往后拨，但不碰起始日与打卡日期', async () => {
+  const planStart = store.read('plan').planStart
+  const before = (await callApi('GET', `${api.API_PREFIX}/state`)).body.metrics.day
+
+  const on = await callApi('POST', `${api.API_PREFIX}/rehearsal`, { days: 3 })
+  assert.equal(on.status, 200)
+  const shifted = (await callApi('GET', `${api.API_PREFIX}/state`)).body
+  assert.equal(shifted.metrics.rehearsalDays, 3)
+  assert.equal(shifted.metrics.day, before + 3, '第几天跟着拨（今日任务、阶段、周次都跟着走）')
+  assert.equal(shifted.today, store.effectiveToday({ rehearsalDays: 3 }))
+  assert.equal(store.read('plan').planStart, planStart, '起始日是"计划从哪天开始"这个事实，一个字都不动')
+
+  // 打卡记的仍是**真实日期**：试跑改的是"现在算第几天"，不是"现在几号"。
+  const taskId = model.planTasks(store.read('plan'))[0].id
+  await callApi('POST', `${api.API_PREFIX}/checkin`, { taskId, done: true, evidence: '试跑里打的卡' })
+  const dates = store.read('progress').tasks[taskId].checkInDates
+  assert.ok(dates.includes(store.today()), '打卡日期是真实的今天')
+  assert.ok(
+    !dates.includes(store.effectiveToday({ rehearsalDays: 3 })),
+    '被拨过的那一天不该进打卡记录 —— 试跑改的是"现在算第几天"，不是"现在几号"',
+  )
+
+  // Agent 读到的必须是同一天 —— 否则它按真实日期写下的轮次会和页面显示的对不上。
+  const brief = await tools.growthContext.execute({ scope: 'brief' })
+  assert.ok(brief.includes(store.effectiveToday({ rehearsalDays: 3 })), '简报里的"今天"与页面同一天')
+
+  // 退出：回到真实的那一天。
+  await callApi('POST', `${api.API_PREFIX}/rehearsal`, { days: 0 })
+  assert.equal((await callApi('GET', `${api.API_PREFIX}/state`)).body.metrics.day, before)
+  // 越界、非整数、负数都不收 —— 它不是"跳到任意日期"的工具。
+  assert.equal((await callApi('POST', `${api.API_PREFIX}/rehearsal`, { days: 366 })).status, 400)
+  assert.equal((await callApi('POST', `${api.API_PREFIX}/rehearsal`, { days: 1.5 })).status, 400)
+  assert.equal((await callApi('POST', `${api.API_PREFIX}/rehearsal`, { days: -1 })).status, 400)
+})
+
+await check('试跑与计划页的完成状态：页头提醒就地带两个动作，T 签把做完没做完说掉', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  // 试跑开着时页头挂一条提醒（四个页签都在），并且就地带「进一天 / 退出试跑」。
+  assert.match(source, /state\.metrics\.rehearsalDays > 0 \? h\('div', \{ key: 'rehearsal'/)
+  assert.match(source, /post\('\/rehearsal', \{ days: 0 \}\)/, '退出试跑要一键可达')
+  assert.match(source, /打卡仍记真实日期/, '被拨过的那一天要说清楚，别让人把第 8 天当真')
+  // 计划页的任务签顺便把状态说掉（原先一个字都没有），而它只是状态：不带 onClick —— 打卡只在今日页。
+  assert.match(source, /\? `\$\{task\.id\} ✓` : task\.id/)
+  assert.match(source, /title: state\.progress\.tasks\?\.\[task\.id\]\?\.done === true \? '已完成' : '还没做'/)
+})
+
 await check('POST /reset 只清指定分区', async () => {
   const reply = await callApi('POST', `${api.API_PREFIX}/reset`, { kind: 'progress' })
   assert.equal(reply.status, 200)

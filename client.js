@@ -583,6 +583,9 @@ window.__ModuleLoader__.load({
       select: { padding: '10px 12px', fontSize: '13px', font: 'inherit', color: 'inherit', background: '#fffdf9', borderRadius: '11px', border: '1px solid var(--gw-line, #d9d0c4)' },
       chip: { display: 'inline-block', padding: '4px 10px', fontSize: '12px', borderRadius: '999px', color: 'var(--gw-coral-deep, #a64132)', background: 'var(--gw-coral-soft, rgba(229,107,85,.10))', border: '1px solid rgba(229,107,85,.2)' },
       chipPlain: { display: 'inline-block', padding: '4px 10px', fontSize: '12px', borderRadius: '999px', color: 'var(--gw-muted, #6f7c87)', background: '#f4f1ea', border: '1px solid var(--gw-line-soft, #efeae2)' },
+      // 文字链式的动作（页头那一行「改绑 / 重建」、试跑提醒里的两个动作）：无边框无底色，
+      // 只靠下划线 + 颜色说"这能点"。它的 hover 自己一条（`.gw-quiet`），不吃通用那套上浮与投影。
+      quiet: { font: 'inherit', background: 'none', border: 'none', padding: '0', textDecoration: 'underline', color: 'var(--gw-coral-deep, #a64132)', cursor: 'pointer' },
       error: { fontSize: '13px', color: '#b33a2d', background: '#fff0ed', border: '1px solid #f3c5be', borderRadius: '12px', padding: '12px 15px' },
       warn: { fontSize: '13px', color: '#8a5a1f', background: '#fdf7e8', border: '1px solid #ecd9a8', borderRadius: '12px', padding: '12px 15px' },
       empty: { fontSize: '14px', color: 'var(--gw-muted, #6f7c87)', padding: '14px 0' },
@@ -1005,6 +1008,13 @@ window.__ModuleLoader__.load({
           ]),
           onThisTab ? null : h('button', { key: 'go', type: 'button', style: { ...S.button, background: '#f3c26b', borderColor: '#f3c26b', color: '#253b39' }, onClick: () => onNavigate(action.targetTab, action.targetAnchor) }, '现在去做 →'),
         ]),
+        // 试跑中：被拨过的日子里，最不该发生的事就是把「第 8 天」当成真的第 8 天 ——
+        // 所以这条提醒跟着页头走（四个页签都在），并且就地给两个动作。
+        state.metrics.rehearsalDays > 0 ? h('div', { key: 'rehearsal', className: 'gw-rehearsal', style: { ...S.meta, display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', padding: '9px 12px', borderRadius: '10px', background: '#fdf3e4', border: '1px solid #f0dcb4' } }, [
+          h('span', { key: 'what' }, `试跑中${state.metrics.day === null ? '' : ` · 今天当成第 ${String(state.metrics.day)} 天`}（打卡仍记真实日期）`),
+          h('button', { key: 'step', type: 'button', className: 'gw-quiet', style: { ...S.fine, ...S.quiet }, onClick: () => { void post('/rehearsal', { days: state.metrics.rehearsalDays + 1 }); } }, '进一天'),
+          h('button', { key: 'off', type: 'button', className: 'gw-quiet', style: { ...S.fine, ...S.quiet }, onClick: () => { void post('/rehearsal', { days: 0 }); } }, '退出试跑'),
+        ]) : null,
         activity === null ? null : h('div', { key: 'activity', role: 'status', 'aria-live': 'polite', style: { ...S.meta, padding: '9px 12px', borderRadius: '10px', background: activity.status === 'error' ? '#fff0ed' : activity.status === 'completed' ? '#edf7ef' : '#f3efe8' } }, activity.status === 'completed'
           ? (activity.wrote === true
             ? 'AI 已返回结果，页面已自动更新。'
@@ -1049,7 +1059,7 @@ window.__ModuleLoader__.load({
         type: 'button',
         className: 'gw-quiet',
         disabled: busy,
-        style: { ...S.fine, font: 'inherit', background: 'none', border: 'none', padding: '0', textDecoration: 'underline', color: 'var(--gw-coral-deep, #a64132)', cursor: busy ? 'default' : 'pointer' },
+        style: { ...S.fine, ...S.quiet, cursor: busy ? 'default' : 'pointer' },
         onClick: () => { void run(work); },
       }, label);
       const currentId = () => sessions?.list?.getSnapshot?.()?.current ?? '';
@@ -1297,6 +1307,8 @@ window.__ModuleLoader__.load({
       // 用户看到的就是「点了没反应」。所以让它跟着数据的真实状态走，而不是跟着点击走：
       // 与库里一致就显示「已保存」（不假装可点），改动了才是可点的「保存」。
       const [saving, setSaving] = useState(false);
+      // 试跑偏移（0 = 关）。页面靠它把两个动作的文案与那行说明切换过来。
+      const rehearsal = state.metrics.rehearsalDays ?? 0;
       useEffect(() => { setStartDraft(plan.planStart ?? ''); }, [plan.planStart]);
       const startChanged = startDraft !== (plan.planStart ?? '');
       const saveStart = async () => {
@@ -1372,6 +1384,21 @@ window.__ModuleLoader__.load({
           }, saving ? '保存中…' : startChanged ? '保存' : '已保存'),
           h('span', { key: 'note', style: S.meta }, '计划的第 1 天，决定「第几天」与周次。'),
         ]),
+        // 试跑：把"今天"往后拨。给验收用的 —— 90 天的东西没法靠真实日历在一天里走完。
+        // 它**不动起始日**（那是"计划从哪天开始"这个事实），也不动打卡日期（打卡记的是真
+        // 发生的事），只改"现在算第几天"。开着的时候页头会挂一条提醒，免得把第 8 天当真。
+        h('div', { key: 'rehearsal', style: { ...S.inline, marginTop: '8px' } }, [
+          h('button', {
+            key: 'step',
+            type: 'button',
+            style: S.buttonLight,
+            onClick: () => { void post('/rehearsal', { days: rehearsal + 1 }); },
+          }, rehearsal > 0 ? '试跑：再进一天' : '试跑：进一天'),
+          rehearsal > 0 ? h('button', { key: 'off', type: 'button', style: S.buttonLight, onClick: () => { void post('/rehearsal', { days: 0 }); } }, '退出试跑') : null,
+          h('span', { key: 'note', style: S.meta }, rehearsal > 0
+            ? `试跑中：今天当成第 ${String(state.metrics.day)} 天，打卡仍记真实日期。`
+            : '试跑：把「今天」往后拨一天，用来在一天里走完几天的流程 —— 不动起始日，也不动打卡日期。'),
+        ]),
       ]));
 
       // 计划页原先只回答「我打算做什么」。执行趋势补上另一半：我实际做得怎样。
@@ -1417,10 +1444,22 @@ window.__ModuleLoader__.load({
           // 十个字列排下来每列只剩一百来像素，而「一句话动作 / 完成标准 / 可接受证据」装的是整句话。
           // 改成每个任务四行：动作在前，元数据与两条标准各一行小字 —— 横向滚的表格读不了句子。
           body.push(h('div', { key: 'tasks', style: { display: 'flex', flexDirection: 'column' } },
-            phase.tasks.map((task) => h('div', { key: task.id, style: { ...S.row, flexDirection: 'column', alignItems: 'stretch', gap: '4px' } }, [
+            phase.tasks.map((task) => h('div', { key: task.id, className: 'gw-plan-task', style: { ...S.row, flexDirection: 'column', alignItems: 'stretch', gap: '4px' } }, [
               h('div', { key: 'head', style: { display: 'flex', gap: '9px', alignItems: 'baseline' } }, [
-                h('span', { key: 'id', style: { ...S.chip, flex: '0 0 auto' } }, task.id),
-                h('span', { key: 'action', style: { fontSize: '14px', fontWeight: '600' } }, task.action),
+                // 标识这枚小签顺便把"做完了没有"说掉：计划页原先对完成状态**一个字都没有**，
+                // 于是"哪些已经做了"只能回今日页一条条对。已完成就换成青色 + 一个勾 ——
+                // 它是状态，不是入口：打卡只在今日页（入口唯一）。
+                h('span', {
+                  key: 'id',
+                  title: state.progress.tasks?.[task.id]?.done === true ? '已完成' : '还没做',
+                  style: {
+                    ...S.chip, flex: '0 0 auto',
+                    ...(state.progress.tasks?.[task.id]?.done === true
+                      ? { color: 'var(--gw-teal, #2f7d74)', background: 'var(--gw-teal-soft, rgba(47,125,116,.12))', borderColor: 'rgba(47,125,116,.3)' }
+                      : {}),
+                  },
+                }, state.progress.tasks?.[task.id]?.done === true ? `${task.id} ✓` : task.id),
+                h('span', { key: 'action', style: { fontSize: '14px', fontWeight: '600', opacity: state.progress.tasks?.[task.id]?.done === true ? '.62' : '1' } }, task.action),
               ]),
               h('div', { key: 'meta', style: S.fine }, [
                 task.ref ? `引用 ${task.ref}` : '',

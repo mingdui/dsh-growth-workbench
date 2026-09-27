@@ -45,7 +45,7 @@ import {
   streakDays,
   weekRate,
 } from './model.mjs'
-import { appendAssessment, readAll, setTransferableSuggestions, today, updatePlan, updateProfile } from './store.mjs'
+import { appendAssessment, effectiveToday, readAll, setTransferableSuggestions, today, updatePlan, updateProfile } from './store.mjs'
 import { MODEL_TEMPLATE_NOTE, canonicalCapabilityModel, canonicalNotTransferable, canonicalPlan, canonicalReview, canonicalTransferable } from './validate.mjs'
 
 /** Tool names are prefixed so they cannot collide with another plugin's. */
@@ -82,7 +82,9 @@ function progressLine(task, entry) {
 /** The metrics block every briefing opens with. */
 function metricsBlock(state) {
   const { profile, plan, progress, assessments } = state
-  const date = today()
+  // 试跑期间"今天"是被拨过的那一天 —— Agent 读到的那一天必须与页面显示的一致，
+  // 否则它按真实日期写下来的考核轮次会和页面对不上（见 store.effectiveToday）。
+  const date = effectiveToday(profile)
   const day = dayNumber(plan.planStart, date)
   const phase = currentPhase(plan, day)
   const completion = completionRate(plan, progress)
@@ -183,8 +185,8 @@ function progressBlock(state) {
 
 /** Today's tasks, and the rule that decides which ones those are. */
 function todayBlock(state) {
-  const { plan, progress } = state
-  const day = dayNumber(plan.planStart, today())
+  const { profile, plan, progress } = state
+  const day = dayNumber(plan.planStart, effectiveToday(profile))
   const tasks = planTasks(plan)
   const scheduled = tasks.filter((task) => task.day === day)
   const focus = scheduled.length > 0 ? scheduled : tasks.filter((task) => progress.tasks?.[task.id]?.done !== true).slice(0, 3)

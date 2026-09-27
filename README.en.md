@@ -176,6 +176,11 @@ the plugin's data directory (`$DSH_HOME/growth-workbench/evidence/`) and **only 
 the thumbnail deletes one** — rewriting the plan or dropping a task never touches them:
 your evidence is yours, not a cache.
 
+**In a hurry?** A 90-day plan cannot be walked through in one real day, so the 计划 tab's
+start-date row carries a **rehearsal** control: it shifts "today" forward a day and a banner
+appears in the page header, with *next day* / *exit rehearsal* right there. It changes only
+which day the product thinks it is — the start date and every check-in date stay real.
+
 A button is **a shortcut for typing, not a hidden worker**: the phrase is delivered as an
 **ordinary user turn**, so you watch it read, you can interrupt it, and you can correct it
 mid-flight. And nothing that is *your* call gets generated at all — which abilities you

@@ -62,6 +62,7 @@ import {
   appendAssessment,
   checkIn,
   dismissTransferable,
+  effectiveToday,
   empty,
   read,
   readAll,
@@ -161,8 +162,9 @@ function record(value) {
  * different moments.
  */
 export function buildState() {
-  const date = today()
   const { profile, plan, progress, assessments } = readAll()
+  // 试跑期间"今天"是被拨过的那一天 —— 页面与 Agent 用的是同一个日期，见 effectiveToday。
+  const date = effectiveToday(profile)
   const history = assessments.history ?? []
   const tasks = planTasks(plan)
   const day = dayNumber(plan.planStart, date)
@@ -196,6 +198,9 @@ export function buildState() {
     curve: curvePoints(history),
     metrics: {
       day,
+      // 试跑偏移（0 = 关）。页面靠它决定要不要挂那条「试跑中」的提醒 —— 被拨过的日子里，
+      // 用户最不该做的事就是把"第 8 天"当成真的第 8 天。
+      rehearsalDays: Number.isInteger(profile.rehearsalDays) ? profile.rehearsalDays : 0,
       phaseName: phase?.name ?? '',
       phaseIndex: phase === undefined ? -1 : plan.phases.indexOf(phase),
       phaseDays: phase?.days ?? [],
@@ -572,6 +577,14 @@ async function mutate(route, body) {
       // 只有 Agent 生成模型；页面用它来「丢弃这份模型」（回到让 AI 重生成）。
       if (body.discard !== true) throw new Error('能力模型只能由 Agent 生成（用 growth_propose_capability_model）；这个接口只接受 { discard: true }')
       updateProfile({ capabilityModel: null, selfAssessment: null })
+      return { profile: read('profile') }
+    }
+    case '/rehearsal': {
+      // 试跑：把"今天"往后拨。给验收用的 —— 90 天的流程没法靠真实日历在一天里走完。
+      // 上限 365：这不是"跳到任意日期"的工具，只是让日子能快一点。
+      const days = Number(body.days)
+      if (!Number.isInteger(days) || days < 0 || days > 365) throw new Error('试跑偏移必须是 0-365 的整数（0 = 退出试跑）')
+      updateProfile({ rehearsalDays: days })
       return { profile: read('profile') }
     }
     case '/agent-session': {
