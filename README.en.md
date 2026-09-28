@@ -10,14 +10,6 @@
 
 Once installed, a **成长工作台** entry appears in the left menu — pick a direction, it lays 90 days out as one thing per day; finish it, leave a line of evidence, take a review on schedule, and adjust from the result.
 
-![The growth workbench](docs/images/right-today.png)
-
-*Left: its own workspace and dedicated conversation in the DSH sidebar · Middle: the **teacher** lives in that conversation (every AI run goes there) · Right: the 今日 pane — one thing a day, then one line of evidence*
-
-▶ **[Watch the 76-second demo](docs/demo.mp4)** (1440×804) — plan → evidence on 今日 → next day → node exam → phase exam → the teacher fills in study material → a word with the teacher. Only the teacher runs are a real model; everything else is **really clicked** in the page: the enlarged cursor and the click ripples are live, not added in post, and the frame is never cropped.
-
-[![Demo](docs/images/demo-poster.jpg)](docs/demo.mp4)
-
 ## The problem it solves
 
 People who want to switch fields or patch a skill gap get stuck on three things:
@@ -37,6 +29,14 @@ This plugin links those three into one chain: **do one thing today → leave evi
 ```
 
 Steps 1-6 happen on the 画像 tab; the plan lands on 计划; the daily work is on 今日 (or the narrow 今日 pane on the right); reviews are on 考核.
+
+![The growth workbench](docs/images/right-today.png)
+
+*Left: its own workspace and dedicated conversation in the DSH sidebar · Middle: the **teacher** lives in that conversation (every AI run goes there) · Right: the 今日 pane — one thing a day, then one line of evidence*
+
+▶ **[Watch the 76-second demo](docs/demo.mp4)** (1440×804) — plan → evidence on 今日 → next day → node exam → phase exam → the teacher fills in study material → a word with the teacher. Only the teacher runs are a real model; everything else is **really clicked** in the page: the enlarged cursor and the click ripples are live, not added in post, and the frame is never cropped.
+
+[![Demo](docs/images/demo-poster.jpg)](docs/demo.mp4)
 
 ## Install
 
