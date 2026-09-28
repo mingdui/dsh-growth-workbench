@@ -2127,7 +2127,13 @@ await check('专属会话的工作区：宿主侧的**空**目录，不是数据
   assert.match(ensure, /await workspaces\.create\(\{ path \}\)/, '同一个路径重复创建是幂等的')
   assert.match(ensure, /workspaces\.rename\?\.\(id, AGENT_SESSION_TITLE\)/, '目录名当标题不好看，改成「成长工作台」')
   assert.match(source, /const workspaceId = await ensureAgentWorkspace\(cwd, knownWorkspaceId\)/, '建会话前先把工作区确保下来')
-  assert.match(source, /return \{ id, named, reason, workspaceId \};/, '建出来的会话要带上"归到哪个工作区"')
+  assert.match(source, /return { id, named, reason, workspaceId, binding };/, '建出来的会话要带上"归到哪个工作区"与它的把手')
+  // **建会话时就把把手拿到手**：新会话进列表是异步的，慢一点的机器上第一次常常还没有 ——
+  // 用户在另一台机器上撞上过「专用对话刚建好却寻址不到」。所以这里等、补一次 open、再等。
+  assert.ok(source.includes('let binding = await waitForBinding(sessions, id);'), '建完就等一次把手')
+  assert.ok(source.includes('binding = await waitForBinding(sessions, id, 6000);'), '拿不到就补一次 open 再等')
+  // 真拿不到时给一句能照做的话：对话已经建好、刷一下页面即可，别让用户反复点。
+  assert.match(source, /刷新一下页面（F5）再点一次即可，不用重建对话/, '报错要说到"怎么恢复"')
   // 空对话在侧栏里显示「新会话」是 **DSH 的规矩**（`displayTitle`：blank 的行一律用那个标签，
   // 不看标题）。用户点名要的解法是把话说在前面：「重建一个」之后自动发一句「老师好！」——
   // 那一行当场归位，老师也开了口。

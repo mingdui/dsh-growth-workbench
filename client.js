@@ -369,7 +369,7 @@ window.__ModuleLoader__.load({
       for (let attempt = 0; attempt < 2 && !named; attempt += 1) {
         if (attempt > 0) await new Promise((resolve) => { setTimeout(resolve, 400); });
         try {
-          const binding = sessions.binding(id) ?? await waitForBinding(sessions, id);
+          const binding = sessions.binding(id) ?? await waitForBinding(sessions, id, 1500);
           const renamed = await binding?.session?.rename?.(AGENT_SESSION_TITLE);
           named = renamed?.ok === true;
           // **失败的原因要带回去**：我原来只留了个 true/false，于是"为什么没改成名"这件事
@@ -380,7 +380,15 @@ window.__ModuleLoader__.load({
           reason = messageOf(failure);
         }
       }
-      return { id, named, reason, workspaceId };
+      // **拿到这个会话的把手**（binding）：发消息、改名都要它。新会话进列表是异步的，慢一点的
+      // 机器上第一次常常还没有 —— 所以这里多等一会儿，必要时补一次 open 再等一轮。
+      // （用户在自己的机器上撞上过：界面报「专用对话刚建好却寻址不到 —— 稍后再试一次」。）
+      let binding = await waitForBinding(sessions, id);
+      if (binding === undefined) {
+        try { sessions.open(id); } catch { /* 打不开就只剩等了 */ }
+        binding = await waitForBinding(sessions, id, 6000);
+      }
+      return { id, named, reason, workspaceId, binding };
     }
 
     /**
@@ -390,7 +398,7 @@ window.__ModuleLoader__.load({
      * 代价就能把"刚建好还没跟上"和"真的被删了"分开 —— 后者是**不能静默改投**的那种情况，
      * 值得等清楚再下结论。
      */
-    async function waitForBinding(sessions, id, timeoutMs = 2000) {
+    async function waitForBinding(sessions, id, timeoutMs = 8000) {
       const deadline = Date.now() + timeoutMs;
       for (;;) {
         const binding = sessions.binding(id);
@@ -432,8 +440,12 @@ window.__ModuleLoader__.load({
       // 标题按实际改没改成功来落：改名失败时存「新会话」以外的真相没有意义 —— 页面会用
       // 这个名字去说"运行都在「X」里"，存错了那句话就是假的。
       await call('/agent-session', { sessionId: created.id, title: created.named ? AGENT_SESSION_TITLE : '新会话' });
-      const binding = await waitForBinding(sessions, created.id);
-      if (binding === undefined) throw new Error('专用对话刚建好却寻址不到 —— 稍后再试一次');
+      // 对话此刻已经**落盘固定**了（上面那次 /agent-session），所以这里寻址不到只是这一页的事：
+      // 刷新之后页面会重新把它读出来并寻址得到。报错要说到这一层，否则用户只会反复点。
+      const binding = created.binding ?? await waitForBinding(sessions, created.id, 4000);
+      if (binding === undefined) {
+        throw new Error('专用对话已经建好了，只是这一页还没寻址到它 —— 刷新一下页面（F5）再点一次即可，不用重建对话。');
+      }
       return { id: created.id, binding, created: true, named: created.named, reason: created.reason, revision };
     }
 
