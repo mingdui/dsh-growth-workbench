@@ -6,7 +6,7 @@
 
 [中文](README.md) | English
 
-**AI 成长工作台** — a plugin (`dsh-growth-workbench`) for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (CLI name `dsh`) that **turns "I want to change careers" into one thing you can finish today.**
+**AI 个人成长工作台** (AI personal growth workbench) — a plugin (`dsh-growth-workbench`) for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (CLI name `dsh`) that **turns "I want to change careers" into one thing you can finish today.**
 
 Once installed, a **成长工作台** entry appears in the left menu — pick a direction, it lays 90 days out as one thing per day; finish it, leave a line of evidence, take a review on schedule, and adjust from the result.
 
