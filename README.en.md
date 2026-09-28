@@ -6,9 +6,9 @@
 
 [中文](README.md) | English
 
-**Turns "I want to change careers" into one thing you can finish today.**
+**A plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (CLI name `dsh`) that turns "I want to change careers" into one thing you can finish today.**
 
-A plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (CLI name `dsh`). Once installed, a **成长工作台** entry appears in the left menu.
+Once installed, a **成长工作台** entry appears in the left menu — pick a direction, it lays 90 days out as one thing per day; finish it, leave a line of evidence, take a review on schedule, and adjust from the result.
 
 ![The growth workbench](docs/images/right-today.png)
 
