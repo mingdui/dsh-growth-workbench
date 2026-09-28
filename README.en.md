@@ -14,7 +14,7 @@ A plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
 
 *Left: its own workspace and dedicated conversation in the DSH sidebar · Middle: the **teacher** lives in that conversation (every AI run goes there) · Right: the 今日 pane — one thing a day, then one line of evidence*
 
-▶ **[Watch the 75-second demo](docs/demo.mp4)** (1440×804) — plan → evidence on 今日 → next day → node exam → phase exam → the teacher fills in study material → a word with the teacher. Only the teacher runs are a real model; everything else is **really clicked** in the page: the enlarged cursor, the click ripples and the brief zoom-in on each click are all live, not added in post.
+▶ **[Watch the 76-second demo](docs/demo.mp4)** (1440×804) — plan → evidence on 今日 → next day → node exam → phase exam → the teacher fills in study material → a word with the teacher. Only the teacher runs are a real model; everything else is **really clicked** in the page: the enlarged cursor and the click ripples are live, not added in post, and the frame is never cropped.
 
 [![Demo](docs/images/demo-poster.jpg)](docs/demo.mp4)
 
