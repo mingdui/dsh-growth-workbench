@@ -6,7 +6,7 @@
 
 中文文档 | [English](README.en.md)
 
-**AI 成长工作台**（插件名 `dsh-growth-workbench`）—— 给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（CLI 名 `dsh`）用：**把「我要转型」变成今天能做完的一件事。**
+**AI 个人成长工作台**（插件名 `dsh-growth-workbench`）—— 给 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)（CLI 名 `dsh`）用：**把「我要转型」变成今天能做完的一件事。**
 
 装好之后，左侧菜单里多一个「成长工作台」——选一个方向，它把 90 天排成每天一件事；做完留一句证据，到点考一次，按结果调整。
 
