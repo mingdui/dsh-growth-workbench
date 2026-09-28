@@ -23,12 +23,12 @@ This plugin links those three into one chain: **do one thing today → leave evi
 ## The main line
 
 ```
-(1) target role → (2) your situation → (3) current state → (4) transferable skills
-    → (5) capability model → (6) self-assessment → (7) 90-day plan → (8) today
-    → (9) evidence → (10) review → back to (7), adjusted
+target role → your situation → current state → transferable skills
+    → capability model → self-assessment → 90-day plan → today
+    → evidence → review → back to the 90-day plan, adjusted
 ```
 
-Steps 1-6 happen on the 画像 tab; the plan lands on 计划; the daily work is on 今日 (or the narrow 今日 pane on the right); reviews are on 考核.
+The first six happen on the 画像 tab; the plan lands on 计划; the daily work is on 今日 (or the narrow 今日 pane on the right); reviews are on 考核.
 
 ![The growth workbench](docs/images/right-today.png)
 
