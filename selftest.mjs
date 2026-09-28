@@ -79,14 +79,18 @@ await check('右边栏那两个服务是软依赖：装不上也不许拖垮插�
   // 用户另一台电脑上的报错原文：
   //   `dsh-growth-workbench: pending (waiting for services: sidebarRightTabs, sidebarRight)`
   // —— 整个 web boot 都跟着报「1 entry did not activate」。右栏只是加分项，
-  // 所以它必须在运行时取、取不到就跳过，绝不能写进 inject。
   const inject = source.match(/const inject = \[([^\]]*)\]/)
   assert.ok(inject !== null, '找不到 inject 声明')
   assert.doesNotMatch(inject[1], /sidebarRight/, 'inject 里不许出现右侧栏服务（会让插件一直 pending）')
   assert.match(inject[1], /'slots'/, 'slots 是页面能渲染的前提，留着')
-  assert.match(source, /const tabs = get\('sidebarRightTabs'\)/)
-  assert.match(source, /if \(tabs === undefined \|\| tabs === null\) \{/, '取不到就跳过')
-  assert.match(source, /没有右侧栏（sidebarRightTabs）：今日窄栏不注册，主页面照常可用/, '跳过了要说一句')
+  // **取服务两条路都试**：属性访问是原来能用的那条（`ctx.sidebarRightTabs`），
+  // `ctx.get` 是保险；只认一条，换个宿主就取不到。
+  assert.ok(source.includes("const tabs = serviceOf('sidebarRightTabs');"), '取服务要走 serviceOf')
+  // **等它挂上**：去掉 inject 之后 apply 是立刻跑的，那一刻服务往往还没来 ——
+  // 一次性的检查会把"等它"变成"假设它不在"，右侧「今日」窄栏就是这样消失的（用户报过）。
+  assert.ok(source.includes('if (attempts < 60) setTimeout(registerRightPane, 300);'), '服务还没挂上要轮询等')
+  assert.ok(source.includes('还没挂上，先等着'), '等着的时候要说一句')
+  assert.ok(source.includes('registerRightPane(); return () => { stopped = true; }'), '插件卸载要停掉轮询')
   assert.match(source, /typeof rightPane\.openTab === 'function'/, 'openTab 也要先看有没有')
 })
 

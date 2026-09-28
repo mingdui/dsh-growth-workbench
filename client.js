@@ -3586,25 +3586,46 @@ window.__ModuleLoader__.load({
 
       registerLeftMenu(ctx);
 
-      // 右栏那两件：有就注册，没有就跳过 —— 别让"少一个窄栏"升级成"插件挂不起来"。
-      const get = typeof ctx.get === 'function' ? (name) => ctx.get(name) : () => undefined;
-      const tabs = get('sidebarRightTabs');
-      const rightPane = get('sidebarRight');
-      if (tabs === undefined || tabs === null) {
-        console.warn('[dsh-growth-workbench] 这个 profile 没有右侧栏（sidebarRightTabs）：今日窄栏不注册，主页面照常可用。');
-        return;
-      }
-      ctx.effect(() => tabs.register(definition()), 'dsh-growth-workbench: tab type');
+      // 右栏那两件：**不写进 inject**（别的机器上没有它们，写进去插件会一直 pending、整个 boot
+      // 报「1 entry did not activate」），但也**不能在 apply 当下就断言"没有"** —— 去掉 inject
+      // 之后 apply 是**立刻**跑的，那一刻它们很可能只是还没挂上来。
+      // 我上一版就是一次性的检查，于是"等它"变成了"假设它不在"：右侧那个「今日」窄栏直接消失。
+      // 现在改成**轮询等**，等到了再注册；一直等不到才跳过（另一台机器上的正常退让）。
+      const serviceOf = (name) => {
+        try {
+          return typeof ctx.get === 'function' ? ctx.get(name) : ctx[name];
+        } catch {
+          return ctx[name];
+        }
+      };
+      let stopped = false;
+      let attempts = 0;
+      const registerRightPane = () => {
+        if (stopped === true) return;
+        const tabs = serviceOf('sidebarRightTabs');
+        if (tabs === undefined || tabs === null) {
+          attempts += 1;
+          if (attempts === 1) console.warn('[dsh-growth-workbench] 右侧栏（sidebarRightTabs）还没挂上，先等着；一直等不到就只少一个「今日」窄栏。');
+          if (attempts < 60) setTimeout(registerRightPane, 300);
+          return;
+        }
+        ctx.effect(() => tabs.register(definition()), 'dsh-growth-workbench: tab type');
+        ctx.effect(
+          () => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
+            name: 'sidebar.right.pane.tab',
+            key: TAB_ID,
+          }, TodayTab)),
+          'dsh-growth-workbench: tab body',
+        );
+        const rightPane = serviceOf('sidebarRight');
+        if (rightPane !== undefined && rightPane !== null && typeof rightPane.openTab === 'function') {
+          ctx.effect(() => revealTabWhenReady(rightPane), 'dsh-growth-workbench: reveal the tab');
+        }
+      };
       ctx.effect(
-        () => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
-          name: 'sidebar.right.pane.tab',
-          key: TAB_ID,
-        }, TodayTab)),
-        'dsh-growth-workbench: tab body',
+        () => { registerRightPane(); return () => { stopped = true; }; },
+        'dsh-growth-workbench: right pane',
       );
-      if (rightPane !== undefined && rightPane !== null && typeof rightPane.openTab === 'function') {
-        ctx.effect(() => revealTabWhenReady(rightPane), 'dsh-growth-workbench: reveal the tab');
-      }
     }
 
     return { apply, inject };
