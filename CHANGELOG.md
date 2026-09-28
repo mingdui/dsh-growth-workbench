@@ -7,6 +7,15 @@
 
 ## [Unreleased]
 
+### Fix
+- **在没装右侧栏的 DSH 上，插件不再拖垮整个 web boot**（用户另一台电脑的报错原文：
+  `dsh-growth-workbench: pending (waiting for services: sidebarRightTabs, sidebarRight)`，
+  界面上写着「Failed to load plugins / web boot: 1 entry did not activate」）。原因是我们把
+  **只有右栏才需要的**两个服务写进了 `inject` —— 那台机器的 profile 没有它们，插件就一直
+  pending，而 boot 把"有一个条目没激活"当成失败报出来。右栏本来就是加分项（少一个「今日」窄栏
+  而已），所以改成运行时 `ctx.get`：取不到就跳过，并在控制台说一句；左菜单、整页、Agent
+  运行全部照常。自检加了一条：`inject` 里不许再出现 `sidebarRight*`。
+
 ### Change
 - **读数条三处归位**（用户：「阶段 1/4 … 做到上面指标 在完成指标前面」「达标线那句加个 ? 图标提示，
   这里太占位置」「证据档位…看看放哪里合适」）：

@@ -176,6 +176,12 @@ CI 已把这条做成门禁。
   Failure，但 **job 数为 0**、没有任何日志可点开 —— 看起来像「CI 挂了」，其实是文件根本没被
   接受。改完 `ci.yml` 先用 js-yaml 在本地解析一遍再推（`dsh` 自带 js-yaml，不必装依赖）。
 
+- **客户端插件的 `inject` 只写真正的必需服务（现在是 `slots`）。** 用户在另一台电脑上撞过：
+  `dsh-growth-workbench: pending (waiting for services: sidebarRightTabs, sidebarRight)` ——
+  那台机器的 profile 没装右侧栏那一套，于是插件一直 pending，整个 web boot 报
+  「1 entry did not activate」。右栏只是加分项，所以它改成运行时 `ctx.get`、取不到就跳过并
+  在控制台说一句。**新增任何"只有某些 profile 才有"的服务时，一律走 `ctx.get`，不要写进 `inject`。**
+
 ## 不在本仓库里的东西
 
 - **浏览器级验收脚本**（无头 Chrome + DevTools Protocol，驱动一次性 DSH 实例、

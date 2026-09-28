@@ -68,10 +68,26 @@ await check('client.js follows the browser module-loader contract', () => {
   assert.match(source, /window\.__ModuleLoader__\.load\(/)
   assert.match(source, /id: 'dsh-growth-workbench'/)
   assert.match(source, /require\('react'\)/)
-  assert.match(source, /sidebarRightTabs\.register\(/)
+  assert.match(source, /tabs\.register\(definition\(\)\)/)
   assert.match(source, /sidebar\.right\.pane\.tab/)
   assert.match(source, /name: 'sidebar\.panellist'/)
   assert.match(source, /name: 'main'/)
+})
+
+await check('右边栏那两个服务是软依赖：装不上也不许拖垮插件', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  // 用户另一台电脑上的报错原文：
+  //   `dsh-growth-workbench: pending (waiting for services: sidebarRightTabs, sidebarRight)`
+  // —— 整个 web boot 都跟着报「1 entry did not activate」。右栏只是加分项，
+  // 所以它必须在运行时取、取不到就跳过，绝不能写进 inject。
+  const inject = source.match(/const inject = \[([^\]]*)\]/)
+  assert.ok(inject !== null, '找不到 inject 声明')
+  assert.doesNotMatch(inject[1], /sidebarRight/, 'inject 里不许出现右侧栏服务（会让插件一直 pending）')
+  assert.match(inject[1], /'slots'/, 'slots 是页面能渲染的前提，留着')
+  assert.match(source, /const tabs = get\('sidebarRightTabs'\)/)
+  assert.match(source, /if \(tabs === undefined \|\| tabs === null\) \{/, '取不到就跳过')
+  assert.match(source, /没有右侧栏（sidebarRightTabs）：今日窄栏不注册，主页面照常可用/, '跳过了要说一句')
+  assert.match(source, /typeof rightPane\.openTab === 'function'/, 'openTab 也要先看有没有')
 })
 
 await check('the left page is not selected on boot', () => {

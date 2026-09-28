@@ -3511,11 +3511,22 @@ window.__ModuleLoader__.load({
       };
     }
 
-    /** Services this plugin needs: both registries, the slot registry, and panel navigation. */
-    const inject = ['sidebarRightTabs', 'slots', 'sidebarRight'];
+    /**
+     * **只写真正必需的服务。**
+     *
+     * `slots` 是页面能渲染的前提（任何 web profile 都有它）。而右侧栏那两个
+     * （`sidebarRightTabs` / `sidebarRight`）**不能写进这里**：别的机器上没装右侧栏那一套的话，
+     * 插件会一直停在 pending，整个 web boot 报「1 entry did not activate」——
+     * 用户在自己的另一台电脑上就撞上了，报错原文是
+     * `pending (waiting for services: sidebarRightTabs, sidebarRight)`。
+     *
+     * 右栏是**加分项**：没有它只是少一个「今日」窄栏，左菜单与整页照常能用。
+     * 所以它改成运行时 `ctx.get`，拿不到就跳过（并在控制台说一句），不拖垮整个插件。
+     */
+    const inject = ['slots'];
 
     /** Reveal the right tab once the sidebar seat is mounted. */
-    function revealTabWhenReady(ctx) {
+    function revealTabWhenReady(rightPane) {
       let attempts = 0;
       let timer;
       const tick = () => {
@@ -3523,7 +3534,7 @@ window.__ModuleLoader__.load({
         if (attempts >= 40) return;
         attempts += 1;
         try {
-          ctx.sidebarRight.openTab(TAB_KIND);
+          rightPane.openTab(TAB_KIND);
         } catch {
           timer = setTimeout(tick, 500);
         }
@@ -3562,7 +3573,16 @@ window.__ModuleLoader__.load({
       rootCtx = ctx;
 
       registerLeftMenu(ctx);
-      ctx.effect(() => ctx.sidebarRightTabs.register(definition()), 'dsh-growth-workbench: tab type');
+
+      // 右栏那两件：有就注册，没有就跳过 —— 别让"少一个窄栏"升级成"插件挂不起来"。
+      const get = typeof ctx.get === 'function' ? (name) => ctx.get(name) : () => undefined;
+      const tabs = get('sidebarRightTabs');
+      const rightPane = get('sidebarRight');
+      if (tabs === undefined || tabs === null) {
+        console.warn('[dsh-growth-workbench] 这个 profile 没有右侧栏（sidebarRightTabs）：今日窄栏不注册，主页面照常可用。');
+        return;
+      }
+      ctx.effect(() => tabs.register(definition()), 'dsh-growth-workbench: tab type');
       ctx.effect(
         () => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
           name: 'sidebar.right.pane.tab',
@@ -3570,7 +3590,9 @@ window.__ModuleLoader__.load({
         }, TodayTab)),
         'dsh-growth-workbench: tab body',
       );
-      ctx.effect(() => revealTabWhenReady(ctx), 'dsh-growth-workbench: reveal the tab');
+      if (rightPane !== undefined && rightPane !== null && typeof rightPane.openTab === 'function') {
+        ctx.effect(() => revealTabWhenReady(rightPane), 'dsh-growth-workbench: reveal the tab');
+      }
     }
 
     return { apply, inject };
