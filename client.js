@@ -276,6 +276,28 @@ window.__ModuleLoader__.load({
     /** One instruction in flight at a time: two clicks must not become two runs. */
     let sendInFlight = false;
 
+    /**
+     * 我们占着的那个"主视图"引用 —— 只在新版会话 API 上有（见 `claimMainView`）。
+     *
+     * 新版把"现在显示哪个对话"从控制器里挪了出来：**谁是当前对话，就看谁用
+     * `source: 'mainView'` 持有它**（官方侧栏就是这么判断的：`retainedBy.mainView > 0`）。
+     * 工作台的运行必须看得见，所以这个引用得我们自己拿着；换目标时把上一个放开，
+     * 免得侧栏里同时出现两个"当前"。
+     */
+    let mainRef;
+    let mainRefId = '';
+
+    /** 用户自己切走之后就把我们的持有放开 —— 一个订阅，只装一次。 */
+    let mainWatchStop;
+
+    /**
+     * 新版会话 API 里"当前对话"用的那个来源标签。
+     *
+     * 官方侧栏按 `retainedBy.mainView > 0` 判断"现在显示的是哪个对话"，所以要让运行看得见，
+     * 就得用**它这个标签**去持有；换成自己的名字，那一行不会被当成当前对话。
+     */
+    const MAIN_VIEW_SOURCE = 'mainView';
+
     /** 固定对话的标题。一处定义 —— 新建与改名都从这里取，不会各写一份。 */
     const AGENT_SESSION_TITLE = '成长工作台';
 
@@ -359,18 +381,17 @@ window.__ModuleLoader__.load({
           throw new Error(`没法新建专用对话：${messageOf(failure)}`);
         }
       }
-      // 先把会话打开：`rename` 要的是一个**活着**的会话（标题服务会核对它是否在会话表里）。
-      // 刚建好就改名，第一次常常落空 —— 而它失败时**不抛**，只回 `{ ok: false }`。
-      try {
-        sessions.open(id);
-      } catch { /* 打不开也不挡住后面；改名那步会把话说清楚 */ }
+      // 把它变成**这一页显示着的**那个对话，并等它的窗口装好 —— 拿回来的就是那个把手（binding）。
+      // 新版 API 里"改名"也要一个**活着的**会话，而"活着"的定义就是有人持有它：所以这一步
+      // 必须在改名之前（旧版里这一步是 `open()`：标题服务会核对它是否在会话表里）。
+      const binding = await claimMainView(sessions, id);
       let named = false;
       let reason = '';
       for (let attempt = 0; attempt < 2 && !named; attempt += 1) {
         if (attempt > 0) await new Promise((resolve) => { setTimeout(resolve, 400); });
         try {
-          const binding = sessions.binding(id) ?? await waitForBinding(sessions, id, 1500);
-          const renamed = await binding?.session?.rename?.(AGENT_SESSION_TITLE);
+          const live = binding ?? bindingOf(sessions, id) ?? await waitForBinding(sessions, id, 1500);
+          const renamed = await live?.session?.rename?.(AGENT_SESSION_TITLE);
           named = renamed?.ok === true;
           // **失败的原因要带回去**：我原来只留了个 true/false，于是"为什么没改成名"这件事
           // 被我自己丢掉了 —— 用户报了两次，我两次都只能猜。
@@ -380,15 +401,133 @@ window.__ModuleLoader__.load({
           reason = messageOf(failure);
         }
       }
-      // **拿到这个会话的把手**（binding）：发消息、改名都要它。新会话进列表是异步的，慢一点的
-      // 机器上第一次常常还没有 —— 所以这里多等一会儿，必要时补一次 open 再等一轮。
+      // 还没拿到把手就再等一轮：新会话进列表是异步的，慢一点的机器上第一次常常还没有。
       // （用户在自己的机器上撞上过：界面报「专用对话刚建好却寻址不到 —— 稍后再试一次」。）
-      let binding = await waitForBinding(sessions, id);
-      if (binding === undefined) {
-        try { sessions.open(id); } catch { /* 打不开就只剩等了 */ }
-        binding = await waitForBinding(sessions, id, 6000);
+      return { id, named, reason, workspaceId, binding: binding ?? await waitForBinding(sessions, id, 6000) };
+    }
+
+    /**
+     * 会话服务有两代 API，差异只在这个文件里收一次 —— 因为**我们改不了用户装的是哪一代**。
+     *
+     * 0.1.6 及更早：`open(id)` 把某个对话切成"当前对话"，`binding(id)` 从列表里解析，
+     *   `list.getSnapshot().current` 就是当前对话。
+     * 0.1.7 起：`open()` 整段删掉，换成**显式引用计数** —— "当前对话"不再是控制器的事实，
+     *   而是"谁用 `source: 'mainView'` 持有它"（官方侧栏就是这么判断的）。拿一个对话要
+     *   `retain(id, { source })`，它回一个引用：`await reference.ready` 等窗口装好，
+     *   `reference.release()` 放开。`binding(id)` 也换了语义：只借"已经被持有的"，
+     *   不再从列表解析 —— 于是**没持有过就什么都拿不到**（用户升级后撞上的就是这个：
+     *   先报「固定的对话不在了」，再点「重建一个」报 `sessions.open is not a function`）。
+     *
+     * 探测的是 `retain` 在不在，不是版本号 —— 判据只认手上这个对象有什么。
+     */
+    function isModernSessions(sessions) {
+      return typeof sessions?.retain === 'function';
+    }
+
+    /** 这一页此刻显示着的那个对话（问不到就是空串）。 */
+    function currentSessionId(sessions) {
+      const snapshot = sessions?.list?.getSnapshot?.();
+      if (snapshot === undefined || snapshot === null) return '';
+      if (isModernSessions(sessions)) {
+        const row = Object.values(snapshot.byId ?? {})
+          .find((item) => ((item?.retainedBy?.[MAIN_VIEW_SOURCE]) ?? 0) > 0);
+        return typeof row?.id === 'string' ? row.id : '';
       }
-      return { id, named, reason, workspaceId, binding };
+      return typeof snapshot.current === 'string' ? snapshot.current : '';
+    }
+
+    /**
+     * 借一个对话的把手。两代语义不同：新版只借"已经被持有的"，所以调用方得先
+     * `claimMainView` —— 直接问一个没人持有的对话，答案永远是"没有"。
+     */
+    function bindingOf(sessions, id) {
+      if (typeof id !== 'string' || id.length === 0) return undefined;
+      if (id === mainRefId && mainRef !== undefined) {
+        try { return mainRef.binding; } catch { return undefined; }
+      }
+      const binding = sessions?.binding?.(id);
+      return binding ?? undefined;
+    }
+
+    /** 带超时的等待：`reference.ready` 万一一直不落地，也不能把这一页挂死。 */
+    async function withTimeout(promise, timeoutMs) {
+      let timer;
+      try {
+        return await Promise.race([
+          promise,
+          new Promise((resolve) => { timer = setTimeout(() => { resolve(undefined); }, timeoutMs); }),
+        ]);
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+      }
+    }
+
+    /**
+     * 把这个对话变成**这一页显示着的**那个，并等它的窗口装好；返回它的把手。
+     *
+     * 新版：整件事就是"用 `mainView` 这个标签持有它" —— 官方侧栏按 `retainedBy.mainView`
+     * 判断当前对话，所以持有它 = 让运行看得见。同一时刻我们只持有一个：换目标时把上一个
+     * 放开，否则侧栏里会同时出现两个"当前"。
+     * 旧版：`open(id)` 一句话就是这件事。
+     *
+     * 拿不到就返回 `undefined`，由调用方去说那句能照做的话 —— **不让 TypeError 冒到用户
+     * 面前**：`sessions.open is not a function` 这种话对用户没有任何意义。
+     */
+    async function claimMainView(sessions, id, timeoutMs = 8000) {
+      if (typeof id !== 'string' || id.length === 0) return undefined;
+      if (!isModernSessions(sessions)) {
+        if (typeof sessions?.open !== 'function') return undefined;
+        if (currentSessionId(sessions) !== id) sessions.open(id);
+        return waitForBinding(sessions, id, timeoutMs);
+      }
+      if (mainRef === undefined || mainRefId !== id) {
+        let reference;
+        try {
+          reference = sessions.retain(id, { source: MAIN_VIEW_SOURCE });
+        } catch {
+          // 地址现在不可用（这一代还没进目录、控制器已经销毁……）：按"拿不到"处理。
+          return undefined;
+        }
+        const previous = mainRef;
+        mainRef = reference;
+        mainRefId = id;
+        try { previous?.release?.(); } catch { /* 放开上一个失败不挡住这一个 */ }
+        watchMainView(sessions);
+      }
+      // 先把引用取到局部再等：万一它在我们等的时候被放开（用户切走、插件卸载），模块级的
+      // `mainRef` 就成了 undefined —— 那时读 `.ready` 又是另一句 TypeError。
+      const held = mainRef;
+      try {
+        return (await withTimeout(held?.ready, timeoutMs)) ?? undefined;
+      } catch {
+        // ready 被拒（引用已经放开 / 这一代已经结束）：同上，交给调用方说话。
+        return undefined;
+      }
+    }
+
+    /**
+     * 用户自己切到别的对话去了 —— 把我们的持有放开，别跟他抢那一行。
+     *
+     * 判据是"**别的**对话拿到了 mainView"：官方侧栏与我们都用同一个来源标签，所以用户一点
+     * 别的对话，那条就出现了。我们不夺回焦点：要看哪条是他自己的事。
+     */
+    function watchMainView(sessions) {
+      if (mainWatchStop !== undefined) return;
+      const stop = sessions?.list?.subscribe?.(() => {
+        if (mainRef === undefined) return;
+        const taken = Object.values(sessions.list.getSnapshot?.()?.byId ?? {})
+          .some((row) => row?.id !== mainRefId && ((row?.retainedBy?.[MAIN_VIEW_SOURCE]) ?? 0) > 0);
+        if (taken) releaseMainView();
+      });
+      mainWatchStop = typeof stop === 'function' ? stop : undefined;
+    }
+
+    /** 放开我们占着的主视图（幂等；旧版没有可放开的，空转）。 */
+    function releaseMainView() {
+      const reference = mainRef;
+      mainRef = undefined;
+      mainRefId = '';
+      try { reference?.release?.(); } catch { /* 放开失败不挡住任何事 */ }
     }
 
     /**
@@ -401,7 +540,7 @@ window.__ModuleLoader__.load({
     async function waitForBinding(sessions, id, timeoutMs = 8000) {
       const deadline = Date.now() + timeoutMs;
       for (;;) {
-        const binding = sessions.binding(id);
+        const binding = bindingOf(sessions, id);
         if (binding !== undefined && binding !== null && binding.session?.getSnapshot?.()?.removed !== true) return binding;
         if (Date.now() > deadline) return undefined;
         await new Promise((resolve) => setTimeout(resolve, 100));
@@ -427,9 +566,14 @@ window.__ModuleLoader__.load({
       const revision = typeof state?.revision === 'string' ? state.revision : '';
 
       if (pinnedId.length > 0) {
-        const binding = await waitForBinding(sessions, pinnedId);
+        // 先把它变成当前显示的那个对话（顺带拿到把手）。拿不到时**要分清是哪一种拿不到**：
+        // 新版 API 里"列表里没有它"和"这一页还没寻址到它"是两回事，用户能做的事也不同 ——
+        // 前者要重建对话，后者刷一下页面就够。
+        const binding = await claimMainView(sessions, pinnedId);
         if (binding === undefined) {
           const label = typeof pinned.title === 'string' && pinned.title.length > 0 ? `「${pinned.title}」` : '';
+          const listed = sessions?.list?.getSnapshot?.()?.byId?.[pinnedId] !== undefined;
+          if (listed) throw new Error('固定的对话还在，只是这一页还没寻址到它 —— 刷新一下页面（F5）再点一次即可，不用重建对话。');
           throw new Error(`固定的对话${label}不在了 —— 在页头点「重建」或「改绑到当前对话」，不要让它悄悄发去别处`);
         }
         return { id: pinnedId, binding, created: false, revision };
@@ -462,7 +606,9 @@ window.__ModuleLoader__.load({
       if (typeof sessionId !== 'string' || sessionId.length === 0) return undefined;
       const sessions = typeof rootCtx?.get === 'function' ? rootCtx.get('sessions') : undefined;
       if (sessions === undefined || sessions === null) return undefined;
-      const snapshot = sessions.binding(sessionId)?.session?.getSnapshot?.();
+      // 新版 API 只借"已经被持有的"会话：运行期间我们自己持有它，所以问得到；用户切走之后
+      // 我们放开了持有，这里就问不到（返回 undefined，调用方退回"看数据变没变"那条判据）。
+      const snapshot = bindingOf(sessions, sessionId)?.session?.getSnapshot?.();
       if (snapshot === undefined || snapshot === null) return undefined;
       return snapshot.running === true || (snapshot.queue ?? []).length > 0;
     }
@@ -542,7 +688,8 @@ window.__ModuleLoader__.load({
         target = await resolveAgentSession(sessions);
         // 固定的对话不是当前对话时，先把它变成当前对话再发 —— 工作台不做看不见的运行：
         // 这条指令会像你自己发的一样出现在那个对话里，你能看着它跑、能打断。
-        if (sessions.list?.getSnapshot?.()?.current !== target.id) sessions.open(target.id);
+        // （两代 API 的差异收在 `claimMainView` 里：旧版 `open()`，新版 `retain(mainView)`。）
+        if (currentSessionId(sessions) !== target.id) await claimMainView(sessions, target.id);
         session = target.binding.session;
         // 窗口没装好就 prompt，等于把消息发进一个还没有事件流的会话。open() 是幂等的。
         await session.open?.();
@@ -1723,7 +1870,9 @@ window.__ModuleLoader__.load({
         disabled: busy,
         onClick: () => { void run(work); },
       });
-      const currentId = () => sessions?.list?.getSnapshot?.()?.current ?? '';
+      // "当前对话"两代读法不同（旧版 `list.current`，新版看谁持有着 mainView）——
+      // 差异在 `currentSessionId` 里收着，这里只管用。
+      const currentId = () => currentSessionId(sessions);
       const currentTitle = () => sessions?.list?.getSnapshot?.()?.byId?.[currentId()]?.title ?? '';
       const bindCurrent = act(pinnedId.length > 0 ? '改绑到当前对话' : '固定到当前对话', async () => {
         if (currentId().length === 0) throw new Error('现在没有打开的对话可以改绑 —— 先打开一个，再点这里');
@@ -1734,7 +1883,8 @@ window.__ModuleLoader__.load({
         const created = await createAgentSession(sessions, state?.agentWorkspace, state?.agentWorkspaceId);
         const reply = await post('/agent-session', { sessionId: created.id, title: created.named ? AGENT_SESSION_TITLE : '新会话' });
         if (reply.ok !== true) throw new Error(reply.error ?? '固定失败');
-        sessions.open(created.id);
+        // 不必再"打开"一次：新建那一步（`createAgentSession`）已经把它变成了这一页显示着的
+        // 那个对话 —— 两代 API 的差异在 `claimMainView` 里收着（旧版 open，新版 retain(mainView)）。
         // **要有回声**：点了按钮什么都不说，用户读到的是"没啥反应"（他的原话）。
         // 改名失败时**把原因一起说出来** —— 我上一版只回了个 true/false，于是用户报了两次，
         // 我两次都只能猜。名字没改成不是灾难，说不清为什么才是。
@@ -3583,6 +3733,10 @@ window.__ModuleLoader__.load({
       // 组件拿到的是 props，拿不到 ctx —— 而"让 AI 来做"那几个按钮需要它才能找到
       // 当前会话。所以在这里存一份，而不是给每个表单都穿一个 ctx 参数。
       rootCtx = ctx;
+
+      // 插件卸载（换 profile、页面走了）：把我们占着的主视图放开 —— 新版 API 里那个引用是
+      // 有生命周期的，留着不放等于替用户一直开着一个会话的窗口。
+      ctx.effect(() => () => { releaseMainView(); }, 'dsh-growth-workbench: main view reference');
 
       registerLeftMenu(ctx);
 

@@ -18,6 +18,18 @@
   失焦提交整份草稿，服务端按同一张表收字段；只改了一句说明文字（它现在会说这一项还定计划总目标）。
 
 ### Fix
+- **DSH 会话服务换代后工作台整个失能**（用户：「AI 处理失败：固定的对话「新会话」不在了 ——
+  在页头点「重建」或「改绑到当前对话」」，再点「重建一个」报
+  `sessions.open is not a function`）。新版 DSH 把 `ClientSessions.open()` 整段删掉了，改成
+  **显式引用计数**：`retain(id, { source })` 拿一个引用、`await reference.ready` 等窗口装好、
+  `release()` 放开；`binding(id)` 也只借"已经被持有的"，**不再从列表里解析** —— 于是没持有过
+  就什么都拿不到（这就是"固定的对话不在了"那条假报错的来源）。现在两代 API 都认（探测
+  `retain` 在不在，不是猜版本号）：切"当前对话"统一走 `claimMainView` —— 旧版 `open()`，
+  新版用**官方侧栏认的那个来源标签** `mainView` 持有它（侧栏按 `retainedBy.mainView > 0`
+  判断当前对话，所以持有它 = 运行看得见）；换目标、插件卸载时把上一个引用放开，用户自己
+  切走也放开（不跟他抢那一行）。哪一代都不像时**安静地回"拿不到"**，由调用方说一句人能
+  照做的话 —— 不再把 `sessions.open is not a function` 甩到用户脸上。自检加了一条**真的跑
+  适配层**的用例：两代假服务各跑一遍，外加一个两代都不像的服务。
 - **在没装右侧栏的 DSH 上，插件不再拖垮整个 web boot**（用户另一台电脑的报错原文：
   `dsh-growth-workbench: pending (waiting for services: sidebarRightTabs, sidebarRight)`，
   界面上写着「Failed to load plugins / web boot: 1 entry did not activate」）。原因是我们把

@@ -144,6 +144,15 @@ node selftest.mjs
   `cordis.patch.yml` 是热重载的。改完看不到效果，先怀疑没重启。
   （判断有没有重启：`GET /gw/api/state` 里有没有你新加的字段 —— 宿主半边的代码旧了，
   它会直接缺席。）
+- **会话服务换过一代，插件必须两代都认。** 0.1.6 及更早：`sessions.open(id)` 把某个对话变成
+  "当前对话"，`binding(id)` 从列表里解析，`list.getSnapshot().current` 就是当前对话。
+  0.1.7 起：`open()` 整段删掉，改成**引用计数** —— `retain(id, { source })` 拿引用、
+  `await reference.ready` 等窗口装好、`release()` 放开；`binding(id)` 只借"**已经被持有的**"，
+  而"当前对话"= 谁用 `source: 'mainView'` 持有它（官方侧栏按 `retainedBy.mainView > 0` 判断）。
+  所以**没先 retain 就什么都拿不到**：页面上会先报"固定的对话不在了"，再点「重建一个」报
+  `sessions.open is not a function`（用户就是这么撞上的）。`client.js` 把这些差异全收在
+  `claimMainView` / `currentSessionId` / `bindingOf` 三处 —— **别在别处直接调 `sessions.open`
+  或 `sessions.binding`**，那正是"换一代宿主就报错给用户看"的来源。
 - **侧栏对"没有消息的空会话"一律显示「新会话」，不看标题。** 这是
   `dsh-client-ui-workspace` 的 `displayTitle` 写死的规矩（`node.blank ? t('session.new') : node.title`）。
   所以**判断改名成没成，别看侧栏** —— 看 `~/.dsh/storages/session_projcache/sessions/<id>.json`

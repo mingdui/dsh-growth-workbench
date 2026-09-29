@@ -163,7 +163,19 @@ await check('「让 AI 来做」按钮是替你把这句说了，不是让你自
   assert.match(source, /rootCtx\.get\('sessions'\)/)
   assert.match(source, /target = await resolveAgentSession\(sessions\)/, '目标对话由固定关系决定，不是"此刻打开的那个"')
   assert.doesNotMatch(source, /sessions\.binding\(current\)/, '不再拿"当前对话"当发送目标')
-  assert.match(source, /sessions\.open\(target\.id\)/, '固定的对话不是当前对话时先切过去 —— 不做看不见的运行')
+  // 「不做看不见的运行」这条不变：发送前必须把固定对话变成**这一页显示着的**那个。
+  // 但两代 DSH 的会话 API 不同（旧版 `open()`；新版把它删了，改成 retain(mainView) 持有），
+  // 所以判据落在适配层上，而不是某一个具体调用 —— 用户升级后撞上的
+  // `sessions.open is not a function` 正是把某一代 API 当成了合约。
+  assert.match(source, /if \(currentSessionId\(sessions\) !== target\.id\) await claimMainView\(sessions, target\.id\)/,
+    '固定的对话不是当前对话时先切过去 —— 不做看不见的运行')
+  assert.match(source, /const MAIN_VIEW_SOURCE = 'mainView'/, '新版要拿官方侧栏那个来源标签持有，才被认成当前对话')
+  assert.match(source, /sessions\.retain\(id, \{ source: MAIN_VIEW_SOURCE \}\)/, '新版：retain 一个引用出来')
+  assert.match(source, /withTimeout\(held\?\.ready, timeoutMs\)/, '新版：等 reference.ready，窗口装好了再发')
+  assert.match(source, /reference\?\.release\?\.\(\)/, '换目标、卸载时要把上一个引用放开')
+  assert.match(source, /typeof sessions\?\.open !== 'function'\) return undefined/, '旧版：先看有没有 open 再调')
+  assert.ok((codeOnly(source).match(/sessions\.open\(/g) ?? []).length <= 1,
+    '旧版 open() 只留适配层那一处 —— 别处再直接调，换个宿主就是一句 "not a function"')
   assert.match(source, /await session\.open\?\.\(\)/, '窗口没装好就 prompt，等于把消息发进一个还没有事件流的会话')
   assert.match(source, /beginSubmission\(\{ mode: 'queue'/)
   assert.match(source, /\.prompt\(\[\{ type: 'text', text \}\]/)
@@ -201,6 +213,62 @@ await check('固定对话：丢了就明说，新建先落盘，页头给得出�
   // 文字链不能吃通用 hover 那套（上浮 + 投影）—— 落在没有边框底色的纯文字上就是一团脏影子。
   assert.match(source, /\.gw-root \.gw-quiet:not\(:disabled\):hover\{/, '文字链的 hover 要自己一条、且作用域化')
   assert.match(source, /h\(AgentSessionLine, \{ key: 'agent-session', state, post \}\)/, '这一行要真的挂在页头上')
+})
+
+await check('会话服务两代 API：谁在跑都不许把 TypeError 甩到用户脸上', async () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  // 适配层整段抠出来**真的跑一遍**：静态断言只能守住"写了 retain"，守不住"两代都真的能用"。
+  // 用户撞上的正是后者 —— 插件把某一代 API 当成了合约，宿主一升级就报错给他看。
+  const start = source.indexOf('function isModernSessions(')
+  const end = source.indexOf('async function resolveAgentSession(')
+  assert.ok(start > 0 && end > start, '找不到会话服务适配层那段源码')
+  const adapter = new Function(`
+    let mainRef; let mainRefId = ''; let mainWatchStop;
+    const MAIN_VIEW_SOURCE = 'mainView';
+    ${source.slice(start, end)}
+    return { claimMainView, currentSessionId, releaseMainView };
+  `)()
+
+  const face = { getSnapshot: () => ({ running: false }) }
+  // 新版（0.1.7 起）：没有 open，只有 retain —— 持有它、等 ready，来源标签必须是侧栏认的那个。
+  const retained = []
+  const released = []
+  const modern = {
+    list: {
+      getSnapshot: () => ({ byId: { a: { id: 'a', retainedBy: { mainView: 1 } } } }),
+      subscribe: () => () => {},
+    },
+    retain: (id, options) => {
+      retained.push(`${id}:${options.source}`)
+      return {
+        sessionId: id,
+        binding: { session: face },
+        ready: Promise.resolve({ session: face }),
+        release: () => { released.push(id) },
+      }
+    },
+    binding: () => undefined,
+  }
+  assert.equal((await adapter.claimMainView(modern, 'a'))?.session, face, '新版：拿回来的必须是那个把手')
+  assert.deepEqual(retained, ['a:mainView'], '新版：用 mainView 持有它 —— 侧栏才认它是当前对话')
+  assert.equal(adapter.currentSessionId(modern), 'a', '新版：当前对话 = 谁持有着 mainView')
+  await adapter.claimMainView(modern, 'b')
+  assert.deepEqual(released, ['a'], '换目标时把上一个引用放开 —— 别在侧栏里留两个"当前"')
+  adapter.releaseMainView()
+
+  // 旧版（0.1.6 及更早）：`open()` 一句话就是"切过去"，把手从列表里等出来。
+  const opened = []
+  const legacy = {
+    list: { getSnapshot: () => ({ current: 'other' }) },
+    open: (id) => { opened.push(id) },
+    binding: (id) => (id === 'p' ? { session: face } : undefined),
+  }
+  assert.equal((await adapter.claimMainView(legacy, 'p'))?.session, face, '旧版：把手还是从列表里等出来')
+  assert.deepEqual(opened, ['p'], '旧版：不是当前对话就先 open 过去')
+
+  // 两代都不像（宿主没挂会话服务、将来又改）：要安静地回"拿不到"，由调用方说一句人能照做的话。
+  assert.equal(await adapter.claimMainView({ list: { getSnapshot: () => ({}) } }, 'x'), undefined,
+    '两代都没有时回 undefined —— 别抛出 "sessions.open is not a function"')
 })
 
 await check('「已返回结果」要等会话真的不跑了才说', () => {
@@ -2149,11 +2217,13 @@ await check('专属会话的工作区：宿主侧的**空**目录，不是数据
   assert.match(ensure, /await workspaces\.create\(\{ path \}\)/, '同一个路径重复创建是幂等的')
   assert.match(ensure, /workspaces\.rename\?\.\(id, AGENT_SESSION_TITLE\)/, '目录名当标题不好看，改成「成长工作台」')
   assert.match(source, /const workspaceId = await ensureAgentWorkspace\(cwd, knownWorkspaceId\)/, '建会话前先把工作区确保下来')
-  assert.match(source, /return { id, named, reason, workspaceId, binding };/, '建出来的会话要带上"归到哪个工作区"与它的把手')
+  assert.match(source, /return \{ id, named, reason, workspaceId, binding: binding \?\? await waitForBinding\(sessions, id, 6000\) \};/,
+    '建出来的会话要带上"归到哪个工作区"与它的把手')
   // **建会话时就把把手拿到手**：新会话进列表是异步的，慢一点的机器上第一次常常还没有 ——
-  // 用户在另一台机器上撞上过「专用对话刚建好却寻址不到」。所以这里等、补一次 open、再等。
-  assert.ok(source.includes('let binding = await waitForBinding(sessions, id);'), '建完就等一次把手')
-  assert.ok(source.includes('binding = await waitForBinding(sessions, id, 6000);'), '拿不到就补一次 open 再等')
+  // 用户在另一台机器上撞上过「专用对话刚建好却寻址不到」。所以先持有它、等窗口装好，
+  // 还没落地就再等一轮 —— 新版 API 里"持有"与"拿把手"是同一件事：不持有就没有 binding。
+  assert.ok(source.includes('const binding = await claimMainView(sessions, id);'), '建完就先持有它、等窗口装好')
+  assert.ok(source.includes('binding ?? await waitForBinding(sessions, id, 6000)'), '还没落地就把手再等一轮')
   // 真拿不到时给一句能照做的话：对话已经建好、刷一下页面即可，别让用户反复点。
   assert.match(source, /刷新一下页面（F5）再点一次即可，不用重建对话/, '报错要说到"怎么恢复"')
   // 空对话在侧栏里显示「新会话」是 **DSH 的规矩**（`displayTitle`：blank 的行一律用那个标签，
@@ -2183,11 +2253,15 @@ await check('专属会话的工作区：宿主侧的**空**目录，不是数据
   assert.equal(state.version, version, '/state 要把版本发下来')
   // **改名的返回值要检查**：`rename` 失败时返回 `{ ok: false }` 而**不抛** —— 只 try/catch
   // 会把失败静默吃掉（用户建出来的对话就叫「新会话」，而页面说"运行都在「成长工作台」里"）。
-  assert.match(source, /const renamed = await binding\?\.session\?\.rename\?\.\(AGENT_SESSION_TITLE\)/)
+  assert.match(source, /const renamed = await live\?\.session\?\.rename\?\.\(AGENT_SESSION_TITLE\)/)
   assert.match(source, /named = renamed\?\.ok === true/, '要看 ok，不能只看有没有抛')
   // 刚建好就改名常常落空（标题服务要核对会话是不是活着），所以要先 `open`，失败了再试一次；
   // 而且**原因要带回来** —— 只回 true/false，用户报了两次我也只能猜两次。
-  assert.match(source, /sessions\.open\(id\);/, '改名之前先把会话打开')
+  // 「改名要一个活着的会话」这条不变，但"活着"两代定义不同：旧版要先 `open()`，新版要先
+  // `retain`（引用计数归零就被回收）。所以判据是"改名循环之前先持有它"，而不是某一代的具体调用。
+  const claimedAt = source.indexOf('const binding = await claimMainView(sessions, id);')
+  const renameLoopAt = source.indexOf('for (let attempt = 0; attempt < 2 && !named; attempt += 1)')
+  assert.ok(claimedAt > 0 && claimedAt < renameLoopAt, '改名之前先把它变成活着的（持有 + 等窗口装好）')
   assert.match(source, /for \(let attempt = 0; attempt < 2 && !named; attempt \+= 1\)/, '失败要重试一次')
   assert.match(source, /reason = messageOf\(renamed\?\.error\)/, '失败原因要带回来')
   assert.match(source, /typeof failure\.message === 'string'\) return failure\.message/, '远端失败是 { code, message }，不是 Error')
