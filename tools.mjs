@@ -449,7 +449,14 @@ export const growthContext = {
  */
 export const growthSavePlan = {
   name: 'growth_save_plan',
-  description: `写入 90 天成长计划。每个任务必须给全 8 个字段：action 一句话动作 / capability 能力项（必须是能力模型里的编号，评估类任务写全角 —）/ reason 任务理由 / minutes 预计分钟（15-60）/ minimumVersion 最低完成版本 / doneCriteria 完成标准 / acceptableEvidence 可接受证据 / dependsOn 前置依赖（写「阶段.序号」这个引用，如 1.3；没有依赖写「无」—— 它既不是天号也不是任务序号本身）。另外每个任务可以带 \`learn\`（学习资料：method 怎么上手 / digest 汇总 / links 来源）—— **第一段（排到天的那一段）的每道题都要带**，只给要求不给方法，做题的人第一步就卡住；后面的段留到用到时用 growth_save_learning 补。**阶段1（第一段）必须排到天** —— 它的 tasks 不能是空数组，否则「今日」页一条能执行的任务都没有；后面的阶段可以只排到周（用 weeks 写主题与验收标准）。阶段必须给 days:[起,止] 天区间且不重叠不留缝；planStart 必填。任务标识由系统分配或沿用（永不变、删除的编号不复用）。selfCheck 每题必须挂 1 个能力项编号且不得含答案。用户嫌计划不合理时也是调这个工具改，不是新生成一份。
+  description: `写入 90 天成长计划。每个任务必须给全 8 个字段：action 一句话动作 / capability 能力项（必须是能力模型里的编号，评估类任务写全角 —）/ reason 任务理由 / minutes 预计分钟（15-60）/ minimumVersion 最低完成版本 / doneCriteria 完成标准 / acceptableEvidence 可接受证据 / dependsOn 前置依赖（写「阶段.序号」这个引用，如 1.3；没有依赖写「无」—— 它既不是天号也不是任务序号本身）。\`learn\`（学习资料：method 怎么上手 / digest 汇总 / links 来源）是**可选**的 —— 写到"今天就要做"的那道题时再用 growth_save_learning 现取更准：提前一个月写好的资料，等真做到那天常常已经过期。但该给的时候别省（只给要求不给方法，做题的人第一步就卡住）。**阶段1（第一段）必须排到天** —— 它的 tasks 不能是空数组，否则「今日」页一条能执行的任务都没有；后面的阶段可以只排到周（用 weeks 写主题与验收标准）。阶段必须给 days:[起,止] 天区间且不重叠不留缝；planStart 必填。任务标识由系统分配或沿用（永不变、删除的编号不复用）。selfCheck 每题必须挂 1 个能力项编号且不得含答案。用户嫌计划不合理时也是调这个工具改，不是新生成一份。
+
+**分次写**（一次写整份太长、会撞模型的输出上限 —— 拆开写就装得下）：只提交这次要写/改的阶段，其余原样保留，系统按 days 天区间认领合并。推荐的顺序是先写骨架（总目标 + 阶段划分 + 第一段头几天的逐日任务），再用 \`appendTasks: true\`「只带这一段要补的 tasks」把第一段剩下的天分几次排满。
+
+- 追加只能往**末尾**加、天号不能倒退 —— 任务的引用是「阶段.序号」这个位置引用，插到中间会让已经写好的 dependsOn 指到别的任务上，系统会拒绝。
+- 只改一道题：提交那一段（不带 appendTasks）替换整段即可，其余段不必重述。
+- 重排天区间、改阶段数这类整份重写，带 \`replaceAllPhases: true\`。
+- 每次调用都要带 planStart 与 goal；没提交的 selfCheck / portfolio / resources 沿用磁盘上那份。
 
 ${TEACHER_CONTRACT}`,
   parameters: {
@@ -494,12 +501,13 @@ ${TEACHER_CONTRACT}`,
                   learn: {
                     type: 'object',
                     additionalProperties: true,
-                    description: '这道题的学习资料（可选）{ method 怎么上手 / digest AI 汇总 / links [{title,url,source}] 最多 4 条 }。**第一段（排到天的那一段）每道题都要带上** —— 只给要求不给方法，做题的人第一步就卡住。没有可引用的来源就只写 method，不许编链接、不许写「待补」。',
+                    description: '这道题的学习资料（可选）{ method 怎么上手 / digest AI 汇总 / links [{title,url,source}] 最多 4 条 }。第一段里**今天就要做**的题建议直接带上；其余的留到做到那天用 growth_save_learning 现取 —— 那时候的资料更准，提前一个月写的常常已经过期。没有可引用的来源就只写 method，不许编链接、不许写「待补」。',
                   },
                 },
               },
             },
             weeks: { type: 'array', items: { type: 'object', additionalProperties: true }, description: '只排到周时的主题与验收标准。' },
+            appendTasks: { type: 'boolean', description: '只往这一段的**末尾追加** tasks（这一段已有的任务保留、段级字段没重述的沿用），用来把第一段分几次排到天。不写这个标记＝整段替换。' },
           },
         },
       },
@@ -519,6 +527,7 @@ ${TEACHER_CONTRACT}`,
       },
       portfolio: { type: 'array', items: { type: 'object', additionalProperties: true }, description: '作品集清单。' },
       resources: { type: 'array', items: { type: 'object', additionalProperties: true }, description: '学习资源。' },
+      replaceAllPhases: { type: 'boolean', description: '整份重写：磁盘上已有的阶段一个都不参与合并（重排天区间、改阶段数时用）。默认是**分段写** —— 没提交的阶段原样保留。' },
       change: { type: 'string', description: '改动留痕：一句话说清这次改了什么（例：按你的要求把 T7 从 60 分钟压到 30，并把第 3 天拆成两天）。改的是**已有的计划**时才填；第一次生成不用填。' },
     },
   },

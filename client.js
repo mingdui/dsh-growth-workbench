@@ -311,6 +311,17 @@ window.__ModuleLoader__.load({
     const AGENT_GREETING = '老师好！';
 
     /**
+     * 「生成计划」按钮发出去的那句话。
+     *
+     * 一处定义：计划页与画像页页脚各有一个入口，两处必须**一字不差**。
+     *
+     * 它必须**明确要求分次写**：一次写整份计划会撞模型的输出上限（用户撞上过：回答被截断、
+     * 计划差点没写成）。拆成"先骨架 + 再分次补齐"就装得下 —— 追加只能往末尾加，所以先写
+     * 头几天的逐日任务，再往后补。学习资料也一样：只给马上要做的题带上，其余到那天现取。
+     */
+    const AGENT_PLAN_PROMPT = '帮我生成成长计划。分几次写，别一次写完：先写总目标、阶段划分，以及第一段（排到天的那一段）头 7 天的逐日任务；然后用 appendTasks 把第一段剩下的天补齐。学习资料只给头几天要做的题带上，其余的留到我做到那天再取。';
+
+    /**
      * 确保「成长工作台」这个**工作区**存在，返回它的 id。
      *
      * 为什么非有不可：侧栏的分组读的是**工作区注册表**（"这个目录注册成工作区了吗"），不是会话的
@@ -2205,7 +2216,7 @@ window.__ModuleLoader__.load({
             ? '在画像页触发的生成还在跑 —— 完成后这一页会自动出现计划，不用守着对话。'
             : ready ? '画像四项已经齐了 —— 点下面的按钮生成。' : '完成「画像」里的四项，就能让 AI 写计划了。'),
           h('div', { key: 'act', style: S.inline }, [
-            h(AskButton, { key: 'btn', text: '帮我生成成长计划', label: generating ? 'AI 正在生成计划…' : '让 AI 生成计划', style: S.buttonOn,
+            h(AskButton, { key: 'btn', text: AGENT_PLAN_PROMPT, label: generating ? 'AI 正在生成计划…' : '让 AI 生成计划', style: S.buttonOn,
               done: plan.phases.length > 0,
               hint: generating ? '生成完成后本页会自动更新。' : '它会读你的画像，写出总目标和分阶段任务。' }),
           ]),
@@ -3510,7 +3521,7 @@ window.__ModuleLoader__.load({
             h('div', { key: 't', style: { fontSize: '14px', fontWeight: '700' } }, '画像齐了，下一步是 90 天计划'),
             h('div', { key: 's', style: { ...S.fine, marginTop: '3px' } }, '按你的方向、可用的时间和路线生成；生成期间页面会自动刷新。'),
           ]),
-          h(AskButton, { key: 'go', text: '帮我生成成长计划', label: busy ? 'AI 正在生成计划…' : '让 AI 生成计划', style: S.buttonOn,
+          h(AskButton, { key: 'go', text: AGENT_PLAN_PROMPT, label: busy ? 'AI 正在生成计划…' : '让 AI 生成计划', style: S.buttonOn,
             done: state.plan.phases.length > 0,
             hint: '生成后会自动切到「计划」页，你能看到它逐段落下来。',
             onSent: () => { if (typeof onNavigate === 'function') onNavigate('plan'); } }),

@@ -197,6 +197,19 @@ await check('「让 AI 来做」按钮是替你把这句说了，不是让你自
 const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
 const patch = readFileSync(join(ROOT, 'cordis.patch.yml'), 'utf8')
 
+await check('「让 AI 生成计划」要求分次写 —— 一次写整份会撞模型的输出上限', () => {
+  const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
+  // 用户撞上过：一次写完的计划被截断（「已达到输出 token 上限」）。工具那边已经支持合并
+  // （见「计划分次写」那两条用例），但**模型不会自己想到要拆** —— 按钮那句话得说出来，
+  // 而且两个入口必须是同一句。
+  assert.match(source, /const AGENT_PLAN_PROMPT = '帮我生成成长计划。分几次写/)
+  assert.ok((source.match(/text: AGENT_PLAN_PROMPT/g) ?? []).length >= 2, '计划页与画像页两个入口都要用同一句')
+  assert.match(source, /appendTasks/, '要告诉它拿什么把第一段剩下的天补齐')
+  assert.doesNotMatch(source, /text: '帮我生成成长计划'/, '别再留一份各写各的（两处一漂，只有一处会被改）')
+  // 学习资料从"第一段每道题都要带"松绑成按需：页面已经有「让 AI 汇总资料」的入口。
+  assert.match(source, /给 \$\{task\.id\} 找学习资料/)
+})
+
 await check('固定对话：丢了就明说，新建先落盘，页头给得出两个出口', () => {
   const source = readFileSync(join(ROOT, 'client.js'), 'utf8')
   // 固定的对话被删掉时**不能静默改投**别处 —— 那是"你发的消息去了你不知道的地方"。
@@ -1261,6 +1274,70 @@ await check('方向没有能力模型时，计划写入被拒而不是跳过校�
 })
 
 // 生成的模型与预置模型走同一个门禁：能力项校验用的是**传进来的那份模型**。
+await check('计划分次写：按天区间合并，没提交的段与清单原样保留', () => {
+  const first = validate.canonicalPlan({
+    planStart: '2026-09-25', goal: '三个月能独立产出分析报告',
+    phases: [
+      goodPhase('基础', [1, 30], [goodTask({ day: 1 }), goodTask({ day: 2 })]),
+      goodPhase('实战', [31, 60], []),
+      goodPhase('收口', [61, 90], []),
+    ],
+    selfCheck: [{ id: 'Q1', phase: '基础', question: '漏斗怎么用', capability: 'A6' }],
+    portfolio: [{ name: '作品 1' }],
+    resources: [{ title: '手册' }],
+  }, undefined, ROLE)
+
+  // 第二次只提交第二段（不带 appendTasks ＝ 替换这一段）：另外两段、三份清单都得留着。
+  const second = validate.canonicalPlan({
+    planStart: '2026-09-25', goal: '三个月能独立产出分析报告',
+    phases: [goodPhase('实战', [31, 60], [goodTask({ day: 31 })])],
+  }, first, ROLE)
+  assert.equal(second.phases.length, 3, '没提交的阶段要被保留')
+  assert.equal(second.phases[1].tasks.length, 1, '提交的那一段被替换')
+  assert.equal(second.phases[0].tasks.length, 2, '没提交的第一段原样')
+  assert.equal(second.selfCheck.length, 1, '没提交的考核自查不许被抹成空数组（updatePlan 是浅合并，空数组就是清空）')
+  assert.equal(second.portfolio.length, 1)
+  assert.equal(second.resources.length, 1)
+  // 显式提交 [] 仍然是清空 —— 那是调用方真的要清，不是"没提"。
+  const cleared = validate.canonicalPlan({
+    planStart: '2026-09-25', goal: 'x', selfCheck: [],
+    phases: [goodPhase('实战', [31, 60], [goodTask({ day: 31 })])],
+  }, first, ROLE)
+  assert.equal(cleared.selfCheck.length, 0)
+  // 整份重写：磁盘上的阶段一个都不用（重排天区间、改段数走这条）。
+  const rewritten = validate.canonicalPlan({
+    planStart: '2026-09-25', goal: 'x', replaceAllPhases: true,
+    phases: [goodPhase('一段到底', [1, 90], [goodTask({ day: 1 })])],
+  }, first, ROLE)
+  assert.equal(rewritten.phases.length, 1)
+})
+
+await check('计划分次写：appendTasks 只往末尾加，天号倒退要被拒', () => {
+  const first = validate.canonicalPlan({
+    planStart: '2026-09-25', goal: 'x',
+    phases: [goodPhase('基础', [1, 30], [goodTask({ day: 1 }), goodTask({ day: 2 })])],
+  }, undefined, ROLE)
+  // 追加：已有的两道题原样留下（标识不变），新题接在后面，位置引用顺延。
+  const second = validate.canonicalPlan({
+    planStart: '2026-09-25', goal: 'x',
+    phases: [{ days: [1, 30], appendTasks: true, tasks: [goodTask({ day: 3 }), goodTask({ day: 4 })] }],
+  }, first, ROLE)
+  assert.deepEqual(second.phases[0].tasks.map((task) => task.id), ['T1', 'T2', 'T3', 'T4'])
+  assert.deepEqual(second.phases[0].tasks.map((task) => task.ref), ['1.1', '1.2', '1.3', '1.4'])
+  assert.equal(second.phases[0].name, '基础', '段级字段没重述时沿用已有的 —— 模型只带 tasks 是正常的，不是错误')
+  assert.equal(second.phases[0].goal, '基础目标')
+  // 天号倒退：任务的引用是「阶段.序号」这个位置引用，插到中间会让已经写好的 dependsOn 指错。
+  assert.throws(() => validate.canonicalPlan({
+    planStart: '2026-09-25', goal: 'x',
+    phases: [{ days: [1, 30], appendTasks: true, tasks: [goodTask({ day: 1 })] }],
+  }, first, ROLE), /追加只能往末尾加/)
+  // appendTasks 用在一段磁盘上还没有的阶段上：直接提交就行，别标记它。
+  assert.throws(() => validate.canonicalPlan({
+    planStart: '2026-09-25', goal: 'x',
+    phases: [{ name: '实战', days: [31, 60], goal: 'g', tasks: [goodTask({ day: 31 })], appendTasks: true }],
+  }, first, ROLE), /磁盘上还没有/)
+})
+
 await check('计划可以按 Agent 生成的能力模型挂编号', () => {
   const generated = { forSlug: 'custom', name: '数据分析师', positioning: 'p', groups: [{ key: 'A', name: 'a', weight: 100 }], items: [
     { id: 'A1', group: 'A', name: 'x', level: '高', anchors: ['1', '3', '5'] },

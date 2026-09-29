@@ -94,6 +94,85 @@ function fail(problems) {
   throw new Error(`计划未通过校验，共 ${String(problems.length)} 处：\n- ${problems.join('\n- ')}`)
 }
 
+/** 天区间的身份：`[1, 30]` → `'1-30'`。认领阶段按它走，不按位置 —— 位置会随着段数变化。 */
+function daysKey(days) {
+  return Array.isArray(days) && days.length === 2 && days.every((day) => Number.isInteger(day))
+    ? days.join('-')
+    : ''
+}
+
+/**
+ * 把本次提交的阶段并进磁盘上那份计划 —— **分段写**的入口。
+ *
+ * 认领按 `days`（天区间）走：
+ *
+ *   - **同区间**：替换这一段的字段；带 `appendTasks: true` 时改成**追加任务**。
+ *   - **磁盘上有、本次没提交**：原样保留 —— 分段写不必每次重述整份计划，改一道题也不必
+ *     重述另外 29 道（这一条正是"输出撞上限"的解药）。
+ *   - **新区间**：落到尾部。合并之后仍要满足"从第 1 天连续、不重叠不留缝"—— 那条判据不动，
+ *     只是作用在**合并后**的数组上。分段写最容易出的错就是只对着半份计划校验。
+ *   - `replaceAllPhases: true`：整份重写（今天的行为），磁盘上的阶段一个都不参与。
+ *
+ * `appendTasks` 只允许往**末尾**加：任务的引用是「阶段.序号」这个位置引用，往中间插会让
+ * 已经写好的 `dependsOn` 指到别的任务上。所以天号倒退的直接拒绝，并把"为什么"说清楚。
+ *
+ * @param submitted - 本次提交的阶段数组（可能是整份，也可能只有一两段）。
+ * @param existing - 磁盘上那份计划；第一次写时是 undefined。
+ * @param problems - 与调用方共用的那只问题数组。
+ * @param replaceAll - 调用方明确要求整份重写。
+ * @returns 合并后的阶段数组，交给下面那套常规校验。
+ */
+function mergePlanPhases(submitted, existing, problems, replaceAll) {
+  const existingPhases = Array.isArray(existing?.phases) ? existing.phases : []
+  if (existingPhases.length === 0 || replaceAll) return submitted
+  const byDays = new Map(existingPhases.map((phase) => [daysKey(phase?.days), phase]))
+  const claimed = new Set()
+  const merged = []
+  for (const phase of submitted) {
+    const key = daysKey(phase?.days)
+    const base = key === '' ? undefined : byDays.get(key)
+    if (base === undefined) {
+      if (phase?.appendTasks === true) {
+        problems.push(`阶段「${String(phase?.name ?? '')}」: appendTasks 只能用在**磁盘上已有、且天区间相同**的阶段上 —— 这一段磁盘上还没有；直接提交它就行`)
+      }
+      merged.push(phase)
+      continue
+    }
+    claimed.add(key)
+    if (phase?.appendTasks !== true) {
+      merged.push(phase)
+      continue
+    }
+    const kept = Array.isArray(base.tasks) ? base.tasks : []
+    const added = Array.isArray(phase.tasks) ? phase.tasks : []
+    const lastDay = kept.reduce((max, task) => (Number.isInteger(task?.day) ? Math.max(max, task.day) : max), 0)
+    for (const task of added) {
+      if (Number.isInteger(task?.day) && task.day < lastDay) {
+        problems.push(`阶段「${String(phase?.name ?? '')}」: 追加的任务排在第 ${String(task.day)} 天，而这一段已经排到第 ${String(lastDay)} 天 —— 追加只能往末尾加：任务的引用是「阶段.序号」这个位置，插到中间会让已经写好的前置依赖指到别的任务上`)
+      }
+    }
+    // 追加时没重述的段级字段沿用已有的：这一次调用说的是"再加几道题"，不该顺手把这一段的
+    // 名字 / 目标 / 作品 / 验收 / 周主题清空（模型不重述它们是正常的，不是错误）。
+    const carry = (key) => {
+      const given = phase?.[key]
+      if (given === undefined) return undefined
+      if (typeof given === 'string' && given.trim().length === 0) return undefined
+      if (Array.isArray(given) && given.length === 0) return undefined
+      return given
+    }
+    const next = { ...base, days: Array.isArray(phase?.days) ? phase.days : base.days, tasks: [...kept, ...added] }
+    for (const key of ['name', 'goal', 'project', 'criteria', 'weeks']) {
+      const given = carry(key)
+      if (given !== undefined) next[key] = given
+    }
+    merged.push(next)
+  }
+  // 本次没提到的阶段按天区间顺序插回去；合并后有空洞，上面那条"必须连续"会拦下。
+  const untouched = existingPhases.filter((phase) => !claimed.has(daysKey(phase?.days)))
+  return [...merged, ...untouched]
+    .sort((a, b) => (Array.isArray(a?.days) ? (a.days[0] ?? 0) : 0) - (Array.isArray(b?.days) ? (b.days[0] ?? 0) : 0))
+}
+
 /**
  * Validate a plan and assign the stable identifiers.
  *
@@ -120,7 +199,14 @@ export function canonicalPlan(input, existing = undefined, role = undefined) {
   }
   if (typeof value.goal !== 'string' || value.goal.trim().length === 0) problems.push('goal（总目标）不得为空')
 
-  const phases = Array.isArray(value.phases) ? value.phases : []
+  // **先合并再校验**：分段写提交的往往只有一两段，而"天区间连续""标识全局单调""dependsOn
+  // 指得到"这几条只有在**整份**计划上才成立 —— 合并的规则见 mergePlanPhases。
+  const phases = mergePlanPhases(
+    Array.isArray(value.phases) ? value.phases : [],
+    existing,
+    problems,
+    value.replaceAllPhases === true,
+  )
   if (phases.length === 0) problems.push('phases 至少要有一个阶段')
   if (phases.length > 8) problems.push(`阶段最多 8 个，收到 ${String(phases.length)} 个`)
 
@@ -136,7 +222,7 @@ export function canonicalPlan(input, existing = undefined, role = undefined) {
       return
     }
     if (from !== expectedStart) {
-      problems.push(`${label}: 天区间必须从第 ${String(expectedStart)} 天接上（收到 ${String(from)}）—— 阶段区间要不重叠、不留缝`)
+      problems.push(`${label}: 天区间必须从第 ${String(expectedStart)} 天接上（收到 ${String(from)}）—— 阶段区间要不重叠、不留缝。分段写时没提交的阶段会保留：改某一段的天区间要连后面的段一起重排，或者用 replaceAllPhases: true 整份重写`)
     }
     expectedStart = to + 1
     seenDays.push([from, to])
@@ -300,15 +386,19 @@ export function canonicalPlan(input, existing = undefined, role = undefined) {
 
   fail(problems)
 
+  // 本次没提交的顶层清单沿用磁盘上那份：分段写时第二次调用不该把第一次写好的考核自查、
+  // 作品集、资源抹成空数组 —— `updatePlan` 是浅合并，空数组落到磁盘上就是"清空"。
+  // 显式提交 `[]` 仍然是清空：那是调用方真的要清。
+  const carried = (key) => (Array.isArray(existing?.[key]) ? existing[key] : [])
   return {
     planStart: value.planStart,
     role: String(value.role ?? '').trim(),
     route: String(value.route ?? '').trim(),
     goal: value.goal.trim(),
     phases: canonicalPhases,
-    portfolio: Array.isArray(value.portfolio) ? value.portfolio : [],
-    selfCheck,
-    resources: Array.isArray(value.resources) ? value.resources : [],
+    portfolio: Array.isArray(value.portfolio) ? value.portfolio : carried('portfolio'),
+    selfCheck: value.selfCheck === undefined ? carried('selfCheck') : selfCheck,
+    resources: Array.isArray(value.resources) ? value.resources : carried('resources'),
     nextTaskNumber: nextNumber,
   }
 }
