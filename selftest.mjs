@@ -909,11 +909,17 @@ await check('generated models validate through canonicalCapabilityModel', () => 
 })
 
 await check('the follow-up questions change with 当前状态', () => {
-  assert.deepEqual(model.backgroundQuestionsFor({ q1: 'A' }).fields.map((field) => field.key), ['major', 'grade'])
-  assert.deepEqual(model.backgroundQuestionsFor({ q1: 'C' }).fields.map((field) => field.key), ['currentJob', 'industry', 'years', 'scope'])
-  assert.deepEqual(model.backgroundQuestionsFor({ q1: 'D' }).fields.map((field) => field.key), ['income', 'dollars', 'strengths'])
+  assert.deepEqual(model.backgroundQuestionsFor({ q1: 'A' }).fields.map((field) => field.key), ['major', 'grade', 'aspiration'])
+  assert.deepEqual(model.backgroundQuestionsFor({ q1: 'B' }).fields.map((field) => field.key), ['currentJob', 'years', 'scope', 'aspiration'])
+  assert.deepEqual(model.backgroundQuestionsFor({ q1: 'C' }).fields.map((field) => field.key), ['currentJob', 'industry', 'years', 'scope', 'aspiration'])
+  assert.deepEqual(model.backgroundQuestionsFor({ q1: 'D' }).fields.map((field) => field.key), ['income', 'dollars', 'strengths', 'aspiration'])
   assert.equal(model.backgroundQuestionsFor({}), undefined)
   assert.equal(model.backgroundQuestionsFor({ q1: 'A' }).fields.find((field) => field.key === 'grade').options.includes('大一'), true)
+  // 「希望提升什么」四个身份都问，但问的不是事实而是方向 —— 所以**选填**，也不属于 skills。
+  const aspiration = model.backgroundQuestionsFor({ q1: 'A' }).fields.find((field) => field.key === 'aspiration')
+  assert.equal(aspiration.label, '希望提升什么')
+  assert.equal(aspiration.required, undefined, '标必填会把 missingBackground 那道门再抬高一格，已经答完四项的人会突然被告知还差一项')
+  assert.notEqual(aspiration.feed, 'skills', '它是方向，不是"底盘的主要来源"那一类')
 })
 
 await check('missingBackground lists only the required fields left blank', () => {
@@ -926,6 +932,12 @@ await check('missingBackground lists only the required fields left blank', () =>
 await check('backgroundLines marks the skills field as the 底盘 source', () => {
   const lines = model.backgroundLines({ intake: { q1: 'C' }, background: { currentJob: '测试工程师', scope: '写用例' } })
   assert.deepEqual(lines, ['当前岗位：测试工程师', '日常经手的事：写用例（底盘的主要来源）'])
+  // 「希望提升什么」答了就要出现在 Agent 的简报里 —— 它是那一组里唯一的方向输入，
+  // 计划的总目标该对齐它（不出现的话，用户写了也白写）。
+  assert.deepEqual(
+    model.backgroundLines({ intake: { q1: 'C' }, background: { currentJob: '测试工程师', aspiration: '能独立带一个完整项目' } }),
+    ['当前岗位：测试工程师', '希望提升什么：能独立带一个完整项目'],
+  )
 })
 
 await check('there is no built-in 底子 table any more', () => {
@@ -1700,6 +1712,12 @@ await check('POST /background 保存追问，缺必填时拒绝', async () => {
   const ok = await callApi('POST', `${api.API_PREFIX}/background`, { background: { currentJob: '测试工程师', scope: '写用例、跑回归、跟发布' } })
   assert.equal(ok.status, 200)
   assert.equal(store.read('profile').background.scope, '写用例、跑回归、跟发布')
+  // **希望提升什么**：那一组的最后一项，选填。不写照样存得下，也不进"还差哪些"——
+  // 它是"想要什么"，不是"已经是什么"，不该被当成必填事实去堵用户。
+  const withHope = await callApi('POST', `${api.API_PREFIX}/background`, { background: { aspiration: '能独立带一个完整项目' } })
+  assert.equal(withHope.status, 200, '选填项不该挡住提交')
+  assert.equal(store.read('profile').background.aspiration, '能独立带一个完整项目', '要真的写进 profile.json')
+  assert.deepEqual(model.missingBackground(store.read('profile')), [], '它不是必填：不该出现在"还差哪些"里')
 })
 
 await check('POST /background 在没答 ② 的第一题时拒绝', async () => {

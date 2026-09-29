@@ -424,9 +424,29 @@ export const BACKGROUND_QUESTIONS = {
   },
 }
 
+/**
+ * 每一份「当前状态」问完后都要再问的一句：**你希望提升什么**。
+ *
+ * 它不属于任何一种身份 —— 在校、在职、转行、自由职业都得回答"想变成什么样"。
+ * 上面那些字段说的是"我现在有什么"（事实，喂底盘）；这一句是那一组里**唯一的方向输入**：
+ * 90 天计划的总目标该对齐它，而不是对齐我们自己替用户挑的方向。
+ *
+ * **选填**：它问的是"想要什么"，不是"已经是什么"。标成必填会把 `missingBackground`
+ * 那道门再抬高一格 —— 已经答完四项的人会突然被告知"还差一项"。
+ */
+const ASPIRATION_FIELD = {
+  key: 'aspiration',
+  label: '希望提升什么',
+  placeholder: '例：能独立带一个完整项目，而不是只做执行',
+  feed: 'background',
+}
+
 /** 当前状态答案 → 它的追问。没有答案时给空，页面会提示先答第 ② 题。 */
 export function backgroundQuestionsFor(intake) {
-  return BACKGROUND_QUESTIONS[intake?.q1] ?? undefined
+  const variant = BACKGROUND_QUESTIONS[intake?.q1]
+  if (variant === undefined) return undefined
+  // 共享的那一句追加在**每个**身份的末尾：一处声明，四份不抄。
+  return { ...variant, fields: [...variant.fields, ASPIRATION_FIELD] }
 }
 
 /**

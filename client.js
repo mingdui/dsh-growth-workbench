@@ -2951,7 +2951,7 @@ window.__ModuleLoader__.load({
               onClick: () => { set(field.key, option); void post('/background', { background: { ...draft, [field.key]: option } }); },
             }, option))),
         ])),
-        h('div', { key: 'note', style: S.fine }, '这些答案只用来生成底盘候选和能力模型；离开输入框就会保存。'),
+        h('div', { key: 'note', style: S.fine }, '这些答案用来生成底盘候选和能力模型；「希望提升什么」还会定计划的总目标。离开输入框就会保存。'),
         catalog.missingBackground.length === 0
           ? null
           : h('div', { key: 'missing', style: S.meta }, `还差必填项：${catalog.missingBackground.join('、')}`),

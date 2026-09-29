@@ -7,6 +7,16 @@
 
 ## [Unreleased]
 
+### Add
+- **画像 ②「你的条件」多问一句「希望提升什么」**（四个身份都问，**选填**）。那组追问里
+  前面几项问的是"我现在有什么"（事实，喂底盘候选），这一句是唯一的方向输入 —— 90 天计划的
+  总目标该对齐它，而不是对齐我们替用户挑的方向。字段声明在 `model.mjs` 的 `ASPIRATION_FIELD`：
+  **一处声明，四份身份变体共享**（在 `backgroundQuestionsFor()` 末尾追加），存进
+  `profile.background.aspiration` —— 同一份 `profile.json`、同一个 `POST /background`、
+  同一道原子写，不新增文档。选填是有意的：标成必填会把 `missingBackground` 那道门再抬高一格，
+  已经答完四项的人会突然被告知"还差一项"。页面几乎不用改 —— 那张表单按字段表通用渲染、
+  失焦提交整份草稿，服务端按同一张表收字段；只改了一句说明文字（它现在会说这一项还定计划总目标）。
+
 ### Fix
 - **在没装右侧栏的 DSH 上，插件不再拖垮整个 web boot**（用户另一台电脑的报错原文：
   `dsh-growth-workbench: pending (waiting for services: sidebarRightTabs, sidebarRight)`，

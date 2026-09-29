@@ -553,7 +553,7 @@ ${TEACHER_CONTRACT}`,
  */
 export const growthSaveProfile = {
   name: 'growth_save_profile',
-  description: '更新成长画像（目标方向、路线、时间投入、截止、约束、当前状态的追问答案、底盘、推测）。background 是 ② 的追问问答（专业/年级/当前岗位/行业/收入来源/已经在交付的东西/技能），**原样保留用户的措辞**，不要概括。verifiedFacts 只追加不覆盖：写进去的必须是用户在对话里明确确认过的。模型对用户的推测（性格、能力、偏好）一律写进 pending，**不得写进 verifiedFacts 或正文结论**；用户确认后才由下一次调用移过去。',
+  description: '更新成长画像（目标方向、路线、时间投入、截止、约束、当前状态的追问答案、底盘、推测）。background 是 ② 的追问问答（专业/年级/当前岗位/行业/收入来源/已经在交付的东西/技能/希望提升什么），**原样保留用户的措辞**，不要概括。verifiedFacts 只追加不覆盖：写进去的必须是用户在对话里明确确认过的。模型对用户的推测（性格、能力、偏好）一律写进 pending，**不得写进 verifiedFacts 或正文结论**；用户确认后才由下一次调用移过去。',
   parameters: {
     type: 'object',
     properties: {
@@ -569,7 +569,7 @@ export const growthSaveProfile = {
       background: {
         type: 'object',
         additionalProperties: true,
-        description: '② 的追问问答，键名按当前状态取：在校→major/grade；在职同方向→currentJob/years/scope；在职想转行→currentJob/industry/years/scope；自由→income/dollars/strengths。只提交要改的键，其余保留。',
+        description: '② 的追问问答，键名按当前状态取：在校→major/grade；在职同方向→currentJob/years/scope；在职想转行→currentJob/industry/years/scope；自由→income/dollars/strengths。**四种身份都多一项 aspiration（希望提升什么）** —— 它说的是"想变成什么样"，是计划总目标唯一的方向输入，别当成背景资料略过。只提交要改的键，其余保留。',
       },
       verifiedFacts: { type: 'array', items: { type: 'string' }, description: '**用户确认过**的底盘/事实，只追加。' },
       pending: { type: 'array', items: { type: 'string' }, description: '模型推测，待用户确认，只追加。' },
